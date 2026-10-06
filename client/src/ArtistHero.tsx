@@ -1,8 +1,8 @@
-import { api } from "./api";
+import { cachedLibrary } from "./api";
 import { useEffect, useRef, useState } from "react";
 import { CircleCheck } from "lucide-react";
 import { Cover } from "./Cover";
-import type { Artist } from "./types";
+import type { Artist, Library } from "./types";
 export function ArtistHero({
   artist,
   discovered = false,
@@ -16,18 +16,21 @@ export function ArtistHero({
   const [enabled, setEnabled] = useState(false);
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
-    const controller = new AbortController();
+    let active = true;
     setLoaded(false);
-    void api<{ media?: { fanart_configured: boolean; portraits: boolean } }>(
-      "/library",
-      { signal: controller.signal },
-    )
-      .then((s) => {
-        if (!controller.signal.aborted)
-          setEnabled(Boolean(s.media?.fanart_configured && s.media?.portraits));
+    void cachedLibrary<Library>()
+      .then((library) => {
+        if (active)
+          setEnabled(
+            Boolean(
+              library.media?.fanart_configured && library.media?.portraits,
+            ),
+          );
       })
       .catch(() => {});
-    return () => controller.abort();
+    return () => {
+      active = false;
+    };
   }, [artist.id]);
   useEffect(() => {
     const changed = () => setRevision((r) => r + 1);
