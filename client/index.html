@@ -13,7 +13,10 @@
         document.querySelector('meta[name="theme-color"]').content = theme === 'dark' ? '#15111A' : '#FBF8FA';
       })();
     </script>
-    <link rel="icon" type="image/png" href="/src/assets/pig.png" />
+    <link rel="icon" type="image/png" href="/brand/web-light-32.png" media="(prefers-color-scheme: light)" />
+    <link rel="icon" type="image/png" href="/brand/web-dark-32.png" media="(prefers-color-scheme: dark)" />
+    <link rel="apple-touch-icon" href="/brand/web-light-180.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="description" content="Your music, in one place. Browse your library and choose what comes next." />

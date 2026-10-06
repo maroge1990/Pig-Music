@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { Disc3 } from "lucide-react";
 
 export function catalogueCover(kind: "release" | "release-group", id: string) {
   return `/api/catalogue/artwork/${kind}/${encodeURIComponent(id)}`;
@@ -66,7 +65,7 @@ export function Cover({
         />
       ) : (
         <>
-          <Disc3 className="placeholder-disc" />
+          <span className="placeholder-halo" aria-hidden="true" />
           <span className="cover-initials">
             {title
               .split(" ")

@@ -20,7 +20,10 @@ COPY --from=soulseek /slskd /opt/slskd
 COPY requirements.lock.txt ./
 RUN pip install --no-cache-dir -r requirements.lock.txt
 COPY server/ ./server/
-COPY scripts/prune_artwork.py scripts/verify_state_migration.py scripts/benchmark_cover_store.py scripts/benchmark_delivery.py ./scripts/
+COPY scripts/prune_artwork.py scripts/verify_state_migration.py scripts/benchmark_cover_store.py scripts/benchmark_delivery.py scripts/generate_brand_tokens.py ./scripts/
+COPY docs/pig-family-brand-tokens.json ./docs/
+COPY client/src/tokens.css ./client/src/
+COPY swift/PigKit/Sources/PigBrand/Tokens.swift ./swift/PigKit/Sources/PigBrand/
 COPY --from=frontend /build/client/dist ./client/dist
 ENV PIG_MUSIC_DATA=/data
 EXPOSE 8765

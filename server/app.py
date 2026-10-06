@@ -1343,6 +1343,17 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     dist = client_dir or ROOT / "client" / "dist"
     if dist.exists():
         app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+        if (dist / "brand").is_dir():
+            app.mount("/brand", StaticFiles(directory=dist / "brand"), name="brand")
+        if (dist / "manifest.webmanifest").is_file():
+
+            @app.get("/manifest.webmanifest", include_in_schema=False)
+            def manifest():
+                return FileResponse(
+                    dist / "manifest.webmanifest",
+                    media_type="application/manifest+json",
+                    headers={"Cache-Control": "no-cache"},
+                )
 
         @app.get("/")
         def index():

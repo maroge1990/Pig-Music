@@ -31,7 +31,7 @@ import type { Album, Artist, Library, Migration, Track } from "./types";
 
 import "./styles.css";
 
-import pigLogo from "./assets/pig.png";
+const pigLogo = "/brand/mark.png";
 import { CatalogueBrowser } from "./CatalogueBrowser";
 import { Cover } from "./Cover";
 import { PlayerProvider, usePlayer } from "./Player";
@@ -674,7 +674,6 @@ function App() {
             {album.year || "Release"}
             <span>·</span>
             {plural(album.track_count, "track")}
-            <CircleCheck size={13} />
           </div>
         </button>
       ))}
@@ -1847,13 +1846,21 @@ function App() {
         onChange={(e) => importFile(e.target.files?.[0])}
       />
       <aside className="sidebar">
-        <button className="brand" onClick={() => navigate("library")}>
-          <span className="brand-mark">
-            <PigMark />
-          </span>
-          <span>
-            Pig <span className="brand-light">Music</span>
-          </span>
+        <button
+          className="brand"
+          aria-label="PigMusic · Your library"
+          onClick={() => navigate("library")}
+        >
+          <img
+            className="brand-lockup brand-dark"
+            src="/brand/lockup-horizontal-dark.svg"
+            alt=""
+          />
+          <img
+            className="brand-lockup brand-light"
+            src="/brand/lockup-horizontal-light.svg"
+            alt=""
+          />
         </button>
         <div className="sidebar-section-label">COLLECTION</div>
         <nav aria-label="Main navigation">
@@ -2101,7 +2108,7 @@ function App() {
 function Empty({ title, description }: { title: string; description: string }) {
   return (
     <div className="empty-state">
-      <Disc3 size={32} />
+      <img className="empty-pig" src="/brand/mark.png" alt="" />
       <h3>{title}</h3>
       <p>{description}</p>
     </div>

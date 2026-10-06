@@ -1,0 +1,39 @@
+"""Approved identity delivery and source-of-truth drift gates."""
+
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+from fastapi.testclient import TestClient
+
+from server.app import create_app
+
+
+def test_brand_outputs_are_current():
+    root = Path(__file__).resolve().parents[1]
+    subprocess.run(
+        [sys.executable, str(root / "scripts/generate_brand_tokens.py"), "--check"],
+        check=True,
+    )
+
+
+def test_production_identity_routes_are_images_not_html(tmp_path):
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "brand").mkdir()
+    (dist / "brand/icon.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (dist / "index.html").write_text("<title>PigMusic</title>")
+    (dist / "manifest.webmanifest").write_text(
+        json.dumps({"scope": "/", "start_url": "/"})
+    )
+    with TestClient(create_app(tmp_path / "state", dist)) as client:
+        image = client.get("/brand/icon.png")
+        assert image.status_code == 200
+        assert image.headers["content-type"] == "image/png"
+        manifest = client.get("/manifest.webmanifest")
+        assert manifest.headers["content-type"] == "application/manifest+json"
+        assert manifest.json()["scope"] == "/"
+        assert manifest.headers["cache-control"] == "no-cache"
+        assert client.get("/brand/missing.png").status_code == 404
+        assert client.get("/brand/%2e%2e/index.html").status_code == 404

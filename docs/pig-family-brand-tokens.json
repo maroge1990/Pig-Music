@@ -1,7 +1,7 @@
 {
-  "status": "approved-2026-10-02",
-  "version": "1.0",
-  "date": "2026-10-02",
+  "status": "approved-original-nose-artwork-optical-lockups-2026-10-07",
+  "version": "1.4.0",
+  "date": "2026-10-07",
   "logo": {
     "pink": "#F6B7D4",
     "rose": "#EF7AAE",
@@ -61,10 +61,11 @@
     "solidPanel": "#15111A",
     "translucentPanel": {
       "source": "#000000",
-      "alpha": 0.55
+      "alpha": 0.82
     },
     "accent": "#EF7AAE",
-    "onAccent": "#442A19"
+    "onAccent": "#442A19",
+    "note": "Minimum starting opacity for dark panels; validate on actual moving content. Stronger transport gradient and opaque fallback may be required."
   },
   "provenance": "Logo values sampled from opaque pixels of PigLogo.png. Light roles and dark neutrals/status colours already exist in web CSS. Dark accent and onAccent are sampled logo colours. No new base hex values; opacity composites are derived. Palette assignments approved by user on 2 October 2026.",
   "paletteStatus": "approved-by-user-2026-10-02",
@@ -74,7 +75,17 @@
       "y": 0.40536030991995403
     },
     "rule": "Align optical anchor with intended visual centre; preserve aspect ratio.",
-    "master": "assets/pig-master-transparent.png"
+    "master": "assets/shared/pig-master-transparent.png",
+    "productIcons": "Product icons are centred on their measured optical centre and normalised to a shared optical size; do not apply the original pig anchor to these different silhouettes.",
+    "lockups": {
+      "unit": "C = wordmark cap height (top of P to baseline)",
+      "gap": "0.5C from visible pig edge to first letter",
+      "markOpticalSize": "2.05C horizontal; 4.4C stacked",
+      "stackedGap": "0.55C from visible pig bottom to cap top",
+      "verticalAlignment": "Pig ink centre on the cap-height centre; descenders ignored",
+      "centring": "Centre visible ink, never file or crop boxes; exported files carry equal clear space so centring the file centres the logo",
+      "opticalSize": "0.5 x ink height + 0.5 x (square root of ink area / 0.93), so sparse and wide silhouettes match compact ones"
+    }
   },
   "selection": {
     "fillAlpha": 0.14,
@@ -96,5 +107,61 @@
     "constraints": "Decorative identity contexts only; behind opaque form surfaces; never encode focus or selection.",
     "default": "soft halo",
     "excluded": "rays"
+  },
+  "family": "Pig family of apps",
+  "products": {
+    "pigtv": {
+      "name": "PigTV",
+      "scope": "Existing television app; retained while naming is undecided."
+    },
+    "pig-video": {
+      "name": "PigVideo",
+      "scope": "Live TV, movies and TV shows."
+    },
+    "pig-music": {
+      "name": "PigMusic",
+      "scope": "Music streaming."
+    },
+    "pig-reader": {
+      "name": "PigReader",
+      "scope": "Ebooks."
+    }
+  },
+  "identity": {
+    "default": "Distinct fused-pig product icons with established Arial Rounded MT Bold wordmarks.",
+    "options": "Earlier badge, frame and crop studies are historical; the refined fused set is the base identity.",
+    "naming": "Pig + a short descriptive noun for new products. PigTV is a retained legacy spelling.",
+    "font": "ArialRoundedMTBold; distribute outlined wordmarks, not the font.",
+    "approval": "User approved the outlined four-icon original-nose preview as final on 6 October 2026. Use the exact approved raster source; no redraws. Optical lockup and icon placement approved 7 October 2026."
+  },
+  "spacing": [
+    4,
+    8,
+    12,
+    16,
+    24,
+    32,
+    48
+  ],
+  "radii": {
+    "web": {
+      "compact": 6,
+      "control": 10,
+      "card": 16
+    },
+    "touch": {
+      "card": 16,
+      "hero": 22
+    },
+    "tv": {
+      "compact": 10,
+      "card": 18,
+      "hero": 32
+    }
+  },
+  "appleTV": {
+    "wideIdentity": "Product icon to the left of the existing rounded application wordmark.",
+    "launcher": "Supplied wide icon + name image stack, with icon-only alternative.",
+    "topShelf": "1920x720 and 2320x720, with 2x exports; keep content-led dynamic shelves in app projects."
   }
 }

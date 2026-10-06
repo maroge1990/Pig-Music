@@ -1,4 +1,4 @@
-import { ArrowDown, Check, Clock, LoaderCircle, Play } from "lucide-react";
+import { Cloud, CloudDownload, Clock, LoaderCircle, Play } from "lucide-react";
 
 export type SongState = {
   title: string;
@@ -39,7 +39,7 @@ export function SongControls({
     ? Math.round(((song.received_bytes || 0) * 100) / song.total_bytes)
     : 0;
   const label = saved
-    ? "Downloaded"
+    ? "On server"
     : selected
       ? "Selected"
       : waiting
@@ -68,13 +68,13 @@ export function SongControls({
         onClick={download}
       >
         {saved ? (
-          <Check size={17} />
+          <Cloud size={17} />
         ) : selected || busy || (active && !waiting) ? (
           <LoaderCircle className="spin" size={17} />
         ) : waiting ? (
           <Clock size={17} />
         ) : (
-          <ArrowDown size={17} />
+          <CloudDownload size={17} />
         )}
       </button>
     </>

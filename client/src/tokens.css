@@ -1,0 +1,61 @@
+/* Generated from Pig family 1.4.0; do not edit. */
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+  --canvas: #fbf8fa;
+  --surface: #ffffff;
+  --raised: #f2ecf0;
+  --text: #1c1620;
+  --secondary: #5c5364;
+  --accent: #d6336c;
+  --on-accent: #ffffff;
+  --hover: #b02356;
+  --border: #e2d9e0;
+  --control-border: #857b8d;
+  --success: #0f8a5f;
+  --warning: #b4690e;
+  --danger: #c2372c;
+  --text-accent: #b02356;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #15111a;
+  --surface: #1e1925;
+  --raised: #251e2e;
+  --text: #f5f1f4;
+  --secondary: #a79fae;
+  --accent: #ef7aae;
+  --on-accent: #442a19;
+  --hover: #f6b7d4;
+  --border: #2e2634;
+  --control-border: #7e7589;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --text-accent: #ef7aae;
+}
+:root {
+  --radius-compact: 0.375rem;
+  --radius-control: 0.625rem;
+  --radius-card: 1rem;
+  --radius-hero: 1.375rem;
+  --radius-capsule: 999px;
+  --space-4: 0.25rem;
+  --space-8: 0.5rem;
+  --space-12: 0.75rem;
+  --space-16: 1rem;
+  --space-24: 1.5rem;
+  --space-32: 2rem;
+  --space-48: 3rem;
+  --type-caption: 0.75rem;
+  --type-body: 1rem;
+  --type-title: 1.5rem;
+  --type-heading: 2rem;
+  --selected-fill: color-mix(in srgb, var(--accent) 14%, var(--surface));
+  --success-fill: color-mix(in srgb, var(--success) 14%, var(--surface));
+  --warning-fill: color-mix(in srgb, var(--warning) 14%, var(--surface));
+  --danger-fill: color-mix(in srgb, var(--danger) 14%, var(--surface));
+  --media-secondary: #a79fae;
+  --media-control-border: #7e7589;
+  --media-border: #2e2634;
+}

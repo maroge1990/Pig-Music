@@ -33,11 +33,11 @@ Read these before starting any package. They restate the blueprint invariants th
 | G-4 Distribution | **Sideloadly.** Feasibility for the Watch app must be proven in S00 before Watch work starts. | **Decided, pending S00 proof** |
 | G-5 Apple account type | **Recommended:** a paid Apple Developer membership (1-year signing; avoids the free account's 7-day expiry and 3-active-app limit, since the iOS app, Watch app and any widget count separately). Free account workable only if S00 proves the bundle fits. | **Owner chose free account + Sideloadly in this chat, 6 Oct 2026; limits/refresh proof pending S00** |
 | G-6 Device inventory | iPhone and Watch models and OS versions for both people. **Default:** minimum iOS 18 / watchOS 11. Raise the minimum if all four devices support a newer OS. | **Inventory supplied 6 Oct 2026; exact OS builds pending. See native-spike.md** |
-| G-7 Shared-file quality conflict (H03) | **Recommended:** a shared file's quality is the *highest* any current member wants. An explicit downgrade replaces the file only when the requester is its sole member; otherwise the downgrade is recorded and applied when that becomes true. | **Open; confirm before M04** |
-| G-8 Externally added files | **Recommended:** files found by Scan that Pig Music didn't publish go to an owner-only **Unassigned** inbox. The owner assigns them to one or both libraries. The existing library is assigned to the owner during migration. | **Open; confirm before M04** |
-| G-9 Plex | **Recommended:** Plex keeps one shared music section (Plex can't filter a section by Pig Music membership). Only *playlists and favourites* are exported per person, to each person's Plex home user. | **Open; confirm before M05** |
-| G-10 HTTPS hostname | **Recommended:** `tailscale serve` HTTPS on the Unraid host (`https://pig-music.<tailnet>.ts.net`) as the only supported client URL, on LAN and off-site alike. Plain `http://192.168.1.203:8765` is retired once T01 ships. Needs Tailscale running on the Unraid host and on both iPhones. | **Open; confirm before T01** |
-| G-11 Household admin | **Recommended:** the owner (Mark) holds the `owner` role, and the second person is a `member`. Only `owner` changes system settings, providers, Plex connection, scans, organisation, recovery and the people and devices list. | **Open; confirm before M02** |
+| G-7 Shared-file quality conflict (H03) | **Recommended:** a shared file's quality is the *highest* any current member wants. An explicit downgrade replaces the file only when the requester is its sole member; otherwise the downgrade is recorded and applied when that becomes true. | **Owner accepted recommendation in chat, 7 Oct 2026** |
+| G-8 Externally added files | **Recommended:** files found by Scan that Pig Music didn't publish go to an owner-only **Unassigned** inbox. The owner assigns them to one or both libraries. The existing library is assigned to the owner during migration. | **Owner accepted recommendation in chat, 7 Oct 2026** |
+| G-9 Plex | **Recommended:** Plex keeps one shared music section (Plex can't filter a section by Pig Music membership). Only *playlists and favourites* are exported per person, to each person's Plex home user. | **Owner accepted recommendation in chat, 7 Oct 2026** |
+| G-10 HTTPS hostname | **Recommended:** `tailscale serve` HTTPS on the Unraid host (`https://pig-music.<tailnet>.ts.net`) as the only supported client URL, on LAN and off-site alike. Plain `http://192.168.1.203:8765` is retired once T01 ships. Needs Tailscale running on the Unraid host and on both iPhones. | **Owner accepted existing Unraid hostname passyflix.tail6d1471.ts.net in chat, 7 Oct 2026** |
+| G-11 Household admin | **Recommended:** the owner (Mark) holds the `owner` role, and the second person is a `member`. Only `owner` changes system settings, providers, Plex connection, scans, organisation, recovery and the people and devices list. | **Owner accepted recommendation in chat, 7 Oct 2026; members retain playlist import and management** |
 
 ---
 
@@ -87,14 +87,14 @@ These packages come straight from the audit and are summarised here; see the aud
 
 ### B01: Tokens and type (audit P1-3, P1-5)
 
-**Deferred by owner until branding is confirmed complete (6 October 2026).**
+**Branding approved by owner 7 October 2026; integration proceeding using exact Pig family 1.4.0 exports.**
 - Write `scripts/generate_brand_tokens.py`. It reads `docs/pig-family-brand-tokens.json` and writes `client/src/tokens.css` (light, dark and `media` roles; radius, space, type and shadow scales) and `swift/PigKit/Sources/PigBrand/Tokens.swift` (colour sets, generated once the Swift package exists). Add a test that fails if the generated files are stale.
 - Type scale in rem (minimum 0.75 rem): replace every font-size below 11 px.
 - **Owner/brand review:** the three player colours (`#d9d2dd`, `#8c7f95`, `#493d52`). Either get them approved as `media.secondary`, `media.controlBorder` and `media.border`, or replace them with existing roles.
 
 ### B02: Pig Music identity assets
 
-**Deferred by owner until branding is confirmed complete (6 October 2026).** Pig-Branding now contains product identity exports; assess the final pack before generating replacements.
+**Branding approved by owner 7 October 2026; integration proceeding using exact Pig family 1.4.0 exports.** Pig-Branding now contains product identity exports; assess the final pack before generating replacements.
 - In **Pig-Branding**, extend `Tools/make-brand-assets.swift` to produce: Pig Music light and dark wordmarks; iOS app icon set (light, dark, tinted, 1024 px); watchOS icon; a web `apple-touch-icon` (180 px), a square favicon and a `manifest.webmanifest`. Record the new assets in Pig-Branding's `decisions.md` and asset README, then copy them into Pig-Music `client/public/` and later into the Swift asset catalog.
 - **Accept when:** the owner approves the wordmark (a new artwork review is required by the standard), and "Add to Home Screen" on an iPhone shows the pig icon.
 
