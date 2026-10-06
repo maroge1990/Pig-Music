@@ -261,7 +261,6 @@ def main():
             t["status"] in active
             for t in client.get("/api/queue").raise_for_status().json()["items"]
         ):
-            refresh_private_proxy()
             client.put("/api/settings/downloads", json=settings).raise_for_status()
             raise RuntimeError(
                 "A transfer started during the check; original settings restored."
@@ -340,6 +339,7 @@ def main():
                 "/api/settings/media",
             ):
                 client.get(path).raise_for_status()
+            refresh_private_proxy()
             client.put("/api/settings/downloads", json=settings).raise_for_status()
             print(
                 "Deployed:",
