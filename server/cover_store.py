@@ -190,4 +190,20 @@ class CoverStore:
                 ):
                     path.unlink()
                     removed += 1
+            variants = self.directory / "variants"
+            if variants.is_dir():
+                for path in variants.glob("*.webp"):
+                    sha = path.name.split("-", 1)[0]
+                    if (
+                        re.fullmatch(
+                            r"[0-9a-f]{64}-v1-(128|256|512|1024|1600)(-soft)?\.webp",
+                            path.name,
+                        )
+                        and HASH.fullmatch(sha)
+                        and sha not in references
+                        and not self.path(sha)
+                        and not path.is_symlink()
+                        and path.stat().st_mtime < now - WEEK
+                    ):
+                        path.unlink()
         return removed

@@ -2920,3 +2920,24 @@ img {
     width: 100%;
   }
 }
+
+/* Keep large collections cheap to paint without changing their presentation. */
+.artist-card,
+.album-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
+}
+@media (max-width: 600px) {
+  .library-controls {
+    flex-wrap: wrap;
+  }
+  .library-controls .tab-list {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .library-controls .tab-list button {
+    flex-shrink: 0;
+  }
+}

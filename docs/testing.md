@@ -41,3 +41,5 @@ Each handover must state which checks actually ran, the image tested/deployed, r
 ## Artwork scaling
 
 Run `python scripts/benchmark_cover_store.py` against disposable fixtures. It tests legacy migration and warm refresh with distinct artwork at 10k and 50k, records per-process peak RSS, and asserts the A01 10k limits. Repeat in the candidate Linux image with a 1 GB memory limit before release. See [A01 evidence](a01-cover-store.md).
+
+Run `python scripts/benchmark_delivery.py` for disposable 10k/50k compressed library and conditional-read measurements. Registry CI repeats this under 1 GB alongside migration scale gates. Image delivery and change-feed regressions use blocked/mock providers, bounded buffers and reconnect checks; no live music is needed.

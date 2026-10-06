@@ -10,11 +10,20 @@ from .storage import library_root
 
 
 def settings(store):
-    return {
-        "portraits": True,
-        "remote_playback": True,
-        **load_json(store.directory / "media-settings.json"),
-    }
+    target = store.directory / "media-settings.json"
+    try:
+        stat = target.stat()
+        signature = (stat.st_mtime_ns, stat.st_size, stat.st_ino)
+    except FileNotFoundError:
+        signature = None
+    cached = getattr(store, "_media_settings_cache", None)
+    if cached is None or cached[0] != signature:
+        cached = (
+            signature,
+            {"portraits": True, "remote_playback": True, **load_json(target)},
+        )
+        store._media_settings_cache = cached
+    return dict(cached[1])
 
 
 def public_settings(store):
@@ -54,6 +63,7 @@ def save_settings(
         temporary.replace(target)
     finally:
         temporary.unlink(missing_ok=True)
+    store._media_settings_cache = None
     return public_settings(store)
 
 

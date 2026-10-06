@@ -1,4 +1,4 @@
-import { apiFetch as fetch } from "./api";
+import { api } from "./api";
 import { useEffect, useRef, useState } from "react";
 import { CircleCheck } from "lucide-react";
 import { Cover } from "./Cover";
@@ -10,21 +10,34 @@ export function ArtistHero({
   artist: Artist;
   discovered?: boolean;
 }) {
-  const background = `/api/${discovered ? "catalogue/" : ""}artists/${artist.id}/background`;
+  const [revision, setRevision] = useState(0);
+  const background = `/api/${discovered ? "catalogue/" : ""}artists/${artist.id}/background?r=${revision}`;
   const scene = useRef<HTMLDivElement>(null);
   const [enabled, setEnabled] = useState(false);
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
-    void fetch("/api/settings/media", { signal: controller.signal })
-      .then((r) => r.json())
+    setLoaded(false);
+    void api<{ media?: { fanart_configured: boolean; portraits: boolean } }>(
+      "/library",
+      { signal: controller.signal },
+    )
       .then((s) => {
         if (!controller.signal.aborted)
-          setEnabled(s.fanart_configured && s.portraits);
+          setEnabled(Boolean(s.media?.fanart_configured && s.media?.portraits));
       })
       .catch(() => {});
     return () => controller.abort();
   }, [artist.id]);
+  useEffect(() => {
+    const changed = () => setRevision((r) => r + 1);
+    window.addEventListener("music-artwork-changed", changed);
+    window.addEventListener("music-artwork-retry", changed);
+    return () => {
+      window.removeEventListener("music-artwork-changed", changed);
+      window.removeEventListener("music-artwork-retry", changed);
+    };
+  }, []);
   useEffect(() => {
     const node = scene.current;
     if (!node || !loaded) return;
@@ -83,14 +96,16 @@ export function ArtistHero({
           <img
             className="artist-photo artist-photo-sharp"
             alt=""
-            src={background}
+            src={`${background}&w=1024`}
+            srcSet={`${background}&w=512 512w, ${background}&w=1024 1024w`}
+            sizes="100vw"
             onLoad={() => setLoaded(true)}
             onError={() => setLoaded(false)}
           />
           <img
             className="artist-photo artist-photo-soft"
             alt=""
-            src={background}
+            src={`${background}&w=128&soft=true`}
           />
         </div>
       )}

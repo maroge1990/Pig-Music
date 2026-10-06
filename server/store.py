@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from .cover_store import CoverStore
+from .image_cache import public_image
 
 from .library import (
     build_library,
@@ -18,7 +19,7 @@ from .library import (
     normalise,
     parse_apple,
 )
-from .media import settings as media_settings
+from .media import settings as media_settings, public_settings
 from .quality import policy, actual_profile, rank, PROFILES
 from .storage import library_root
 from .matching import LibraryIndex, exclusion_key, same_song
@@ -58,7 +59,7 @@ class Store:
         self.source = self.read_document("migration")
 
     def refresh_library(self):
-        with self.library_lock:
+        with self.covers.lock, self.library_lock:
             self._refresh_library()
 
     def _refresh_library(self):
@@ -106,6 +107,8 @@ class Store:
                 ("album-edition-anchors", json.dumps(anchors)),
             )
         self._cache_covers(snapshot.get("tracks", []))
+        self.albums_by_id = {a["id"]: a for a in self.library["albums"]}
+        self.artists_by_id = {a["id"]: a for a in self.library["artists"]}
         self.index = LibraryIndex(self.library)
         self.snapshot_tracks = {t["id"]: t for t in snapshot.get("tracks", [])}
         fingerprint = hashlib.sha256(
@@ -114,11 +117,12 @@ class Store:
         # A content revision survives restart: a reset counter could leave an
         # already-open browser displaying stale content after a new scan/start.
         self.library_revision = fingerprint
+        self.library_payload = None
 
     def categorise(self, album_id, category):
         if category not in {"auto", "album", "compilation", "soundtrack", "musical"}:
             raise ValueError("Choose a valid library category")
-        if not any(a["id"] == album_id for a in self.library["albums"]):
+        if album_id not in self.albums_by_id:
             raise ValueError("Album not found")
         with self.connect() as conn:
             if category == "auto":
@@ -710,13 +714,8 @@ class Store:
     def quality_override(self, kind, item_id, preferred):
         if preferred is not None and preferred not in PROFILES:
             raise ValueError("Choose a supported quality")
-        item = next(
-            (
-                a
-                for a in self.library["albums" if kind == "album" else "artists"]
-                if a["id"] == item_id
-            ),
-            None,
+        item = (self.albums_by_id if kind == "album" else self.artists_by_id).get(
+            item_id
         )
         if item is None:
             raise ValueError("Library item not found")
@@ -762,13 +761,8 @@ class Store:
         }
 
     def quality_status(self, kind, item_id):
-        item = next(
-            (
-                a
-                for a in self.library["albums" if kind == "album" else "artists"]
-                if a["id"] == item_id
-            ),
-            None,
+        item = (self.albums_by_id if kind == "album" else self.artists_by_id).get(
+            item_id
         )
         if item is None:
             raise ValueError("Library item not found")
@@ -867,14 +861,44 @@ class Store:
             )
         for album in self.library["albums"]:
             if not album["cover_url"]:
-                cached = identifier("catalogue-cover", album["id"]) + ".jpg"
+                cached = public_image(
+                    self,
+                    self.cover_dir
+                    / (identifier("catalogue-cover", album["id"]) + ".jpg"),
+                )
                 album["cover_url"] = (
-                    "/api/artwork/" + cached
-                    if (self.cover_dir / cached).exists()
+                    "/api/artwork/" + cached.name
+                    if cached
                     else "/api/library-artwork/albums/" + album["id"]
                 )
+        config = media_settings(self)
+        from .portraits import portrait_target
+
         for artist in self.library["artists"]:
-            if media_settings(self)["portraits"] or not artist["cover_url"]:
+            if not artist["cover_url"]:
+                artist["cover_url"] = next(
+                    (
+                        albums[a]["cover_url"]
+                        for a in (artist["album_ids"] or [artist["cover_album_id"]])
+                        if a in albums
+                        and (albums[a].get("cover_url") or "").startswith(
+                            "/api/artwork/"
+                        )
+                    ),
+                    None,
+                )
+            known = self.read_document("library-artist:" + artist["id"])
+            portrait = (
+                public_image(
+                    self, portrait_target(self, artist["name"], known.get("id"))
+                )
+                if config["portraits"]
+                else None
+            )
+            artist["fallback_cover_url"] = artist["cover_url"]
+            if portrait:
+                artist["cover_url"] = "/api/artwork/" + portrait.name
+            elif config["portraits"] or not artist["cover_url"]:
                 artist["cover_url"] = (
                     "/api/library-artwork/artists/" + artist["id"] + "?portraits=1"
                 )
@@ -885,6 +909,13 @@ class Store:
             snapshot = load_json(self.directory / "library-snapshot.json")
             references = {t.get("cover_sha") for t in snapshot.get("tracks", [])}
             references.update(a.get("cover_sha") for a in self.library["albums"])
+            with self.connect() as conn:
+                references.update(
+                    json.loads(payload).get("sha")
+                    for (payload,) in conn.execute(
+                        "SELECT payload FROM documents WHERE name LIKE 'image-public:%'"
+                    )
+                )
             with self.connect() as conn:
                 for (payload,) in conn.execute("SELECT payload FROM acquired"):
                     references.add(json.loads(payload).get("cover_sha"))
@@ -909,6 +940,13 @@ class Store:
                 "documents_removed": len(expired),
             }
 
+    def write_document(self, key, value):
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT INTO documents VALUES (?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
+                (key, json.dumps(value)),
+            )
+
     def summary(self):
         with self.connect() as conn:
             playlist_count = conn.execute("SELECT COUNT(*) FROM playlists").fetchone()[
@@ -917,6 +955,7 @@ class Store:
         return {
             **self.library,
             "revision": self.library_revision,
+            "media": public_settings(self),
             "playlist_count": playlist_count,
             "albums": [
                 {k: v for k, v in a.items() if k not in {"tracks", "cover_key"}}

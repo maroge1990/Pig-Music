@@ -42,6 +42,9 @@ jobs:
           docker run --rm --network none --memory=1g \
             -e PYTHONDONTWRITEBYTECODE=1 --entrypoint python pig-music:candidate \
             scripts/benchmark_cover_store.py --sizes 10000 50000 | tee artwork-benchmark.json
+          docker run --rm --network none --memory=1g \
+            -e PYTHONDONTWRITEBYTECODE=1 --entrypoint python pig-music:candidate \
+            scripts/benchmark_delivery.py | tee delivery-benchmark.json
       - name: Frontend tests and formatting
         working-directory: client
         run: |

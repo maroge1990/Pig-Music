@@ -12,7 +12,8 @@ from .fanart import Fanart
 class Backgrounds:
     def __init__(self, store, artwork, fanart=None):
         self.store, self.artwork = store, artwork
-        self.lock = asyncio.Lock()
+        self.locks = {}
+        self.slots = asyncio.Semaphore(3)
         self.fanart = fanart or Fanart(store)
 
     async def get(self, client, artist_id):
@@ -21,15 +22,11 @@ class Backgrounds:
         if not token or not config["portraits"]:
             return None
         artist_id = mbid(artist_id)
-        key = identifier(
-            "artist-background",
-            artist_id,
-            hashlib.sha256(token.encode()).hexdigest()[:12],
-        )
-        target = self.store.cover_dir / (key + ".jpg")
+        target = background_target(self.store, artist_id)
+        key = target.stem
         if target.exists():
             return target
-        async with self.lock:
+        async with self.locks.setdefault(key, asyncio.Lock()), self.slots:
             if target.exists():
                 return target
             if self.store.read_document(key).get("retry_after", 0) > time.time():
@@ -81,3 +78,13 @@ class Backgrounds:
                 temporary.replace(target)
             finally:
                 temporary.unlink(missing_ok=True)
+
+
+def background_target(store, artist_id):
+    token = settings(store).get("fanart_key", "")
+    key = identifier(
+        "artist-background",
+        mbid(artist_id),
+        hashlib.sha256(token.encode()).hexdigest()[:12],
+    )
+    return store.cover_dir / (key + ".jpg")

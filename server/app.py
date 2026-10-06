@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import os
 import time
@@ -7,11 +8,22 @@ from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, Response, RedirectResponse
+from fastapi.responses import (
+    FileResponse,
+    Response,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
+from .enrichment import Enrichment
+from .change_feed import ChangeFeed
+from .image_cache import public_image, variant, SIZES
+from .portraits import portrait_target
+from .artist_backgrounds import background_target
 from pydantic import BaseModel, Field
 
-from .library import normalise
+from .library import normalise, identifier
 from .releases import release_query
 from .fanart import Fanart
 from .storage import download_root
@@ -32,7 +44,13 @@ from .artwork import Artwork
 from .portraits import Portraits
 from .popularity import Popularity
 from .artist_backgrounds import Backgrounds
-from .media import public_settings, save_settings, track_file, saved_track
+from .media import (
+    public_settings,
+    save_settings,
+    track_file,
+    saved_track,
+    settings as private_media_settings,
+)
 from .remote import RemoteAudio
 from .scanner import LibraryScanner
 from .playlists import Playlists
@@ -66,6 +84,35 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     organisation = Organisation(store, recovery)
     scan_task = None
     preload_stopping = asyncio.Event()
+    image_revision = 0
+
+    def images_changed():
+        nonlocal image_revision
+        image_revision += 1
+        store.refresh_library()
+
+    enrichment = Enrichment(images_changed)
+    image_slots = asyncio.Semaphore(2)
+
+    def feed_queue():
+        return {
+            **store.queue(),
+            "artwork_revision": image_revision,
+            "media": public_settings(store),
+        }
+
+    def feed_health():
+        try:
+            download_root(store)
+            storage_available = True
+        except (OSError, ValueError):
+            storage_available = False
+        return {
+            "storage_available": storage_available,
+            "soulseek": Soulseek(store).health(),
+        }
+
+    change_feed = ChangeFeed(feed_queue, feed_health)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -78,6 +125,8 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             },
         ) as client:
             app.state.http = client
+            enrichment.start()
+            change_feed.start()
             await asyncio.to_thread(recovery.recover)
             await asyncio.to_thread(organisation.recover)
             downloader = Downloader(store)
@@ -103,6 +152,8 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 await artist_task
                 preload_stopping.set()
                 preload_task.cancel()
+                await enrichment.close()
+                await change_feed.close()
                 maintenance_task.cancel()
                 await task
                 await plex_task
@@ -126,6 +177,9 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
 
     app = FastAPI(title="Pig Music", version="0.1.0", lifespan=lifespan)
     app.state.store = store
+    app.state.enrichment = enrichment
+    app.state.change_feed = change_feed
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
 
     @app.middleware("http")
     async def headers(request, call_next):
@@ -139,7 +193,12 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         if request.url.path.startswith("/api/") and not request.url.path.startswith(
             ("/api/artwork/", "/api/library-artwork/")
         ):
-            response.headers["Cache-Control"] = "no-store"
+            response.headers.setdefault("Cache-Control", "no-store")
+        if request.url.path.startswith("/assets/") and response.status_code in {
+            200,
+            304,
+        }:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
 
     @app.get("/api/health")
@@ -165,7 +224,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
 
     @app.post("/api/albums/{album_id}/remove")
     async def remove_album(album_id: str):
-        album = next((a for a in store.library["albums"] if a["id"] == album_id), None)
+        album = store.albums_by_id.get(album_id)
         if not album:
             raise HTTPException(404, "Album not found.")
         count = 0
@@ -182,9 +241,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
 
     @app.post("/api/artists/{artist_id}/remove")
     async def remove_artist(artist_id: str):
-        artist = next(
-            (a for a in store.library["artists"] if a["id"] == artist_id), None
-        )
+        artist = store.artists_by_id.get(artist_id)
         if not artist:
             raise HTTPException(404, "Artist not found.")
         identity = await library_artist_catalogue(artist_id)
@@ -303,8 +360,45 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             )
 
     @app.get("/api/library")
-    def library():
-        return store.summary()
+    def library(request: Request):
+        # Playlist count/settings are part of the response, so they enter the validator.
+        with store.library_lock:
+            with store.connect() as conn:
+                playlist_count = conn.execute(
+                    "SELECT COUNT(*) FROM playlists"
+                ).fetchone()[0]
+            signature = (
+                store.library_revision,
+                playlist_count,
+                json.dumps(public_settings(store), sort_keys=True),
+            )
+            if not store.library_payload or store.library_payload[0] != signature:
+                payload = json.dumps(
+                    store.summary(),
+                    separators=(",", ":"),
+                ).encode()
+                etag = '"' + hashlib.sha256(payload).hexdigest() + '"'
+                store.library_payload = (signature, payload, etag)
+            _, payload, etag = store.library_payload
+        headers = {
+            "ETag": etag,
+            "Cache-Control": "private, no-cache",
+            "Vary": "Accept-Encoding",
+        }
+        candidates = request.headers.get("if-none-match", "").split(",")
+        if any(value.strip().removeprefix("W/") in {etag, "*"} for value in candidates):
+            return Response(status_code=304, headers=headers)
+        return Response(payload, media_type="application/json", headers=headers)
+
+    @app.get("/api/events")
+    async def events():
+        if len(change_feed.listeners) >= 32:
+            raise HTTPException(503, "Too many change-feed connections.")
+        return StreamingResponse(
+            change_feed.stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
 
     @app.get("/api/library/scan")
     def scan_status():
@@ -449,70 +543,100 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         except ValueError as exc:
             raise HTTPException(404, str(exc)) from exc
 
+    async def image_response(target, w=0, soft=False):
+        if not target or not target.is_file():
+            return Response(status_code=404, headers={"Cache-Control": "no-store"})
+        async with image_slots:
+            target = await asyncio.to_thread(public_image, store, target)
+            if not target:
+                return Response(status_code=404, headers={"Cache-Control": "no-store"})
+            # Alias requests revalidate; redirect only to immutable local bytes.
+            suffix = f"?w={w}&soft={int(soft)}" if w else ""
+            return RedirectResponse(
+                "/api/artwork/" + target.name + suffix,
+                headers={"Cache-Control": "no-cache"},
+            )
+
+    def image_config():
+        return hashlib.sha256(
+            json.dumps(private_media_settings(store), sort_keys=True).encode()
+        ).hexdigest()[:12]
+
+    def library_image_key(kind, item):
+        return "library:" + kind + ":" + item["id"] + ":" + image_config()
+
+    async def enrich_library(kind, item):
+        if kind == "albums":
+            return await artwork.cover(app.state.http, item)
+        identity = None
+        if public_settings(store)["portraits"]:
+            try:
+                identity = await library_artist_catalogue(item["id"])
+            except HTTPException:
+                pass
+            target = await portraits.get(
+                app.state.http, item["name"], identity.get("id") if identity else None
+            )
+            if target:
+                await asyncio.to_thread(public_image, store, target)
+                return target
+        return await artwork.artist(app.state.http, item)
+
     @app.get("/api/library-artwork/{kind}/{item_id}")
-    async def library_artwork(kind: str, item_id: str):
+    async def library_artwork(kind: str, item_id: str, w: int = 0):
         if kind not in {"albums", "artists"}:
             raise HTTPException(404, "Artwork not found.")
-        item = next((i for i in store.library[kind] if i["id"] == item_id), None)
+        item = (store.albums_by_id if kind == "albums" else store.artists_by_id).get(
+            item_id
+        )
         if item is None:
             raise HTTPException(404, "Library item not found.")
-        target = (
-            await portraits.get(app.state.http, item["name"])
-            if kind == "artists"
-            else None
+        target = artwork.target(item) if kind == "albums" else None
+        if kind == "artists":
+            identity = store.read_document("library-artist:" + item_id)
+            portrait = portrait_target(store, item["name"], identity.get("id"))
+            if public_settings(store)["portraits"] and portrait.is_file():
+                target = portrait
+            if not target:
+                fallback = item.get("fallback_cover_url") or item.get("cover_url") or ""
+                if fallback.startswith("/api/artwork/"):
+                    target = store.cover_dir / fallback.split("/")[-1].split("?")[0]
+        enrichment.submit(
+            library_image_key(kind, item), lambda: enrich_library(kind, item)
         )
-        if target is None:
-            target = await (
-                artwork.artist(app.state.http, item)
-                if kind == "artists"
-                else artwork.cover(app.state.http, item)
-            )
-        if target is None:
-            raise HTTPException(404, "Artwork unavailable.")
-        return FileResponse(
-            target,
-            media_type="image/jpeg",
-            headers={
-                "Cache-Control": (
-                    "no-cache" if kind == "artists" else "public, max-age=86400"
-                )
-            },
-        )
+        return await image_response(target, w)
 
     @app.get("/api/albums/{album_id}")
     def album(album_id: str):
-        match = next((a for a in store.library["albums"] if a["id"] == album_id), None)
+        match = store.albums_by_id.get(album_id)
         if match is None:
             raise HTTPException(404, "Album not found.")
         return match
 
     @app.get("/api/catalogue/artwork/{kind}/{item_id}")
-    async def catalogue_artwork(kind: str, item_id: str):
+    async def catalogue_artwork(kind: str, item_id: str, w: int = 0):
         if kind not in {"release", "release-group"}:
             raise HTTPException(404, "Artwork not found.")
-        try:
-            target = await artwork.catalogue_cover(app.state.http, kind, item_id)
-        except ValueError:
-            raise HTTPException(400, "Invalid catalogue identifier.")
-        if target is None:
-            raise HTTPException(404, "Artwork unavailable.")
-        return FileResponse(
-            target,
-            media_type="image/jpeg",
-            headers={"Cache-Control": "public, max-age=86400"},
-        )
+        item_id = valid_id(item_id)
+        key = "catalogue-artwork:" + kind + ":" + item_id
+        target = store.cover_dir / (identifier(key) + ".jpg")
+        if not target.is_file():
+            enrichment.submit(
+                key, lambda: artwork.catalogue_cover(app.state.http, kind, item_id)
+            )
+        return await image_response(target, w)
 
     @app.get("/api/artists/{artist_id}")
     def artist(artist_id: str):
-        match = next(
-            (a for a in store.library["artists"] if a["id"] == artist_id), None
-        )
+        match = store.artists_by_id.get(artist_id)
         if match is None:
             raise HTTPException(404, "Artist not found.")
         return {
             **match,
             "albums": [
-                a for a in store.library["albums"] if a["id"] in match["album_ids"]
+                store.albums_by_id[album_id]
+                for album_id in match["album_ids"]
+                if album_id in store.albums_by_id
             ],
             "compilation_tracks": [
                 {**t, "album_id": a["id"]}
@@ -621,7 +745,11 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
 
     @app.get("/api/queue")
     def queue():
-        return store.queue()
+        return {
+            **store.queue(),
+            "artwork_revision": image_revision,
+            "media": public_settings(store),
+        }
 
     @app.post("/api/queue/clear")
     def clear_queue():
@@ -795,11 +923,12 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
 
     @app.get("/api/artists/{artist_id}/catalogue")
     async def library_artist_catalogue(artist_id: str):
-        artist = next(
-            (a for a in store.library["artists"] if a["id"] == artist_id), None
-        )
+        artist = store.artists_by_id.get(artist_id)
         if artist is None:
             raise HTTPException(404, "Artist not found.")
+        known = store.read_document("library-artist:" + artist_id)
+        if known and known.get("name") == artist["name"]:
+            return known
         data = await metadata(
             "artist/", query="artist:" + quoted(artist["name"]), limit=100
         )
@@ -820,53 +949,42 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                     json.dumps({"time": time.time(), "data": matches[0]}),
                 ),
             )
-        return {"id": matches[0]["id"], "name": matches[0]["name"]}
+        identity = {"id": matches[0]["id"], "name": matches[0]["name"]}
+        store.write_document("library-artist:" + artist_id, identity)
+        return identity
 
     async def preload_library():
-        background_metadata.set(True)
         if os.environ.get("PIG_MUSIC_PRELOAD", "true").lower() == "false":
             return
-        # One background request at a time shares the existing persistent cache
-        # and global metadata rate limiter with interactive browsing.
+        # One new/changed local item per pass. No periodic discography walk.
+        seen = set()
         while not preload_stopping.is_set():
-            for saved in list(store.library["artists"]):
-                if preload_stopping.is_set():
-                    return
-                if saved.get("compilation_only"):
-                    continue
-                try:
-                    identity = await library_artist_catalogue(saved["id"])
-                    await portraits.get(app.state.http, identity["name"])
-                    await backgrounds.get(app.state.http, identity["id"])
-                    for kind in ("album",):
-                        offset = 0
-                        covers = 0
-                        while offset < 100:
-                            page = await artist_releases(identity["id"], offset, kind)
-                            releases = page["releases"]
-                            # Eagerly cache the first page's most recent covers;
-                            # the remainder stay lazy to bound disk/network use.
-                            for release in releases[: max(0, 3 - covers)]:
-                                await artwork.catalogue_cover(
-                                    app.state.http, "release-group", release["id"]
-                                )
-                                covers += 1
-                            offset += len(releases)
-                            if not releases or offset >= page["total"]:
-                                break
-                            await asyncio.sleep(0)
-                except (HTTPException, httpx.HTTPError, ValueError, KeyError, OSError):
-                    continue
-                await asyncio.sleep(0)
-            for album in list(store.library["albums"]):
-                if preload_stopping.is_set():
-                    return
-                if (album.get("cover_url") or "").startswith("/api/library-artwork/"):
-                    await artwork.cover(app.state.http, album)
-            try:
-                await asyncio.wait_for(preload_stopping.wait(), timeout=900)
-            except TimeoutError:
-                pass
+            for kind in ("albums", "artists"):
+                for item in list(store.library[kind]):
+                    signature = (
+                        kind,
+                        item["id"],
+                        item.get("cover_url"),
+                        json.dumps(public_settings(store), sort_keys=True),
+                    )
+                    if signature in seen:
+                        continue
+                    if not (item.get("cover_url") or "").startswith(
+                        "/api/library-artwork/"
+                    ):
+                        seen.add(signature)
+                        continue
+                    if enrichment.submit(
+                        library_image_key(kind, item),
+                        lambda kind=kind, item=item: enrich_library(kind, item),
+                    ):
+                        seen.add(signature)
+                    break
+            live_ids = {
+                i["id"] for kind in ("albums", "artists") for i in store.library[kind]
+            }
+            seen = {key for key in seen if key[1] in live_ids}
+            await asyncio.sleep(15)
 
     class ArtistRequest(BaseModel):
         kinds: list[str] = Field(default=["album"], max_length=3)
@@ -891,48 +1009,51 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         return await popularity.get(app.state.http, valid_id(artist_id))
 
     @app.get("/api/catalogue/artists/{artist_id}/background")
-    async def catalogue_artist_background(artist_id: str):
-        target = await backgrounds.get(app.state.http, valid_id(artist_id))
-        if target is None:
+    async def catalogue_artist_background(
+        artist_id: str, w: int = 0, soft: bool = False
+    ):
+        artist_id = valid_id(artist_id)
+        config = public_settings(store)
+        if not config["portraits"] or not config["fanart_configured"]:
             raise HTTPException(404, "Artwork unavailable.")
-        return FileResponse(
-            target,
-            media_type="image/jpeg",
-            headers={"Cache-Control": "public, max-age=86400"},
-        )
+        target = background_target(store, artist_id)
+        if not target.is_file():
+            enrichment.submit(
+                "background:" + target.stem,
+                lambda: backgrounds.get(app.state.http, artist_id),
+            )
+        return await image_response(target, w, soft)
+
+    async def enrich_background(artist_id):
+        identity = await library_artist_catalogue(artist_id)
+        return await backgrounds.get(app.state.http, identity["id"])
 
     @app.get("/api/artists/{artist_id}/background")
-    async def artist_background(artist_id: str):
-        if (
-            not public_settings(store)["fanart_configured"]
-            or not public_settings(store)["portraits"]
-        ):
+    async def artist_background(artist_id: str, w: int = 0, soft: bool = False):
+        if artist_id not in store.artists_by_id:
+            raise HTTPException(404, "Artist not found.")
+        config = public_settings(store)
+        if not config["fanart_configured"] or not config["portraits"]:
             raise HTTPException(404, "Artwork unavailable.")
-        identity = await library_artist_catalogue(artist_id)
-        target = await backgrounds.get(app.state.http, identity["id"])
-        if not target:
-            raise HTTPException(404, "Artwork unavailable.")
-        return FileResponse(
-            target, media_type="image/jpeg", headers={"Cache-Control": "no-cache"}
-        )
-
-    @app.get("/api/catalogue/artists/{artist_id}/artwork")
-    async def artist_artwork(artist_id: str):
-        if public_settings(store)["portraits"]:
-            identity = await metadata("artist/" + valid_id(artist_id))
-            portrait = await portraits.get(
-                app.state.http, identity.get("name", ""), valid_id(artist_id)
+        identity = store.read_document("library-artist:" + artist_id)
+        target = background_target(store, identity["id"]) if identity else None
+        if not target or not target.is_file():
+            enrichment.submit(
+                "library-background:" + artist_id, lambda: enrich_background(artist_id)
             )
-            if portrait:
-                return FileResponse(
-                    portrait,
-                    media_type="image/jpeg",
-                    headers={"Cache-Control": "no-cache"},
-                )
-        # An artist tile uses a credited release cover, not an inferred portrait.
-        # Lookup is lazy and shares the persistent catalogue cache/rate limiter.
+        return await image_response(target, w, soft)
+
+    async def enrich_catalogue_artist(artist_id, cache_key):
+        if public_settings(store)["portraits"]:
+            identity = await metadata("artist/" + artist_id)
+            target = await portraits.get(
+                app.state.http, identity.get("name", ""), artist_id
+            )
+            if target:
+                store.write_document(cache_key, {"file": target.name})
+                return target
         data = await metadata(
-            "release", artist=valid_id(artist_id), inc="release-groups", limit=50
+            "release", artist=artist_id, inc="release-groups", limit=50
         )
         releases = [
             r
@@ -945,13 +1066,28 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 bool(r.get("release-group", {}).get("secondary-types")),
             )
         )
-        if not releases:
-            raise HTTPException(404, "No artist release artwork available.")
-        return RedirectResponse(
-            "https://coverartarchive.org/release/"
-            + valid_id(releases[0]["id"])
-            + "/front-500"
+        if releases:
+            target = await artwork.catalogue_cover(
+                app.state.http, "release", valid_id(releases[0]["id"])
+            )
+            if target:
+                store.write_document(cache_key, {"file": target.name})
+                return target
+        return None
+
+    @app.get("/api/catalogue/artists/{artist_id}/artwork")
+    async def artist_artwork(artist_id: str, w: int = 0):
+        artist_id = valid_id(artist_id)
+        cache_key = "catalogue-artist-image:" + artist_id + ":" + image_config()
+        cached = store.read_document(cache_key).get("file", "")
+        target = (
+            store.cover_dir / cached if cached and Path(cached).name == cached else None
         )
+        if not target or not target.is_file():
+            enrichment.submit(
+                cache_key, lambda: enrich_catalogue_artist(artist_id, cache_key)
+            )
+        return await image_response(target, w)
 
     @app.get("/api/catalogue/groups/{group_id}/editions")
     async def editions(group_id: str, offset: int = 0):
@@ -1169,7 +1305,38 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             "note": "Not saved. Provider quality and exact mastering are unverified.",
         }
 
-    app.mount("/api/artwork", StaticFiles(directory=store.cover_dir), name="artwork")
+    @app.get("/api/artwork/{filename}")
+    async def cached_artwork(
+        request: Request, filename: str, w: int = 0, soft: bool = False, v: int = 1
+    ):
+        if not filename.endswith(".jpg") or len(filename) != 68:
+            # Old provider URLs are aliases, never immutable filenames.
+            if Path(filename).name != filename or not filename.endswith(".jpg"):
+                raise HTTPException(404, "Artwork not found.")
+            return await image_response(store.cover_dir / filename, w, soft)
+        target = store.covers.path(filename[:-4])
+        if not target:
+            raise HTTPException(404, "Artwork not found.")
+        if v != 1:
+            raise HTTPException(400, "Unsupported image variant version.")
+        if w and w not in SIZES:
+            raise HTTPException(400, "Unsupported image size.")
+        if soft and not w:
+            raise HTTPException(400, "Blurred variants require a size.")
+        if w:
+            async with image_slots:
+                target = await asyncio.to_thread(variant, target, w, soft)
+        etag = '"' + filename[:-4] + (f"-v1-{w}-{int(soft)}" if w else "") + '"'
+        headers = {"Cache-Control": "public, max-age=31536000, immutable", "ETag": etag}
+        if any(
+            value.strip().removeprefix("W/") in {etag, "*"}
+            for value in request.headers.get("if-none-match", "").split(",")
+        ):
+            return Response(status_code=304, headers=headers)
+        return FileResponse(
+            target, media_type="image/webp" if w else "image/jpeg", headers=headers
+        )
+
     dist = client_dir or ROOT / "client" / "dist"
     if dist.exists():
         app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")

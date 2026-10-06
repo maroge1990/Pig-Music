@@ -183,6 +183,14 @@ def test_artist_artwork_uses_credited_album_and_cached_metadata(tmp_path):
 
     def transport(request):
         calls.append(request)
+        if request.url.host != "musicbrainz.org":
+            import io
+            from PIL import Image
+
+            content = io.BytesIO()
+            Image.new("RGB", (100, 100), "red").save(content, "PNG")
+            assert "/release/" + RELEASE in request.url.path
+            return httpx.Response(200, content=content.getvalue())
         return httpx.Response(
             200,
             json={
@@ -212,20 +220,17 @@ def test_artist_artwork_uses_credited_album_and_cached_metadata(tmp_path):
         app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(transport))
         path = f"/api/catalogue/artists/{ARTIST}/artwork"
         result = client.get(path, follow_redirects=False)
+        assert result.status_code == 404
+        client.portal.call(app.state.enrichment.queue.join)
+        result = client.get(path, follow_redirects=False)
         assert result.status_code == 307
-        assert (
-            result.headers["location"]
-            == f"https://coverartarchive.org/release/{RELEASE}/front-500"
-        )
-        assert (
-            client.get(path, follow_redirects=False).headers["location"]
-            == result.headers["location"]
-        )
-        assert len(calls) == 1
+        assert result.headers["location"].startswith("/api/artwork/")
+        assert client.get(path).status_code == 200
+        assert len(calls) == 2
         assert (
             client.get("/api/catalogue/artists/not-a-uuid/artwork").status_code == 400
         )
-        assert len(calls) == 1
+        assert len(calls) == 2
         app.state.http = original
 
 

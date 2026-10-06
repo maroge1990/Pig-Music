@@ -153,7 +153,7 @@ def test_fanart_uses_artist_id_private_header_and_persistent_sanitised_photo(tmp
                 client, "Artist", "11111111-1111-4111-8111-111111111111"
             )
             with Image.open(target) as cached:
-                assert cached.format == "JPEG" and cached.size == (512, 512)
+                assert cached.format == "JPEG" and cached.size == (900, 900)
 
     asyncio.run(run())
     assert len(calls) == 2

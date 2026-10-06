@@ -3,6 +3,8 @@
  */
 const reads = new Map<string, Promise<Response>>();
 let libraryRead: Promise<unknown> | undefined;
+let libraryResponse: Response | undefined;
+let artworkRevision: number | undefined;
 
 export async function apiFetch(
   path: string,
@@ -10,7 +12,7 @@ export async function apiFetch(
 ): Promise<Response> {
   const method = options?.method?.toUpperCase() || "GET";
   if (method !== "GET" || options?.signal) {
-    const response = await fetch(path, options);
+    const response = await readResponse(path, options);
     if (
       response.ok &&
       method !== "GET" &&
@@ -28,7 +30,7 @@ export async function apiFetch(
   }
   let read = reads.get(path);
   if (!read) {
-    read = fetch(path, options);
+    read = readResponse(path, options);
     reads.set(path, read);
     const current = read;
     void read
@@ -70,3 +72,30 @@ export function rememberLibrary(library: unknown) {
 window.addEventListener("music-library-changed", () => {
   libraryRead = undefined;
 });
+
+async function readResponse(
+  path: string,
+  options?: RequestInit,
+): Promise<Response> {
+  if (path !== "/api/library" || (options?.method && options.method !== "GET"))
+    return fetch(path, options);
+  const headers = new Headers(options?.headers);
+  const etag = libraryResponse?.headers.get("etag");
+  if (etag) headers.set("If-None-Match", etag);
+  const response = await fetch(path, { ...options, headers });
+  if (response.status === 304 && libraryResponse)
+    return libraryResponse.clone();
+  if (response.ok) libraryResponse = response.clone();
+  return response;
+}
+
+export function updateArtworkRevision(revision: number | undefined) {
+  if (revision === undefined || revision === artworkRevision) return;
+  artworkRevision = revision;
+  window.dispatchEvent(new Event("music-artwork-changed"));
+}
+
+// One retry clock for missing images; successful immutable images stay cached.
+setInterval(() => {
+  if (!document.hidden) window.dispatchEvent(new Event("music-artwork-retry"));
+}, 60000);

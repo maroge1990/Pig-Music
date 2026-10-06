@@ -15,3 +15,5 @@ Credentials, appdata, music exports, private measurements and screenshots remain
 - [A01 artwork foundation](a01-cover-store.md): implementation, local scale evidence, migration and release gates.
 - [Container releases](container-releases.md): GHCR builds, source/digest traceability and Unraid transition.
 - [Native feasibility spike](native-spike.md): device inventory, free-account/Sideloadly choice, prepared probes and outstanding hardware proof.
+
+- [A02/A03 audit delivery and remaining findings](a02-a03-delivery.md)

@@ -200,7 +200,7 @@ class Artwork:
                     return None
 
     async def artist(self, client, artist):
-        albums = {a["id"]: a for a in self.store.library["albums"]}
+        albums = self.store.albums_by_id
         ids = list(artist["album_ids"]) or [artist["cover_album_id"]]
         for album_id in ids:
             album = albums.get(album_id)
@@ -243,7 +243,7 @@ class Artwork:
             if image.width * image.height > 20_000_000:
                 raise ValueError("Artwork too large")
             image = ImageOps.exif_transpose(image).convert("RGB")
-            image.thumbnail((512, 512))
+            image.thumbnail((1024, 1024))
             temporary = target.with_suffix(".tmp")
             try:
                 image.save(temporary, "JPEG", quality=84)

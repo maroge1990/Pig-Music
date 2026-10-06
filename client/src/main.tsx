@@ -1,6 +1,6 @@
-import { api, rememberLibrary } from "./api";
+import { api, rememberLibrary, updateArtworkRevision } from "./api";
 import { discoverUrl } from "./navigation";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import { createRoot } from "react-dom/client";
 
@@ -42,11 +42,17 @@ import { ArtistHero } from "./ArtistHero";
 import { ArtistDiscography } from "./ArtistDiscography";
 import { QualitySettings } from "./QualitySettings";
 import { Playlists } from "./Playlists";
-import { Organisation } from "./Organisation";
-import { RemovedMusic, RemoveSong, RemoveCollection } from "./Recovery";
+const Organisation = lazy(() =>
+  import("./Organisation").then((m) => ({ default: m.Organisation })),
+);
+import { RemoveSong, RemoveCollection } from "./Recovery";
+const RemovedMusic = lazy(() =>
+  import("./RemovedMusic").then((m) => ({ default: m.RemovedMusic })),
+);
 import { SongActions } from "./SongActions";
 import { MusicLink } from "./MusicLink";
 import { LibraryScan } from "./LibraryScan";
+import { ToolBoundary } from "./ToolBoundary";
 
 type Page = "library" | "search" | "migration" | "queue" | "system";
 
@@ -66,6 +72,8 @@ type QueueItem = {
 
 type Queue = {
   library_revision: string;
+  artwork_revision?: number;
+  media?: Library["media"];
   downloads_enabled: boolean;
   items: QueueItem[];
 };
@@ -175,24 +183,14 @@ function App() {
   } | null>(null);
   useEffect(() => {
     if (route.page !== "system") return;
-    let active = true;
-    const update = () => {
-      void api<{ configured: boolean; connected: boolean }>(
-        "/settings/soulseek",
-      )
-        .then((value) => {
-          if (active) setSoulseekHealth(value);
-        })
-        .catch(() => {
-          if (active) setSoulseekHealth(null);
-        });
-    };
-    update();
-    const timer = setInterval(update, 15000);
-    return () => {
-      active = false;
-      clearInterval(timer);
-    };
+    const controller = new AbortController();
+    void api<{ configured: boolean; connected: boolean }>(
+      "/settings/soulseek",
+      { signal: controller.signal },
+    )
+      .then(setSoulseekHealth)
+      .catch(() => {});
+    return () => controller.abort();
   }, [route.page]);
 
   const [appearance, setAppearance] = useState<Appearance>(() => {
@@ -284,14 +282,22 @@ function App() {
   useEffect(() => {
     const controller = new AbortController();
     let refreshing = false;
-    const refresh = async () => {
-      if (refreshing || document.hidden) return;
+    let pending: Queue | undefined;
+    const refresh = async (incoming?: Queue) => {
+      if (document.hidden) return;
+      if (refreshing) {
+        pending = incoming;
+        return;
+      }
       refreshing = true;
       try {
-        const q = await api<Queue>("/queue", { signal: controller.signal });
+        const q =
+          incoming ||
+          (await api<Queue>("/queue", { signal: controller.signal }));
         if (controller.signal.aborted) return;
         setQueue(q);
-        const signature = String(q.library_revision);
+        updateArtworkRevision(q.artwork_revision);
+        const signature = `${q.library_revision}:${JSON.stringify(q.media || {})}`;
         if (queueSignature.current && signature !== queueSignature.current) {
           const [l, m] = await Promise.all([
             api<Library>("/library", { signal: controller.signal }),
@@ -323,15 +329,62 @@ function App() {
           setError((e as Error).message);
       } finally {
         refreshing = false;
+        const latest = pending;
+        pending = undefined;
+        if (latest && !controller.signal.aborted) void refresh(latest);
       }
     };
 
-    refresh();
-    const timer = setInterval(refresh, 5000);
-
+    let source: EventSource | undefined;
+    let connected = false;
+    const connect = () => {
+      source?.close();
+      source = undefined;
+      connected = false;
+      if (document.hidden || !window.EventSource) return;
+      source = new EventSource("/api/events");
+      source.onopen = () => {
+        connected = true;
+        void refresh();
+      };
+      source.onerror = () => {
+        connected = false;
+      };
+      source.addEventListener("state", (event) => {
+        try {
+          const state = JSON.parse((event as MessageEvent).data) as {
+            queue?: Queue;
+            health?: { soulseek?: { configured: boolean; connected: boolean } };
+          };
+          if (state.queue) void refresh(state.queue);
+          if (state.health?.soulseek) setSoulseekHealth(state.health.soulseek);
+        } catch {
+          connected = false;
+        }
+      });
+    };
+    const resume = () => {
+      connect();
+      if (!document.hidden) void refresh();
+    };
+    connect();
+    void refresh();
+    const timer = setInterval(() => {
+      if (connected || document.hidden) return;
+      void refresh();
+      if (route.page === "system")
+        void api<{ configured: boolean; connected: boolean }>(
+          "/settings/soulseek",
+        )
+          .then(setSoulseekHealth)
+          .catch(() => setSoulseekHealth(null));
+    }, 15000);
+    document.addEventListener("visibilitychange", resume);
     return () => {
       controller.abort();
+      source?.close();
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", resume);
     };
   }, [route.page, route.artist, route.album]);
 
@@ -1743,8 +1796,12 @@ function App() {
           }}
         />
         <MediaSettings />
-        <RemovedMusic notify={setToast} />
-        <Organisation notify={setToast} />
+        <ToolBoundary>
+          <Suspense fallback={<p>Loading library tools…</p>}>
+            <RemovedMusic notify={setToast} />
+            <Organisation notify={setToast} />
+          </Suspense>
+        </ToolBoundary>
         {!!library?.snapshot.read_failures?.length && (
           <>
             <div className="section-title">

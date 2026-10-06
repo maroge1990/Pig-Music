@@ -45,6 +45,12 @@ export type Artist = {
   compilation_tracks?: Track[];
 };
 export type Library = {
+  media?: {
+    portraits: boolean;
+    fanart_configured: boolean;
+    remote_playback: boolean;
+    listenbrainz_configured: boolean;
+  };
   artists: Artist[];
   albums: Album[];
   playlist_count?: number;

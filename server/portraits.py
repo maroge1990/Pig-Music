@@ -66,11 +66,8 @@ class Portraits:
         config = settings(self.store)
         if not config["portraits"]:
             return None
-        provider = hashlib.sha256(config.get("fanart_key", "").encode()).hexdigest()[
-            :12
-        ]
-        key = identifier("portrait-v2", (artist_id or normalise(name)) + provider)
-        target = self.store.cover_dir / (key + ".jpg")
+        target = portrait_target(self.store, name, artist_id)
+        key = target.stem
         if target.exists():
             return target
         missing = (
@@ -131,7 +128,7 @@ class Portraits:
                             content.extend(chunk)
                             if len(content) > 5_000_000:
                                 raise ValueError("Portrait too large")
-                    self.artwork.save(bytes(content), target)
+                    await asyncio.to_thread(self.artwork.save, bytes(content), target)
                     return target
             except (
                 httpx.HTTPError,
@@ -146,3 +143,10 @@ class Portraits:
                 return None
             self.artwork.remember_missing(missing, 86400)
             return None
+
+
+def portrait_target(store, name, artist_id=None):
+    config = settings(store)
+    provider = hashlib.sha256(config.get("fanart_key", "").encode()).hexdigest()[:12]
+    key = identifier("portrait-v2", (artist_id or normalise(name)) + provider)
+    return store.cover_dir / (key + ".jpg")

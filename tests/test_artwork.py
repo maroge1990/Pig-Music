@@ -10,6 +10,13 @@ from server.app import create_app
 from server.store import Store
 from server.artwork import artwork_year, artwork_title
 
+
+def settled_get(client, app, url):
+    first = client.get(url)
+    client.portal.call(app.state.enrichment.queue.join)
+    return client.get(url) if first.status_code == 404 else first
+
+
 GROUP = "22222222-2222-4222-8222-222222222222"
 RELEASE = "33333333-3333-4333-8333-333333333333"
 
@@ -52,8 +59,8 @@ def test_catalogue_cover_falls_back_only_to_same_release_group(tmp_path):
         original = app.state.http
         app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(transport))
         url = "/api/catalogue/artwork/release/" + RELEASE
-        assert client.get(url).status_code == 200
-        assert client.get(url).status_code == 200
+        assert settled_get(client, app, url).status_code == 200
+        assert settled_get(client, app, url).status_code == 200
         assert len(calls) == 3
         assert client.get("/api/catalogue/artwork/release/not-an-id").status_code == 400
         app.state.http = original
@@ -124,13 +131,13 @@ def test_library_artist_and_album_share_persistent_display_only_cover(tmp_path):
         original_client = app.state.http
         app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(transport))
         library = client.get("/api/library").json()
-        result = client.get(library["artists"][0]["cover_url"])
+        result = settled_get(client, app, library["artists"][0]["cover_url"])
         assert (
             result.status_code == 200 and result.headers["content-type"] == "image/jpeg"
         )
-        assert result.headers["cache-control"] == "no-cache"
+        assert result.headers["cache-control"] == "public, max-age=31536000, immutable"
         with Image.open(io.BytesIO(result.content)) as image:
-            assert image.size == (512, 384)
+            assert image.size == (800, 600)
         assert client.get(library["albums"][0]["cover_url"]).content == result.content
         assert len(calls) == 3
         assert snapshot_path_bytes(tmp_path) == original
@@ -177,7 +184,7 @@ def test_ambiguous_or_wrong_artist_does_not_fetch_cover(tmp_path):
         original_client = app.state.http
         app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(transport))
         url = client.get("/api/library").json()["albums"][0]["cover_url"]
-        assert client.get(url).status_code == 404
+        assert settled_get(client, app, url).status_code == 404
         assert client.get(url).status_code == 404
         assert (
             len(calls) == 1
@@ -209,7 +216,7 @@ def test_untrusted_image_redirect_is_not_followed(tmp_path):
         original_client = app.state.http
         app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(transport))
         url = client.get("/api/library").json()["albums"][0]["cover_url"]
-        assert client.get(url).status_code == 404
+        assert settled_get(client, app, url).status_code == 404
         assert len(calls) == 1 and calls[0].url.host == "coverartarchive.org"
         assert not list((tmp_path / "covers").glob("*.jpg"))
         app.state.http = original_client
@@ -304,6 +311,6 @@ def test_same_title_artwork_requires_unique_year_match(tmp_path):
         original_client = app.state.http
         app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(transport))
         url = client.get("/api/library").json()["albums"][0]["cover_url"]
-        assert client.get(url).status_code == 200
+        assert settled_get(client, app, url).status_code == 200
         assert len(calls) == 2
         app.state.http = original_client
