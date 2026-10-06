@@ -6,9 +6,13 @@ client/node_modules
 client/dist
 __pycache__
 .pytest_cache
-docs
+docs/*
+!docs/pig-family-brand-tokens.json
 tests
 
-swift
+swift/*
+!swift/PigKit/
+swift/PigKit/*
+!swift/PigKit/Sources/
 .github
 *.patch
