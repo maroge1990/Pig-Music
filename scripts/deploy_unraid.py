@@ -162,8 +162,13 @@ def main():
         + shlex.quote(image)
         + " /app/scripts/benchmark_cover_store.py --sizes 10000 50000"
     )
+    remote(
+        "docker run --rm --network none --memory=1g --entrypoint python "
+        + shlex.quote(image)
+        + " /app/scripts/benchmark_delivery.py"
+    )
     print(
-        "Candidate passed isolated Linux tests and artwork scale gate:",
+        "Candidate passed isolated Linux tests, artwork and HTTP delivery scale gates:",
         image,
         flush=True,
     )

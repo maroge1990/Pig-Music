@@ -228,3 +228,42 @@ def test_prune_only_removes_expired_owned_orphan_variants(tmp_path):
     assert small.exists()
     assert store.covers.prune(set(), now) == 1
     assert not small.exists() and custom.exists()
+
+
+def test_stopped_state_verifier_allows_only_additive_validated_art_pointers(
+    tmp_path, monkeypatch
+):
+    from scripts.verify_state_migration import main
+    from server.library import identifier
+
+    source = tmp_path / "source"
+    source.mkdir()
+    seed(source, 1)
+    store = Store(source)
+    album = store.library["albums"][0]
+    content = io.BytesIO()
+    Image.new("RGB", (256, 256), "red").save(content, "JPEG")
+    (
+        store.cover_dir / (identifier("catalogue-cover", album["id"]) + ".jpg")
+    ).write_bytes(content.getvalue())
+    store.write_document("user-preference", {"preserved": True})
+    expected = tmp_path / "expected.json"
+    expected.write_text(json.dumps({"tracks": 1, "album_ids": [album["id"]]}))
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "verify",
+            "--source",
+            str(source),
+            "--destination",
+            str(tmp_path / "copy"),
+            "--expected",
+            str(expected),
+        ],
+    )
+    main()
+    copied = Store(tmp_path / "copy")
+    assert copied.read_document("user-preference") == {"preserved": True}
+    assert copied.read_document(
+        "image-public:" + identifier("catalogue-cover", album["id"]) + ".jpg"
+    )["sha"]

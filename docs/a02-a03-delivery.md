@@ -16,7 +16,7 @@ Library JSON is compressed, with a strong response-content ETag and conditional 
 
 ## Verification
 
-- Backend: 125 tests pass locally, including blocked-provider HTTP responsiveness, queue bounds/deduplication/backoff, WebP dimensions, immutable/alias policies, conditional reads, playlist validator changes, settings invalidation and feed reconnect/slow-reader cleanup.
+- Backend: 126 tests pass locally, including blocked-provider HTTP responsiveness, queue bounds/deduplication/backoff, lock ordering, safe derivative pruning, validated additive presentation-cache migration, WebP dimensions, immutable/alias policies, conditional reads, playlist validator changes, settings invalidation and feed reconnect/slow-reader cleanup.
 - Frontend: conditional-body reuse regression plus existing discography regressions pass; strict TypeScript/build and formatting pass.
 - Disposable HTTP fixture, macOS/Python 3.12, 30 warm conditional requests per size:
 

@@ -1,7 +1,7 @@
 """Verify candidate projection against a stopped, read-only production backup.
 
 Runs without NAS/network mounts. Only disposable state is modified; durable
-rows must remain identical except for the additive album-edition anchor document.
+rows must remain identical except for edition anchors and validated additive display-cache pointers.
 """
 
 import argparse
@@ -82,9 +82,20 @@ def main():
         {a["id"] for a in store.library["albums"]}
     ), "Existing album links changed"
     after = rows(database)
+    original_documents = dict(before["documents"])
+    added_images = set()
+    for name, payload in after["documents"]:
+        if name.startswith("image-public:") and name not in original_documents:
+            value = json.loads(payload)
+            assert set(value) == {"sha"} and store.covers.path(
+                value["sha"]
+            ), "Invalid additive display-cache pointer"
+            added_images.add(name)
     for values in (before, after):
         values["documents"] = [
-            r for r in values["documents"] if r[0] != "album-edition-anchors"
+            r
+            for r in values["documents"]
+            if r[0] != "album-edition-anchors" and r[0] not in added_images
         ]
     assert before == after, "Existing durable preferences, queue or membership changed"
     print(
