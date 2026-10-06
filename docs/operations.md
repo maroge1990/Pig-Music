@@ -77,3 +77,7 @@ Backups live below `/mnt/user/appdata/pig-music-preview/backups/`; retained cont
 - **Playlist missing in Plex:** verify the single-owner connection and path mapping, then file publication/Plex indexing. Pig Music retains the complete ordered membership while Plex receives available files. Ownership markers prevent edits to unrelated playlists.
 - **Slow remote listening:** provider resolution is independent from library response. Saved-file playback is preferred; remote listening is experimental and does not queue or save a song.
 - **Quality mismatch:** inspect actual file format/bitrate and effective system/artist/album preference. Preserve existing music until a validated replacement completes. Do not bypass complete-file decoding to make the queue faster.
+
+## Registry images
+
+The owner has selected GHCR for the existing Unraid server. See [container releases](container-releases.md). Use `deploy_unraid.py --image ghcr.io/maroge1990/pig-music@sha256:<digest>` to verify a published image against its exact source commit. The normal backup, migration and explicit live-release safeguards still apply.

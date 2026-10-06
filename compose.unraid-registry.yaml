@@ -1,0 +1,8 @@
+# Overlay on compose.unraid-preview.yaml: preserve the existing appdata,
+# NAS mount, private addresses, engine, resource limits and rollback topology.
+# Example PIG_MUSIC_IMAGE=ghcr.io/maroge1990/pig-music@sha256:<verified digest>
+services:
+  pig-music:
+    image: ${PIG_MUSIC_IMAGE:?Set PIG_MUSIC_IMAGE to a tested GHCR image digest}
+    labels:
+      org.opencontainers.image.source: https://github.com/maroge1990/Pig-Music

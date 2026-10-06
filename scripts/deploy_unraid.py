@@ -68,6 +68,10 @@ def main():
         help="Unique lowercase candidate suffix; never overwrite a release",
     )
     parser.add_argument(
+        "--image",
+        help="Tested ghcr.io/maroge1990/pig-music@sha256:<digest>; pull instead of local build",
+    )
+    parser.add_argument(
         "--deploy",
         action="store_true",
         help="After passing candidate tests, update the live container",
@@ -75,7 +79,27 @@ def main():
     args = parser.parse_args()
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{3,70}", args.version):
         parser.error("Use a lowercase version suffix")
-    image = "pig-music:" + args.version
+    if args.image and not re.fullmatch(
+        r"ghcr\.io/maroge1990/pig-music@sha256:[0-9a-f]{64}", args.image
+    ):
+        parser.error(
+            "Registry images must use the Pig Music repository and a full SHA-256 digest"
+        )
+    image = args.image or "pig-music:" + args.version
+    revision = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
+    if (
+        args.image
+        and subprocess.check_output(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=ROOT,
+            text=True,
+        ).strip()
+    ):
+        parser.error(
+            "Registry verification requires a clean tracked source tree at the image commit"
+        )
     stage = REMOTE + "/releases/" + args.version
     ssh = ["ssh", "-i", str(args.key), "-o", "BatchMode=yes", args.host]
 
@@ -83,7 +107,7 @@ def main():
         subprocess.run(ssh + [command], check=True)
 
     output = ROOT / ".localdata" / "deploy"
-    output.mkdir(exist_ok=True)
+    output.mkdir(parents=True, exist_ok=True)
     archive = output / (args.version + ".tar.gz")
     bundle(archive)
     remote(
@@ -99,21 +123,50 @@ def main():
         ],
         check=True,
     )
+    remote("cd " + shlex.quote(stage) + "; tar -xzf source.tar.gz; chmod -R a+rX tests")
+    if args.image:
+        remote("docker pull " + shlex.quote(image))
+        # Match the supplied source/tests to the image, without inspecting secrets.
+        remote(
+            "test $(docker image inspect --format '{{index .Config.Labels \"org.opencontainers.image.revision\"}}' "
+            + shlex.quote(image)
+            + ") = "
+            + shlex.quote(revision)
+        )
+        remote(
+            "test $(docker image inspect --format '{{index .Config.Labels \"org.opencontainers.image.source\"}}' "
+            + shlex.quote(image)
+            + ") = https://github.com/maroge1990/Pig-Music"
+        )
+    else:
+        remote(
+            "cd "
+            + shlex.quote(stage)
+            + "; docker build --build-arg VCS_REF="
+            + shlex.quote(revision)
+            + " --build-arg VERSION="
+            + shlex.quote(args.version)
+            + " -t "
+            + shlex.quote(image)
+            + " ."
+        )
     remote(
-        "set -e; cd "
-        + shlex.quote(stage)
-        + "; tar -xzf source.tar.gz; chmod -R a+rX tests; docker build -t "
-        + shlex.quote(image)
-        + " ."
-    )
-    remote(
-        "docker run --rm --network none --user 99:100 --tmpfs /tmp:rw,uid=99,gid=100 --tmpfs /data:rw,uid=99,gid=100 -e PYTHONDONTWRITEBYTECODE=1 -e PIG_MUSIC_PRELOAD=false -e PIG_MUSIC_EMBEDDED_ENGINE=false -v "
+        "docker run --rm --network none --memory=1g --user 99:100 --tmpfs /tmp:rw,uid=99,gid=100 --tmpfs /data:rw,uid=99,gid=100 -e PYTHONDONTWRITEBYTECODE=1 -e PIG_MUSIC_PRELOAD=false -e PIG_MUSIC_EMBEDDED_ENGINE=false -v "
         + shlex.quote(stage + "/tests:/tests:ro")
         + " --entrypoint python "
         + shlex.quote(image)
         + " -m pytest /tests -q -p no:cacheprovider --basetemp=/tmp/pig-tests"
     )
-    print("Candidate passed isolated Linux tests:", image, flush=True)
+    remote(
+        "docker run --rm --network none --memory=1g --entrypoint python "
+        + shlex.quote(image)
+        + " /app/scripts/benchmark_cover_store.py --sizes 10000 50000"
+    )
+    print(
+        "Candidate passed isolated Linux tests and artwork scale gate:",
+        image,
+        flush=True,
+    )
     if not args.deploy:
         return
     backup = REMOTE + "/backups/pre-" + args.version

@@ -13,3 +13,4 @@ Start with [blueprint.md](../blueprint.md), the primary engineering/agent handov
 Credentials, appdata, music exports, private measurements and screenshots remain ignored local artifacts. They are not handover prerequisites; record the reproducible procedure and verification summary in current docs.
 
 - [A01 artwork foundation](a01-cover-store.md): implementation, local scale evidence, migration and release gates.
+- [Container releases](container-releases.md): GHCR builds, source/digest traceability and Unraid transition.

@@ -8,3 +8,7 @@ __pycache__
 .pytest_cache
 docs
 tests
+
+swift
+.github
+*.patch

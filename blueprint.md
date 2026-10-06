@@ -73,6 +73,7 @@ Order is deliberate. Add new entries with a stable ID, rationale, dependencies a
 | 2 / A02 | Non-blocking enrichment, derivatives, immutable caching and incremental provider work | Planned next | A01 |
 | 2 / A03 | Library compression/conditional reads, indexed lookups and grid performance | Planned | A01/A02 verification |
 | Deferred / B01–B02 | Brand tokens/type and final Pig Music identity integration | Deferred by owner, 6 October 2026 | Owner confirmation branding is complete; assess existing Pig-Branding exports first |
+| 2 / D01 | GitHub-linked GHCR image releases for the existing Unraid deployment | Implemented; workflow validation/publication pending | [Container releases](docs/container-releases.md); immutable digest, image tests, stopped-state migration and authorised switch |
 | 2 / V01 | Physical iPhone scrolling/player checks and a real off-site Tailscale session | Unverified acceptance work | Owner's device/off-site session; emulator/LAN results are insufficient |
 | 3 / H01 | Phase 1b household profiles and two library memberships over shared file assets | Planned; design first | Cleanup stable; agree ownership, sharing/removal semantics, visibility and scan mapping before implementation |
 | 4 / H02 | Per-user favourites/playlists and Plex owner/account export mapping | Planned | H01; validate native Plex users and each library mapping without changing another owner's playlists |
@@ -176,3 +177,5 @@ Historical documents are indexed in [the documentation directory](docs/README.md
 - At handover: state what changed, what was verified, current image/rollback path, open risks and the next prioritised work item. Update this document and the decision dialogue; do not scatter another competing roadmap into a new milestone.
 
 - **6 October 2026 — audit follow-up authorised:** Owner approved artwork foundations first, Swift feasibility preparation alongside them, and branding deferred until confirmed complete. A01 implementation removes image bytes from snapshots without changing track/edition identities. Local benchmark and regression evidence is in `docs/a01-cover-store.md`; Linux image and stopped-state release acceptance remain pending. A02 is next.
+
+- **6 October 2026 — registry transition:** Owner requested a proper repository-linked container and confirmed existing Unraid plus Container Registry. Source is the private `maroge1990/Pig-Music` GitHub repository; target is `ghcr.io/maroge1990/pig-music`. D01 prepares image test/publish automation and immutable-digest deployment using existing backups and topology. GitHub access is verified; Unraid SSH access is currently unavailable. No live switch has occurred.

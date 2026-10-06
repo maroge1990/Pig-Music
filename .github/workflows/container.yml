@@ -1,0 +1,77 @@
+name: Container checks and registry releases
+
+on:
+  pull_request:
+    paths: ['server/**', 'client/**', 'tests/**', 'scripts/**', 'Dockerfile', '.dockerignore', 'requirements*.txt', 'compose*.yaml', '.github/workflows/container.yml']
+  push:
+    branches: [main, 'feature/**']
+    tags: ['v*']
+    paths: ['server/**', 'client/**', 'tests/**', 'scripts/**', 'Dockerfile', '.dockerignore', 'requirements*.txt', 'compose*.yaml', '.github/workflows/container.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Build exact candidate
+        env:
+          REVISION: ${{ github.sha }}
+        run: |
+          docker build --build-arg VCS_REF="$REVISION" --build-arg VERSION="sha-$REVISION" -t pig-music:candidate .
+      - name: Backend regression suite in isolated container
+        run: |
+          docker run --rm --network none --memory=1g --user 99:100 \
+            --tmpfs /tmp:rw,uid=99,gid=100 --tmpfs /data:rw,uid=99,gid=100 \
+            -e PYTHONDONTWRITEBYTECODE=1 -e PIG_MUSIC_PRELOAD=false -e PIG_MUSIC_EMBEDDED_ENGINE=false \
+            -v "$GITHUB_WORKSPACE/tests:/tests:ro" --entrypoint python \
+            pig-music:candidate -m pytest /tests -q -p no:cacheprovider --basetemp=/tmp/pig-tests
+      - name: Artwork scale gate under 1 GB
+        run: |
+          docker run --rm --network none --memory=1g \
+            -e PYTHONDONTWRITEBYTECODE=1 --entrypoint python pig-music:candidate \
+            scripts/benchmark_cover_store.py --sizes 10000 50000 | tee artwork-benchmark.json
+      - name: Frontend tests and formatting
+        working-directory: client
+        run: |
+          npm ci
+          npm test
+          npm run format:check
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish tested image
+        if: github.event_name != 'pull_request'
+        env:
+          REVISION: ${{ github.sha }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          image="ghcr.io/maroge1990/pig-music"
+          docker tag pig-music:candidate "$image:sha-$REVISION"
+          docker push "$image:sha-$REVISION"
+          if [ "$REF_TYPE" = tag ]; then
+            [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]] || exit 1
+            docker tag pig-music:candidate "$image:$REF_NAME"
+            docker push "$image:$REF_NAME"
+          fi
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$image:sha-$REVISION")
+          printf '### Tested container\n\n`%s`\n\nSource commit: `%s`\n' "$digest" "$REVISION" >> "$GITHUB_STEP_SUMMARY"
+          printf '\n### Artwork benchmark\n\n```json\n' >> "$GITHUB_STEP_SUMMARY"
+          cat artwork-benchmark.json >> "$GITHUB_STEP_SUMMARY"
+          printf '\n```\n' >> "$GITHUB_STEP_SUMMARY"
