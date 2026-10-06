@@ -1,17 +1,16 @@
 """Approved identity delivery and source-of-truth drift gates."""
 
 import json
-from pathlib import Path
 import subprocess
 import sys
 
 from fastapi.testclient import TestClient
 
-from server.app import create_app
+from server.app import ROOT, create_app
 
 
 def test_brand_outputs_are_current():
-    root = Path(__file__).resolve().parents[1]
+    root = ROOT
     subprocess.run(
         [sys.executable, str(root / "scripts/generate_brand_tokens.py"), "--check"],
         check=True,
