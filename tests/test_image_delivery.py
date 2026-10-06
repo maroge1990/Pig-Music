@@ -267,3 +267,19 @@ def test_stopped_state_verifier_allows_only_additive_validated_art_pointers(
     assert copied.read_document(
         "image-public:" + identifier("catalogue-cover", album["id"]) + ".jpg"
     )["sha"]
+
+
+def test_corrupt_legacy_provider_cache_does_not_block_library_startup(tmp_path):
+    from server.library import identifier
+
+    seed(tmp_path, 1)
+    store = Store(tmp_path)
+    album = store.library["albums"][0]
+    cached = store.cover_dir / (identifier("catalogue-cover", album["id"]) + ".jpg")
+    cached.write_bytes(b"corrupt cached picture")
+    restarted = Store(tmp_path)
+    assert restarted.library["stats"]["tracks"] == 1
+    assert restarted.library["albums"][0]["cover_url"].startswith(
+        "/api/library-artwork/"
+    )
+    assert cached.read_bytes() == b"corrupt cached picture"

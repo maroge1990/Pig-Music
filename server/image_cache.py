@@ -26,7 +26,11 @@ def public_image(store, target):
     key = "image-public:" + target.name
     sha = store.read_document(key).get("sha")
     if not store.covers.path(sha):
-        sha = store.covers.save(target.read_bytes())
+        try:
+            sha = store.covers.save(target.read_bytes())
+        except (OSError, ValueError, Image.DecompressionBombError):
+            # Display caches must never prevent the music projection from loading.
+            return None
         store.write_document(key, {"sha": sha})
     return store.covers.path(sha)
 
