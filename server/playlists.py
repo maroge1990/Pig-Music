@@ -7,13 +7,33 @@ from .library import normalise
 
 
 class Playlists:
-    def __init__(self, store):
+    def __init__(self, store, user_id=None):
         self.store = store
+        self.user_id = user_id
 
-    def raw(self, playlist_id):
+    def owner(self):
+        if self.user_id:
+            return self.user_id
         with self.store.connect() as conn:
             row = conn.execute(
-                "SELECT payload FROM playlists WHERE id=?", (playlist_id,)
+                "SELECT id FROM users WHERE role='owner' ORDER BY created_at LIMIT 1"
+            ).fetchone()
+        return row[0] if row else None
+
+    def clause(self):
+        identity = self.owner()
+        if self.user_id:
+            return " AND owner_id=?", (identity,)
+        if identity:
+            return " AND (owner_id=? OR owner_id IS NULL)", (identity,)
+        return " AND owner_id IS NULL", ()
+
+    def raw(self, playlist_id):
+        clause, params = self.clause()
+        with self.store.connect() as conn:
+            row = conn.execute(
+                "SELECT payload FROM playlists WHERE id=?" + clause,
+                (playlist_id, *params),
             ).fetchone()
         if not row:
             raise ValueError("Playlist not found.")
@@ -22,8 +42,13 @@ class Playlists:
     def detail(self, playlist_id):
         playlist = self.raw(playlist_id)
         entries = []
+        index = self.store.index
+        if self.user_id:
+            from .matching import LibraryIndex
+
+            index = LibraryIndex(self.store.user_libraries.projection(self.user_id))
         for position, track in enumerate(playlist["tracks"]):
-            result = self.store.index.match(track)
+            result = index.match(track)
             match = result.track
             entries.append(
                 {
@@ -56,8 +81,14 @@ class Playlists:
         }
 
     def list(self):
+        clause, params = self.clause()
         with self.store.connect() as conn:
-            ids = [r[0] for r in conn.execute("SELECT id FROM playlists")]
+            ids = [
+                r[0]
+                for r in conn.execute(
+                    "SELECT id FROM playlists WHERE 1=1" + clause, params
+                )
+            ]
         return [
             {
                 k: v
@@ -108,8 +139,13 @@ class Playlists:
         }
         with self.store.connect() as conn:
             conn.execute(
-                "INSERT INTO playlists VALUES (?,?)", (identity, json.dumps(payload))
+                "INSERT INTO playlists(id,payload,owner_id) VALUES (?,?,?)",
+                (identity, json.dumps(payload), self.owner()),
             )
+            if self.owner():
+                from .user_library import bump
+
+                bump(conn, self.owner())
         return self.detail(identity)
 
     def membership(self, track):
@@ -130,10 +166,12 @@ class Playlists:
         return same_song(left, right)
 
     def add(self, playlist_id, track):
+        clause, params = self.clause()
         with self.store.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
-                "SELECT payload FROM playlists WHERE id=?", (playlist_id,)
+                "SELECT payload FROM playlists WHERE id=?" + clause,
+                (playlist_id, *params),
             ).fetchone()
             if not row:
                 raise ValueError("Playlist not found.")
@@ -145,10 +183,15 @@ class Playlists:
                 "UPDATE playlists SET payload=? WHERE id=?",
                 (json.dumps(payload), playlist_id),
             )
+            if self.owner():
+                from .user_library import bump
+
+                bump(conn, self.owner())
         return self.detail(playlist_id)
 
     def favourite(self, track, value=None):
-        identity = "pig-favourites"
+        owner_id = self.owner()
+        identity = "pig-favourites:" + owner_id if owner_id else "pig-favourites"
         key = self.membership(track)
         with self.store.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -176,7 +219,11 @@ class Playlists:
             if value:
                 payload["tracks"].append(track)
             conn.execute(
-                "INSERT INTO playlists VALUES (?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
-                (identity, json.dumps(payload)),
+                "INSERT INTO playlists(id,payload,owner_id) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
+                (identity, json.dumps(payload), owner_id),
             )
+            if owner_id:
+                from .user_library import bump
+
+                bump(conn, owner_id)
         return {"favourited": value}

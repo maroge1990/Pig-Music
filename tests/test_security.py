@@ -72,7 +72,24 @@ def test_member_cannot_see_unscoped_legacy_routes(tmp_path, monkeypatch):
         base_url="https://private.ts.net",
         headers={"Authorization": "Bearer " + token},
     ) as client:
+        personal_paths = {
+            route.path
+            for route in app.routes
+            if "personal-library" in getattr(route, "tags", [])
+        }
         for method, path in request_paths(app):
+            if any(
+                path == route.path.replace("{" + name + "}", "fixture")
+                for route in app.routes
+                if getattr(route, "path", "") in personal_paths
+                for name in route.param_convertors
+            ):
+                continue
+            if path in personal_paths:
+                continue
+            if path.startswith(("/api/v1/playback/", "/api/playback/files/")):
+                assert client.request(method, path, json={}).status_code == 404
+                continue
             if (method, path) in PUBLIC or path.startswith(
                 ("/api/v1/me", "/api/v1/auth/logout")
             ):

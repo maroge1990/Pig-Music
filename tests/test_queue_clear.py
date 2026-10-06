@@ -21,7 +21,7 @@ def test_clear_queue_invalidates_claim_and_preserves_music_and_playlists(tmp_pat
     old = store.claim_request()
     with store.connect() as conn:
         conn.execute(
-            "INSERT INTO playlists VALUES (?,?)",
+            "INSERT INTO playlists(id,payload) VALUES (?,?)",
             ("kept", json.dumps({"id": "kept", "name": "Playlist", "entries": []})),
         )
     store.clear_queue()

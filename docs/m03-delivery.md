@@ -1,0 +1,11 @@
+# M03 personal-library foundation
+
+7 October 2026. Development checkpoint; not deployed. The live image remains brand-https-20261007-v1. Account rollout requires the remaining M03/M04–M07 work and interactive owner creation.
+
+Migration 0003 adds personal membership, playlist ownership, membership revisions, idempotent playback events and preferences. The first owner bootstrap transaction attributes existing tracks, playlists and requests exactly once; subsequent external scan results remain unassigned. Favourites have personal IDs. Household metadata is built once, with bounded per-user projection caches retaining references and recomputing personal counts.
+
+The versioned personal router provides library pages, albums/artists/search, membership, private playlist creation and song addition, favourites, Apple import, music requests, playback history and preferences. Personal track and request responses omit server paths and internal claim/beneficiary fields. Playlist import saves private playlists without requesting downloads. An explicit request for music already available creates membership with no queue row; callers of an existing request attach as beneficiaries. Publication and crash recovery grant membership transactionally. Signed media checks current membership in addition to session validity.
+
+Legacy household/operator routes remain owner-only. Per-user artist monitoring, household availability annotation, complete playlist lifecycle, legacy frontend conversion and account rollout are still outstanding. This checkpoint does not mark M03 complete. The stopped-state verifier accepts additive schema 3 changes for the current production state without accounts; owner-attribution verification against a bootstrapped production backup remains to be added before account deployment.
+
+Validation: full backend suite passed 167 tests before adding the owner-backfill/external-scan regression. Additional targeted verification covers anonymous/bootstrap protection, member denial on household routes, scoped media, private imports/playlists/favourites, shared requests, path disclosure, idempotent history and transactional history rollback. No live owner or member account was created.

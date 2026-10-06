@@ -30,7 +30,10 @@ def test_fresh_and_existing_schema_match_and_rows_survive(tmp_path):
     migrate(legacy)
     assert schema(fresh) == schema(legacy)
     assert list(legacy.execute("SELECT * FROM selections")) == [("track-a",)]
-    assert list(legacy.execute("SELECT * FROM playlists")) == [("playlist-a", "{}")]
+    assert list(legacy.execute("SELECT id,payload FROM playlists")) == [
+        ("playlist-a", "{}")
+    ]
+    assert legacy.execute("SELECT owner_id FROM playlists").fetchone()[0] is None
     assert list(legacy.execute("SELECT * FROM documents")) == [
         ("preferences", '{"theme":"dark"}')
     ]

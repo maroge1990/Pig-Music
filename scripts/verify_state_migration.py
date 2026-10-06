@@ -98,7 +98,7 @@ def main():
             if r[0] != "album-edition-anchors" and r[0] not in added_images
         ]
     ledger = after.pop("schema_migrations", [])
-    assert [r[0] for r in ledger] == [1, 2], "Unexpected migration versions"
+    assert [r[0] for r in ledger] == [1, 2, 3], "Unexpected migration versions"
     assert all(
         isinstance(r[1], str) and r[1] for r in ledger
     ), "Missing migration timestamps"
@@ -111,6 +111,21 @@ def main():
             assert (
                 after.pop(table, []) == []
             ), "Account foundation populated unexpected records"
+    for table in (
+        "library_members",
+        "membership_versions",
+        "play_events",
+        "user_preferences",
+    ):
+        if table not in before:
+            assert (
+                after.pop(table, []) == []
+            ), "Personal foundation populated unexpected records"
+    if before.get("playlists") and len(before["playlists"][0]) == 2:
+        assert all(
+            row[2] is None for row in after["playlists"]
+        ), "Unexpected playlist ownership"
+        after["playlists"] = [row[:2] for row in after["playlists"]]
     assert before == after, "Existing durable preferences, queue or membership changed"
     print(
         "Stopped-state migration verified:",

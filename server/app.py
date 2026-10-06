@@ -19,6 +19,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from .auth import Auth
 from .auth_logging import install_validation_redaction
 from .routes.auth import auth_router, set_cookie
+from .routes.personal import personal_router
 from .security import Security, audit_routes
 from .transport import public_origin
 from .enrichment import Enrichment
@@ -195,6 +196,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     app.state.auth = auth
     app.state.security = security
     app.include_router(auth_router(auth))
+    app.include_router(personal_router(store))
     install_validation_redaction(app)
     app.state.store = store
     app.state.enrichment = enrichment

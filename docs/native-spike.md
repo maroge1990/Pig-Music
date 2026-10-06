@@ -1,6 +1,6 @@
 # S00 native feasibility: preparation and device evidence
 
-6 October 2026. **Preparation implemented; actual-device feasibility remains unverified.** This is a disposable connectivity/audio spike, not the P01 production client. Branding is deferred by the owner.
+6 October 2026. **Preparation implemented; actual-device feasibility remains unverified.** This is a disposable connectivity/audio spike, not the P01 production client. Branding was approved on 7 October; the disposable spike retains system presentation.
 
 ## Owner-provided inventory and signing
 
@@ -51,7 +51,7 @@ Record each result as passed, failed or not run, with device/OS/build and condit
 
 1. Sideloadly install on each iPhone; whether the embedded Watch app installs automatically or via the Watch app's Install control.
 2. App-ID/installed-app count and a refresh cycle on the free account. Confirm data and Watch app remain usable. Leave widgets/App Groups out until proven necessary and supported.
-3. iPhone HTTPS health on home LAN and cellular with Tailscale. T01/private HTTPS setup must exist first; current HTTP-only access cannot satisfy this test.
+3. iPhone HTTPS health on home LAN and cellular with Tailscale. The private HTTPS endpoint is now https://passyflix.tail6d1471.ts.net:10000/. Connect the iPhone to Tailscale before testing.
 4. Watch health with the phone nearby; with Bluetooth disabled; and with the phone off while the Watch uses home Wi-Fi. Do not assume Watch traffic traverses the phone's VPN.
 5. Watch local AAC playback to Bluetooth headphones without the phone nearby, including interruption/resume behaviour.
 6. Add a background URLSession transfer probe and paired-phone file transfer once the basic installation/networking path is established. Those probes are not implemented yet.
@@ -60,3 +60,7 @@ Record each result as passed, failed or not run, with device/OS/build and condit
 If Sideloadly cannot install/refresh the Watch app, record that failure before evaluating direct Xcode installation or a paid-account alternative with the owner. No Watch production work depends on an unproven distribution path.
 
 The first production client milestone remains secure sign-in plus synced library browsing after the account/API foundations. This spike never signs in against the current unauthenticated API.
+
+## Device status, 7 October 2026
+
+The owner reports that the prepared IPA has not yet been installed. Installation, refresh, phone networking and Watch headphones playback remain **not run**. Production Watch implementation remains gated on this evidence.

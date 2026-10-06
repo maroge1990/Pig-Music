@@ -154,7 +154,7 @@ def test_library_compression_validator_and_playlist_invalidation(tmp_path):
             == 304
         )
         with app.state.store.connect() as conn:
-            conn.execute("INSERT INTO playlists VALUES ('test','{}')")
+            conn.execute("INSERT INTO playlists(id,payload) VALUES ('test','{}')")
         changed = client.get("/api/library", headers={"If-None-Match": etag})
         assert changed.status_code == 200
         assert changed.json()["playlist_count"] == 1

@@ -1,0 +1,338 @@
+"""Personal projections over shared immutable household metadata.
+
+Membership and request beneficiaries are durable; projection caches only retain
+references and small per-user lists. User data never changes household identity.
+"""
+
+from collections import OrderedDict, defaultdict
+import hashlib
+import json
+import time
+
+from .library import identifier, normalise
+from .media import public_settings
+
+TRACK_FIELDS = frozenset(
+    {
+        "id",
+        "title",
+        "artist",
+        "album",
+        "album_artist",
+        "year",
+        "track_number",
+        "disc_number",
+        "duration",
+        "codec",
+        "bitrate",
+        "album_id",
+        "cover_sha",
+        "cover_url",
+        "available",
+        "musicbrainz_release_id",
+        "musicbrainz_recording_id",
+        "isrcs",
+        "genre",
+    }
+)
+
+
+def track_dto(track):
+    return {key: value for key, value in track.items() if key in TRACK_FIELDS}
+
+
+def bump(conn, user_id):
+    conn.execute(
+        "INSERT INTO membership_versions(user_id,revision) VALUES (?,1) ON CONFLICT(user_id) DO UPDATE SET revision=revision+1",
+        (user_id,),
+    )
+
+
+def initialise_owner(store):
+    with store.library_lock, store.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        owner = conn.execute(
+            "SELECT id FROM users WHERE role='owner' AND disabled=0 ORDER BY created_at LIMIT 1"
+        ).fetchone()
+        if (
+            not owner
+            or conn.execute(
+                "SELECT 1 FROM documents WHERE name='household-membership-initialised'"
+            ).fetchone()
+        ):
+            return
+        identity = owner[0]
+        now = int(time.time())
+        for album in store.library["albums"]:
+            conn.executemany(
+                "INSERT OR IGNORE INTO library_members VALUES (?,?,?,'migration')",
+                [(identity, t["id"], now) for t in album["tracks"]],
+            )
+        conn.execute(
+            "UPDATE playlists SET owner_id=? WHERE owner_id IS NULL", (identity,)
+        )
+        favourites = conn.execute(
+            "SELECT payload FROM playlists WHERE id='pig-favourites'"
+        ).fetchone()
+        if favourites:
+            renamed = "pig-favourites:" + identity
+            payload = {**json.loads(favourites[0]), "id": renamed}
+            conn.execute(
+                "UPDATE playlists SET id=?,payload=? WHERE id='pig-favourites'",
+                (renamed, json.dumps(payload)),
+            )
+            legacy = conn.execute(
+                "SELECT payload FROM documents WHERE name='plex-playlist:pig-favourites'"
+            ).fetchone()
+            if legacy:
+                conn.execute(
+                    "INSERT OR IGNORE INTO documents VALUES (?,?)",
+                    ("plex-playlist:" + renamed, legacy[0]),
+                )
+        for key, payload in conn.execute("SELECT id,payload FROM queue").fetchall():
+            value = json.loads(payload)
+            if "requested_by" not in value:
+                value["requested_by"] = [identity]
+                conn.execute(
+                    "UPDATE queue SET payload=? WHERE id=?", (json.dumps(value), key)
+                )
+        bump(conn, identity)
+        conn.execute(
+            "INSERT INTO documents VALUES ('household-membership-initialised',?)",
+            (json.dumps({"owner_id": identity}),),
+        )
+
+
+class UserLibrary:
+    def __init__(self, store):
+        self.store = store
+        self.cache = OrderedDict()
+
+    def projection(self, user_id):
+        initialise_owner(self.store)
+        with self.store.library_lock, self.store.connect() as conn:
+            membership_revision = conn.execute(
+                "SELECT revision FROM membership_versions WHERE user_id=?", (user_id,)
+            ).fetchone()
+            signature = (
+                self.store.library_revision,
+                membership_revision[0] if membership_revision else 0,
+                json.dumps(public_settings(self.store), sort_keys=True),
+            )
+            previous = self.cache.get(user_id)
+            if previous and previous[0] == signature:
+                self.cache.move_to_end(user_id)
+                return previous[1]
+            members = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT track_id FROM library_members WHERE user_id=?", (user_id,)
+                )
+            }
+            albums = []
+            for album in self.store.library["albums"]:
+                tracks = [track for track in album["tracks"] if track["id"] in members]
+                if tracks:
+                    albums.append(
+                        {
+                            **album,
+                            "tracks": tracks,
+                            "track_count": len(tracks),
+                            "duration": sum(t.get("duration", 0) for t in tracks),
+                            "codecs": sorted(
+                                {t.get("codec", "") for t in tracks if t.get("codec")}
+                            ),
+                        }
+                    )
+            by_album = {a["id"]: a for a in albums}
+            all_tracks = {t["id"]: t for a in albums for t in a["tracks"]}
+            credited_by_artist = defaultdict(list)
+            artist_ids = {}
+            for track in all_tracks.values():
+                name = track.get("artist", "")
+                if name not in artist_ids:
+                    artist_ids[name] = identifier("artist", normalise(name))
+                credited_by_artist[artist_ids[name]].append(track)
+            artists = []
+            for artist in self.store.library["artists"]:
+                owned = [i for i in artist["album_ids"] if i in by_album]
+                credited = credited_by_artist[artist["id"]]
+                associated = {t["id"] for t in credited}
+                associated.update(
+                    t["id"] for a in albums if a["id"] in owned for t in a["tracks"]
+                )
+                if associated:
+                    representative = (
+                        owned[0]
+                        if owned
+                        else next(
+                            a["id"]
+                            for a in albums
+                            if any(t["id"] in associated for t in a["tracks"])
+                        )
+                    )
+                    artists.append(
+                        {
+                            **artist,
+                            "album_ids": owned,
+                            "album_count": len(owned),
+                            "track_count": len(associated),
+                            "compilation_only": not bool(owned),
+                            "cover_album_id": representative,
+                            "cover_url": by_album[representative].get("cover_url"),
+                        }
+                    )
+            revision = hashlib.sha256(json.dumps(signature).encode()).hexdigest()
+            value = {
+                "artists": artists,
+                "albums": albums,
+                "tracks": list(all_tracks.values()),
+                "stats": {
+                    "tracks": len(all_tracks),
+                    "artists": len(artists),
+                    **{
+                        kind + "s": sum(a["category"] == kind for a in albums)
+                        for kind in ("album", "compilation", "soundtrack", "musical")
+                    },
+                },
+                "revision": revision,
+                "media": public_settings(self.store),
+                "snapshot": {
+                    "captured_at": self.store.library.get("snapshot", {}).get(
+                        "captured_at"
+                    )
+                },
+            }
+            self.cache[user_id] = (signature, value)
+            self.cache.move_to_end(user_id)
+            while len(self.cache) > 8:
+                self.cache.popitem(last=False)
+            return value
+
+    def summary(self, user_id):
+        projection = self.projection(user_id)
+        from .playlists import Playlists
+
+        return {
+            **{key: value for key, value in projection.items() if key != "tracks"},
+            "albums": [
+                {k: v for k, v in a.items() if k not in {"tracks", "cover_key"}}
+                for a in projection["albums"]
+            ],
+            "playlist_count": len(Playlists(self.store, user_id).list()),
+        }
+
+    def contains(self, user_id, track_id):
+        initialise_owner(self.store)
+        with self.store.connect() as conn:
+            return (
+                conn.execute(
+                    "SELECT 1 FROM library_members WHERE user_id=? AND track_id=?",
+                    (user_id, track_id),
+                ).fetchone()
+                is not None
+            )
+
+    def add(self, user_id, track_ids, source="household-add"):
+        initialise_owner(self.store)
+        with self.store.library_lock, self.store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            available = {
+                t["id"]
+                for a in self.store.library["albums"]
+                for t in a["tracks"]
+                if t.get("available", True)
+            }
+            if not set(track_ids).issubset(available):
+                raise ValueError("One or more files are unavailable")
+            changed = 0
+            for identity in set(track_ids):
+                changed += conn.execute(
+                    "INSERT OR IGNORE INTO library_members VALUES (?,?,?,?)",
+                    (user_id, identity, int(time.time()), source),
+                ).rowcount
+            if changed:
+                bump(conn, user_id)
+        return {"added": changed, "revision": self.projection(user_id)["revision"]}
+
+    def queue(self, user_id):
+        result = self.store.queue()
+        result["items"] = [
+            {
+                k: v
+                for k, v in job.items()
+                if k
+                in TRACK_FIELDS
+                | {"status", "created_at", "updated_at", "progress", "quality_profile"}
+            }
+            for job in result["items"]
+            if user_id in job.get("requested_by", [])
+        ]
+        return result
+
+    def import_playlists(self, user_id, raw):
+        from .library import parse_apple
+
+        source = parse_apple(raw)
+        by_track = {t["id"]: track_dto(t) for t in source["tracks"]}
+        with self.store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            for playlist in source.get("playlists", []):
+                identity = identifier("user-playlist", user_id, playlist["id"])
+                payload = {
+                    **playlist,
+                    "id": identity,
+                    "tracks": [by_track[i] for i in playlist["track_ids"]],
+                    "imported_at": source["imported_at"],
+                }
+                conn.execute(
+                    "INSERT INTO playlists(id,payload,owner_id) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
+                    (identity, json.dumps(payload), user_id),
+                )
+            conn.execute(
+                "INSERT INTO documents VALUES (?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
+                ("migration:" + user_id, json.dumps(source)),
+            )
+            bump(conn, user_id)
+        return {
+            "playlists": len(source.get("playlists", [])),
+            "tracks": len(source["tracks"]),
+        }
+
+    def request(self, user_id, tracks):
+        prepared = []
+        for track in tracks:
+            result = self.store.index.match(track)
+            prepared.append({**track, "status": result.status})
+        return self.store.submit_catalogue(prepared, user_id=user_id)
+
+    def history(self, user_id, events, session_id):
+        now = int(time.time())
+        with self.store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            added = 0
+            for event in events:
+                if not conn.execute(
+                    "SELECT 1 FROM library_members WHERE user_id=? AND track_id=?",
+                    (user_id, event["track_id"]),
+                ).fetchone():
+                    raise ValueError("A played track is outside your library")
+                if (
+                    event["played_at"] > now + 300
+                    or event["played_at"] < now - 30 * 86400
+                ):
+                    raise ValueError(
+                        "Playback event timestamp is outside the accepted window"
+                    )
+                added += conn.execute(
+                    "INSERT OR IGNORE INTO play_events(user_id,track_id,played_at,seconds,device_session_id,event_id) VALUES (?,?,?,?,?,?)",
+                    (
+                        user_id,
+                        event["track_id"],
+                        event["played_at"],
+                        event["seconds"],
+                        session_id,
+                        event["event_id"],
+                    ),
+                ).rowcount
+        return {"recorded": added}

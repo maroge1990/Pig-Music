@@ -109,8 +109,19 @@ class Security:
             request.state.refresh_cookie = token
         # Personal media/library projection lands in M03. Never expose the
         # old household projection to members during this intermediate package.
-        if person["role"] != "owner" and not request.url.path.startswith(
-            PERSONAL_ACCOUNT_PREFIXES
+        scoped = "personal-library" in getattr(request.scope.get("route"), "tags", [])
+        media_path = request.url.path.startswith(
+            "/api/playback/files/"
+        ) or request.url.path.startswith("/api/v1/playback/")
+        if media_path:
+            track_id = request.path_params.get("track_id")
+            if not self.auth.store.user_libraries.contains(person["id"], track_id):
+                raise HTTPException(404, "Track not found")
+            scoped = True
+        if (
+            person["role"] != "owner"
+            and not scoped
+            and not request.url.path.startswith(PERSONAL_ACCOUNT_PREFIXES)
         ):
             raise HTTPException(403, "personal_libraries_pending")
         request.state.user, request.state.session = person, session

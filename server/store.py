@@ -42,6 +42,10 @@ class Store:
             migrate(conn)
         self.refresh_library()
         self.source = self.read_document("migration")
+        from .user_library import UserLibrary, initialise_owner
+
+        self.user_libraries = UserLibrary(self)
+        initialise_owner(self)
 
     def refresh_library(self):
         with self.covers.lock, self.library_lock:
@@ -387,6 +391,7 @@ class Store:
                 "INSERT INTO acquired VALUES (?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
                 (metadata["id"], json.dumps(metadata)),
             )
+            self._grant_request_membership(conn, row[1], metadata["id"])
             self._save_quality_policy(conn, metadata)
             conn.execute(
                 "UPDATE queue SET status='completed',updated_at=CURRENT_TIMESTAMP WHERE id=?",
@@ -395,6 +400,20 @@ class Store:
         journal.unlink(missing_ok=True)
         self.refresh_library()
         self.cleanup_replacements()
+
+    def _grant_request_membership(self, conn, payload, track_id):
+        from .user_library import bump
+
+        for beneficiary in json.loads(payload).get("requested_by", []):
+            if conn.execute(
+                "SELECT 1 FROM users WHERE id=? AND disabled=0", (beneficiary,)
+            ).fetchone():
+                added = conn.execute(
+                    "INSERT OR IGNORE INTO library_members VALUES (?,?,?, 'request')",
+                    (beneficiary, track_id, int(time.time())),
+                ).rowcount
+                if added:
+                    bump(conn, beneficiary)
 
     def recover_requests(self):
         root = library_root(self).resolve()
@@ -413,6 +432,7 @@ class Store:
                     ):
                         continue
                     with self.connect() as conn:
+                        conn.execute("BEGIN IMMEDIATE")
                         request_id = metadata.get("_request_id", metadata["id"])
                         row = conn.execute(
                             "SELECT status,payload FROM queue WHERE id=?", (request_id,)
@@ -456,6 +476,7 @@ class Store:
                                 "INSERT INTO acquired VALUES (?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
                                 (metadata["id"], json.dumps(metadata)),
                             )
+                            self._grant_request_membership(conn, row[1], metadata["id"])
                             self._save_quality_policy(conn, metadata)
                             conn.execute(
                                 "UPDATE queue SET status='completed' WHERE id=?",
@@ -933,6 +954,9 @@ class Store:
                 (key, json.dumps(value)),
             )
 
+    def library_for(self, user_id):
+        return self.user_libraries.summary(user_id)
+
     def summary(self):
         with self.connect() as conn:
             playlist_count = conn.execute("SELECT COUNT(*) FROM playlists").fetchone()[
@@ -991,7 +1015,7 @@ class Store:
                     "imported_at": source["imported_at"],
                 }
                 conn.execute(
-                    "INSERT INTO playlists VALUES (?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
+                    "INSERT INTO playlists(id,payload) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
                     (playlist["id"], json.dumps(payload)),
                 )
         self.source = source
@@ -1095,7 +1119,7 @@ class Store:
                 "downloads_enabled": settings["enabled"],
             }
 
-    def submit_catalogue(self, tracks, preferred=None):
+    def submit_catalogue(self, tracks, preferred=None, user_id=None):
         settings = self.download_settings()
         if preferred and tracks:
             album_id = self.album_key(tracks[0])
@@ -1122,6 +1146,17 @@ class Store:
                     skipped += 1
                     continue
                 if track["status"] == "downloaded":
+                    if user_id:
+                        matched = self.index.match(track).track
+                        if matched:
+                            from .user_library import bump
+
+                            added = conn.execute(
+                                "INSERT OR IGNORE INTO library_members VALUES (?,?,?, 'household-add')",
+                                (user_id, matched["id"], int(time.time())),
+                            ).rowcount
+                            if added:
+                                bump(conn, user_id)
                     skipped += 1
                     continue
                 payload = {
@@ -1129,6 +1164,8 @@ class Store:
                     for k, v in track.items()
                     if k not in {"id", "status", "presence_note"}
                 }
+                if user_id:
+                    payload["requested_by"] = [user_id]
                 payload["quality_profile"] = preferred or settings["profile"]
                 payload["quality_policy"] = self.quality_policy(payload, preferred)
                 payload["quality_profile"] = payload["quality_policy"]["preferred"]
@@ -1155,6 +1192,15 @@ class Store:
                         "SELECT status,payload FROM queue WHERE id=?", (key,)
                     ).fetchone()
                 if prior and prior[0] not in {"cancelled", "failed"}:
+                    if user_id:
+                        previous = json.loads(prior[1])
+                        beneficiaries = previous.get("requested_by", [])
+                        if user_id not in beneficiaries:
+                            previous["requested_by"] = [*beneficiaries, user_id]
+                            conn.execute(
+                                "UPDATE queue SET payload=? WHERE id=?",
+                                (json.dumps(previous), key),
+                            )
                     existing += 1
                 elif prior:
                     conn.execute(

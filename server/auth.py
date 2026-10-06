@@ -100,6 +100,9 @@ class Auth:
                 "INSERT INTO users VALUES (?,?,?,?,?,?,0,?)",
                 (identity, name, display_name or name, "owner", hashed, now, now),
             )
+        from .user_library import initialise_owner
+
+        initialise_owner(self.store)
         return identity
 
     def user(self, identity):
