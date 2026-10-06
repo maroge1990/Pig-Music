@@ -97,6 +97,15 @@ def main():
             for r in values["documents"]
             if r[0] != "album-edition-anchors" and r[0] not in added_images
         ]
+    ledger = after.pop("schema_migrations", [])
+    assert [r[0] for r in ledger] == [1], "Unexpected migration versions"
+    assert all(
+        isinstance(r[1], str) and r[1] for r in ledger
+    ), "Missing migration timestamps"
+    original_ledger = before.pop("schema_migrations", [])
+    assert set(original_ledger).issubset(
+        set(ledger)
+    ), "Existing migration ledger changed"
     assert before == after, "Existing durable preferences, queue or membership changed"
     print(
         "Stopped-state migration verified:",

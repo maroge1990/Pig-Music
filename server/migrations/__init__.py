@@ -1,0 +1,34 @@
+"""Explicit, atomic SQLite migration ledger; never silently downgrade state."""
+
+from importlib import import_module
+
+MIGRATIONS = ((1, "0001_baseline"),)
+
+
+def migrate(conn):
+    if conn.in_transaction:
+        raise RuntimeError("Migrations require an idle connection")
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)"
+        )
+        applied = {r[0] for r in conn.execute("SELECT version FROM schema_migrations")}
+        known = {version for version, _ in MIGRATIONS}
+        if applied - known:
+            raise RuntimeError(
+                "Database uses a newer schema; restore its compatible release"
+            )
+        if applied and applied != {v for v in known if v <= max(applied)}:
+            raise RuntimeError("Incomplete migration ledger")
+        for version, name in MIGRATIONS:
+            if version not in applied:
+                import_module(f"{__name__}.{name}").up(conn)
+                conn.execute(
+                    "INSERT INTO schema_migrations(version,applied_at) VALUES (?,CURRENT_TIMESTAMP)",
+                    (version,),
+                )
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise

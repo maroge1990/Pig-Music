@@ -8,6 +8,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
+from .migrations import migrate
 from .cover_store import CoverStore
 from .image_cache import public_image
 
@@ -38,23 +39,7 @@ class Store:
         self.covers.migrate(self.directory / "library-snapshot.json")
         self.database = directory / "pig-music.sqlite3"
         with self.connect() as conn:
-            conn.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS documents (name TEXT PRIMARY KEY, payload TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS selections (track_id TEXT PRIMARY KEY);
-                CREATE TABLE IF NOT EXISTS migration_decisions (track_id TEXT PRIMARY KEY, decision TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS queue (
-                    id TEXT PRIMARY KEY, payload TEXT NOT NULL, status TEXT NOT NULL,
-                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS acquired (id TEXT PRIMARY KEY, payload TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS album_categories (id TEXT PRIMARY KEY, category TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS quality_versions (request_id TEXT PRIMARY KEY, track_id TEXT NOT NULL, payload TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS quality_cleanup (request_id TEXT PRIMARY KEY, track_id TEXT NOT NULL, payload TEXT NOT NULL);
-                CREATE TABLE IF NOT EXISTS playlists (id TEXT PRIMARY KEY, payload TEXT NOT NULL);
-            """
-            )
+            migrate(conn)
         self.refresh_library()
         self.source = self.read_document("migration")
 
@@ -807,6 +792,7 @@ class Store:
         conn = sqlite3.connect(self.database, timeout=10)
         try:
             conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
             with conn:
                 yield conn
         finally:

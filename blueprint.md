@@ -220,3 +220,7 @@ Final A02/A03 read-only integrity acceptance: all **1,395 files** opened with **
 Owner confirmed branding complete and authorised remaining work. Pig family 1.4.0 exact product exports replace the previous generic pig and handwritten wordmark. Approved colours generate CSS and a compiled Swift PigBrand package. All CSS type is rem with a 0.75rem minimum. Approved spacing/radius values use tokens; existing nonstandard spacing remains where changing it would change density. The protected player uses approved dark secondary/border roles. See `docs/b01-b02-delivery.md` for verification and deployment status.
 
 Owner accepted Mark as administrator, highest requested shared-file quality, owner-only Unassigned inbox for external files, one shared Plex music section with personal playlists/favourites, and existing Unraid private Tailscale HTTPS hostname. **Members can import and manage their own playlists and request music.** Owner role governs system/provider settings, physical scans, organisation, recovery and account administration. No credentials were requested in chat.
+
+### M00 implementation, 7 October 2026
+
+Versioned baseline migration and foreign-key connection enforcement are implemented and pass 133 backend tests. Existing rows are unchanged; the deployment verifier admits only the validated additive schema ledger. Container/stopped-state deployment verification remains pending. See `docs/m00-delivery.md`.
