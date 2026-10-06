@@ -72,7 +72,7 @@ Order is deliberate. Add new entries with a stable ID, rationale, dependencies a
 | 2 / A01 | Content-addressed artwork, metadata-only snapshots, streaming migration, edition artwork, rescan detection and safe pruning | Delivered 7 October 2026; live migration and integrity checks passed | [A01 evidence](docs/a01-cover-store.md); 117 image tests, Linux/Unraid 1 GB gates and stopped-state migration passed |
 | 2 / A02 | Non-blocking enrichment, derivatives, immutable caching and incremental provider work | Delivered 7 October 2026; image, scale and live HTTP gates passed | [A02/A03 evidence](docs/a02-a03-delivery.md) |
 | 2 / A03 | Library compression/conditional reads, indexed lookups and grid performance | Delivered 7 October 2026; image, scale and live HTTP gates passed | [A02/A03 evidence](docs/a02-a03-delivery.md) |
-| 3 / B01–B02 | Brand tokens/type and final PigMusic identity integration | Implemented 7 October 2026; verification and registry candidate in progress | Approved Pig family 1.4.0; see [branding delivery](docs/b01-b02-delivery.md) |
+| 3 / B01–B02 | Brand tokens/type and final PigMusic identity integration | Delivered 7 October 2026; local, image and production checks passed | Approved Pig family 1.4.0; see [branding delivery](docs/b01-b02-delivery.md) |
 | 2 / D01 | GitHub-linked GHCR image releases for the existing Unraid deployment | Delivered 7 October 2026; published and running on Unraid | [Container releases](docs/container-releases.md); immutable digest, image tests, stopped-state migration and authorised switch |
 | Alongside foundations / S00 | Unbranded iPhone/Watch feasibility spike | Preparation and unsigned device IPA built; actual-device proof pending | [Native spike](docs/native-spike.md); free-account Sideloadly installation/refresh and private HTTPS/device tests |
 | 2 / V01 | Physical iPhone scrolling/player checks and a real off-site Tailscale session | Unverified acceptance work | Owner's device/off-site session; emulator/LAN results are insufficient |
@@ -228,3 +228,9 @@ Versioned baseline migration and foreign-key connection enforcement are implemen
 ### T01 implementation, 7 October 2026
 
 Private HTTPS origin and exact-proxy trust are implemented; 145 backend tests pass. Existing Unraid hostname and port443 are approved, with the other service on8443 preserved. Proxy/certificate deployment and physical phone acceptance remain pending. See `docs/t01-delivery.md`.
+
+### Current branding/private HTTPS release, 7 October 2026
+
+**Delivered:** B01/B02, M00 and T01 as `brand-https-20261007-v1`. Image source revision `6fafc59e2f352139844c810a8929991367c4ab17`; immutable digest `sha256:37b16f9cdad35bf9dbe013fa8293c90a06a22069d3cda6b15c0dfce4af158e43`. Exact-image Unraid tests145, scale gates and stopped-state verification passed. Prior audit release is retained as immediate rollback, with matching backup `pre-brand-https-20261007-v1`.
+
+Private URL: **https://passyflix.tail6d1471.ts.net:10000/**. Port443 remains Unraid administration;8443 remains the existing other service. Proxy uses the existing container bridge; exact gateway trust and public origin were corrected in final runtime configuration. Certificate/HTTP2/HTTPS-health/icons/manifest/Origin checks passed from Unraid. This Mac lacks private hostname resolution; both phones still need LAN/cellular acceptance. No Funnel/public exposure. Account branches are development only and excluded from this release.

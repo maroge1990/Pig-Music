@@ -17,8 +17,8 @@ services:
     ports:
       - "192.168.1.235:8765:8765"
     environment:
-      PIG_MUSIC_PUBLIC_ORIGIN: https://passyflix.tail6d1471.ts.net
-      PIG_MUSIC_TRUSTED_PROXIES: 127.0.0.1,192.168.1.235
+      PIG_MUSIC_PUBLIC_ORIGIN: https://passyflix.tail6d1471.ts.net:10000
+      PIG_MUSIC_TRUSTED_PROXIES: 127.0.0.1,172.25.0.1
       PIG_MUSIC_DATA: /data
       PIG_MUSIC_DOWNLOAD_ROOT: /library/.pig-music-work
       PYTHONDONTWRITEBYTECODE: "1"
