@@ -6,4 +6,4 @@ Connections retain WAL and now enable foreign-key enforcement. The stopped-state
 
 Validation: 133 backend tests pass, including fresh/legacy schema parity, preservation of preference/selection/playlist fixtures, repeated startup idempotence, DDL failure rollback, future-schema rejection and connection pragmas. Existing artwork, HTTP, queue, download and recovery tests remain passing. No account or personal-library migration is applied by this package.
 
-Container/real stopped-state verification and deployment are pending. An earlier container cannot detect a future schema itself; rollback must always restore the matching stopped-state backup as the existing deployment tool does. Never run a downgraded image against migrated live state.
+Container and real stopped-state verification passed and M00 was deployed with brand-https-20261007-v1; all 1395 tracks and existing durable rows were retained. An earlier container cannot detect a future schema itself; rollback must always restore the matching stopped-state backup as the existing deployment tool does. Never run a downgraded image against migrated live state.

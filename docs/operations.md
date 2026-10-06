@@ -84,4 +84,4 @@ The owner has selected GHCR for the existing Unraid server. See [container relea
 
 ## Private HTTPS transition
 
-The approved PigMusic endpoint is `https://passyflix.tail6d1471.ts.net`. Keep the other service on 8443 unchanged. See [T01 delivery](t01-delivery.md) for source/proxy configuration and verification status. Both iPhones must run Tailscale and be tested on LAN and cellular before retiring the existing private LAN URL.
+The approved PigMusic endpoint is `https://passyflix.tail6d1471.ts.net:10000`. Keep the other service on 8443 unchanged. See [T01 delivery](t01-delivery.md) for source/proxy configuration and verification status. Both iPhones must run Tailscale and be tested on LAN and cellular before retiring the existing private LAN URL.
