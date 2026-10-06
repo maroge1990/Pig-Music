@@ -31,8 +31,8 @@ Read these before starting any package. They restate the blueprint invariants th
 | G-2 Sharing | **Files are shared and stored once; libraries are private.** Each person has their own library membership, favourites, playlists, play history and requests. **Deletion follows membership:** if you're the only person who has an album or song, deleting it deletes the files. If both people have it, one person deleting it removes it from their library only and the files stay. When the second person also deletes it, the files are deleted. No owner review step. | **Decided 6 Oct 2026** (deletion rule confirmed by owner) |
 | G-3 Device copies | iPhone downloads **original files**. Watch gets **server-made AAC 256 kbps copies** held in a bounded cache outside the library. The library is never converted. | **Decided 6 Oct 2026** |
 | G-4 Distribution | **Sideloadly.** Feasibility for the Watch app must be proven in S00 before Watch work starts. | **Decided, pending S00 proof** |
-| G-5 Apple account type | **Recommended:** a paid Apple Developer membership (1-year signing; avoids the free account's 7-day expiry and 3-active-app limit, since the iOS app, Watch app and any widget count separately). Free account workable only if S00 proves the bundle fits. | **Open; decide during S00** |
-| G-6 Device inventory | iPhone and Watch models and OS versions for both people. **Default:** minimum iOS 18 / watchOS 11. Raise the minimum if all four devices support a newer OS. | **Open; collect in S00** |
+| G-5 Apple account type | **Recommended:** a paid Apple Developer membership (1-year signing; avoids the free account's 7-day expiry and 3-active-app limit, since the iOS app, Watch app and any widget count separately). Free account workable only if S00 proves the bundle fits. | **Owner chose free account + Sideloadly in this chat, 6 Oct 2026; limits/refresh proof pending S00** |
+| G-6 Device inventory | iPhone and Watch models and OS versions for both people. **Default:** minimum iOS 18 / watchOS 11. Raise the minimum if all four devices support a newer OS. | **Inventory supplied 6 Oct 2026; exact OS builds pending. See native-spike.md** |
 | G-7 Shared-file quality conflict (H03) | **Recommended:** a shared file's quality is the *highest* any current member wants. An explicit downgrade replaces the file only when the requester is its sole member; otherwise the downgrade is recorded and applied when that becomes true. | **Open; confirm before M04** |
 | G-8 Externally added files | **Recommended:** files found by Scan that Pig Music didn't publish go to an owner-only **Unassigned** inbox. The owner assigns them to one or both libraries. The existing library is assigned to the owner during migration. | **Open; confirm before M04** |
 | G-9 Plex | **Recommended:** Plex keeps one shared music section (Plex can't filter a section by Pig Music membership). Only *playlists and favourites* are exported per person, to each person's Plex home user. | **Open; confirm before M05** |
@@ -86,11 +86,15 @@ These packages come straight from the audit and are summarised here; see the aud
 - **Accept when:** the web app loads over the ts.net URL on both iPhones on LAN and off-site (this closes blueprint V01's off-site item), and the certificate is valid.
 
 ### B01: Tokens and type (audit P1-3, P1-5)
+
+**Deferred by owner until branding is confirmed complete (6 October 2026).**
 - Write `scripts/generate_brand_tokens.py`. It reads `docs/pig-family-brand-tokens.json` and writes `client/src/tokens.css` (light, dark and `media` roles; radius, space, type and shadow scales) and `swift/PigKit/Sources/PigBrand/Tokens.swift` (colour sets, generated once the Swift package exists). Add a test that fails if the generated files are stale.
 - Type scale in rem (minimum 0.75 rem): replace every font-size below 11 px.
 - **Owner/brand review:** the three player colours (`#d9d2dd`, `#8c7f95`, `#493d52`). Either get them approved as `media.secondary`, `media.controlBorder` and `media.border`, or replace them with existing roles.
 
 ### B02: Pig Music identity assets
+
+**Deferred by owner until branding is confirmed complete (6 October 2026).** Pig-Branding now contains product identity exports; assess the final pack before generating replacements.
 - In **Pig-Branding**, extend `Tools/make-brand-assets.swift` to produce: Pig Music light and dark wordmarks; iOS app icon set (light, dark, tinted, 1024 px); watchOS icon; a web `apple-touch-icon` (180 px), a square favicon and a `manifest.webmanifest`. Record the new assets in Pig-Branding's `decisions.md` and asset README, then copy them into Pig-Music `client/public/` and later into the Swift asset catalog.
 - **Accept when:** the owner approves the wordmark (a new artwork review is required by the standard), and "Add to Home Screen" on an iPhone shows the pig icon.
 

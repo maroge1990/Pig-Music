@@ -8,3 +8,7 @@ pytest-cache-files-*/
 client/node_modules/
 client/dist/
 .env
+swift/**/.build/
+swift/**/DerivedData/
+swift/**/xcuserdata/
+swift/build/

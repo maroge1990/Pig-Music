@@ -1,0 +1,26 @@
+name: Native feasibility checks
+
+on:
+  pull_request:
+    paths: ['swift/**', '.github/workflows/native-spike.yml']
+  push:
+    branches: [main, 'feature/**']
+    paths: ['swift/**', '.github/workflows/native-spike.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Shared core tests
+        run: swift test --package-path swift/NativeSpike
+      - name: Unsigned iPhone and embedded Watch simulator build
+        run: |
+          xcodebuild -quiet -project swift/NativeSpike/PigMusicNativeSpike.xcodeproj \
+            -scheme PigMusicNativeSpike -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath swift/build/DerivedData CODE_SIGNING_ALLOWED=NO build
