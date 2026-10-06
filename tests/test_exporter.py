@@ -1,0 +1,302 @@
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
+from server.store import Store
+from server.exporter import Exporter
+from server.media import track_file
+
+
+def acquired(store, content=b"validated", identity="song"):
+    path = (
+        store.directory
+        / "downloads"
+        / "library"
+        / "Artist"
+        / "Album"
+        / (identity + ".mp3")
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+    track = {
+        "id": identity,
+        "title": "Song",
+        "artist": "Artist",
+        "album_artist": "Artist",
+        "album": "Album",
+        "year": 2020,
+        "disc_number": 1,
+        "track_number": 1,
+        "duration": 200,
+        "codec": "mp3",
+        "relative_path": path.relative_to(
+            store.directory / "downloads" / "library"
+        ).as_posix(),
+        "sha256": hashlib.sha256(content).hexdigest(),
+    }
+    with store.connect() as conn:
+        conn.execute("INSERT INTO acquired VALUES (?,?)", (identity, json.dumps(track)))
+    store.refresh_library()
+    return track, path
+
+
+def test_export_commits_before_local_cleanup_and_scanning_does_not_duplicate(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "nas"
+    root.mkdir()
+    monkeypatch.setenv("PIG_MUSIC_LIBRARY", str(root))
+    store = Store(tmp_path / "data")
+    track, source = acquired(store)
+    exporter = Exporter(store, root)
+    exporter.publish(track)
+    assert not source.exists()
+    exported = exporter.records()[0]
+    target = root / exported["export_relative_path"]
+    assert (
+        target.read_bytes() == b"validated" and track_file(store, track["id"]) == target
+    )
+    exporter.publish(exported)  # Restart is idempotent after removing the local copy.
+    (store.directory / "library-snapshot.json").write_text(
+        json.dumps(
+            {
+                "tracks": [
+                    {
+                        **exported,
+                        "id": "scanner-id",
+                        "relative_path": exported["export_relative_path"],
+                    }
+                ]
+            }
+        )
+    )
+    store.refresh_library()
+    assert store.library["stats"]["tracks"] == 1
+
+
+def test_export_refuses_collision_and_tampered_source_without_removal(tmp_path):
+    root = tmp_path / "nas"
+    root.mkdir()
+    store = Store(tmp_path / "data")
+    track, source = acquired(store)
+    exporter = Exporter(store, root)
+    target = root / exporter.relative(track)
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"existing")
+    with pytest.raises(ValueError):
+        exporter.publish(track)
+    assert target.read_bytes() == b"existing" and source.read_bytes() == b"validated"
+    target.unlink()
+    source.write_bytes(b"tampered")
+    with pytest.raises(ValueError):
+        exporter.publish(track)
+    assert source.exists() and not target.exists()
+
+
+def test_export_disabled_by_default_and_failed_publication_retains_local_file(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "nas"
+    root.mkdir()
+    store = Store(tmp_path / "data")
+    track, source = acquired(store)
+    exporter = Exporter(store, root)
+    exporter.process()
+    assert list(root.iterdir()) == []
+    monkeypatch.setattr(
+        "server.exporter.os.link",
+        lambda *_: (_ for _ in ()).throw(OSError("NAS hard links unavailable")),
+    )
+    with pytest.raises(OSError):
+        exporter.publish(track)
+    assert source.read_bytes() == b"validated" and not list(root.rglob("*.pig-part"))
+
+
+def test_export_requires_expected_mount_marker_and_names_fit_unicode_filesystem_limits(
+    tmp_path,
+):
+    root = tmp_path / "nas"
+    root.mkdir()
+    store = Store(tmp_path / "data")
+    track, source = acquired(store)
+    exporter = Exporter(store, root)
+    (store.directory / "library-export.json").write_text(
+        json.dumps({"enabled": True, "library_id": "expected"})
+    )
+    exporter.process()
+    assert source.exists() and list(root.iterdir()) == []
+    assert store.read_document("library-export-status")["status"] == "deferred"
+    long = {
+        **track,
+        "title": "\u97f3" * 80,
+        "artist": "\u697d" * 80,
+        "album_artist": "\u697d" * 80,
+        "album": "\u66f2" * 80,
+    }
+    assert all(
+        len(part.encode("utf-8")) <= 240 for part in Path(exporter.relative(long)).parts
+    )
+
+
+def test_nas_quality_replacement_waits_for_export_then_moves_old_file_to_recoverable_trash(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "nas"
+    root.mkdir()
+    monkeypatch.setenv("PIG_MUSIC_LIBRARY", str(root))
+    store = Store(tmp_path / "data")
+    track, source = acquired(store)
+    exporter = Exporter(store, root)
+    exporter.publish(track)
+    old = exporter.records()[0]
+    original = root / old["export_relative_path"]
+    source.write_bytes(b"new source")
+    replacement = {**track, "sha256": hashlib.sha256(b"new source").hexdigest()}
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE acquired SET payload=? WHERE id=?",
+            (json.dumps(replacement), track["id"]),
+        )
+        conn.execute(
+            "INSERT INTO quality_cleanup VALUES (?,?,?)",
+            ("quality-request", track["id"], json.dumps(old)),
+        )
+    store.cleanup_replacements()
+    assert original.exists()
+    exporter.publish(replacement)
+    store.cleanup_replacements()
+    assert not original.exists()
+    assert (
+        root / ".pig-music-trash" / "quality-request" / old["export_relative_path"]
+    ).read_bytes() == b"validated"
+    assert track_file(store, track["id"]).read_bytes() == b"new source"
+
+
+def test_existing_library_original_is_retained_until_requested_replacement_is_published(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "nas"
+    root.mkdir()
+    monkeypatch.setenv("PIG_MUSIC_LIBRARY", str(root))
+    original = root / "original.mp3"
+    original.write_bytes(b"existing source")
+    stat = original.stat()
+    store = Store(tmp_path / "data")
+    track = {
+        "id": "original",
+        "title": "Song",
+        "artist": "Artist",
+        "album_artist": "Artist",
+        "album": "Album",
+        "year": 2020,
+        "disc_number": 1,
+        "track_number": 1,
+        "duration": 200,
+        "codec": "mp3",
+        "bitrate": 320,
+        "relative_path": "original.mp3",
+        "size_bytes": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+    }
+    (store.directory / "library-snapshot.json").write_text(
+        json.dumps({"tracks": [track]})
+    )
+    store.refresh_library()
+    store.save_download_settings({"enabled": True, "sources": ["freemp3cloud"]})
+    store.quality_override("album", store.library["albums"][0]["id"], "lossless")
+    job = store.claim_request()
+    store.request_state(job["id"], "validating")
+    staging = store.directory / "downloads" / "staging"
+    staging.mkdir(parents=True)
+    source = staging / "new.flac"
+    source.write_bytes(b"validated FLAC source")
+    target = store.directory / "downloads" / "library" / "new.flac"
+    store.publish_request(
+        job,
+        source,
+        target,
+        {"codec": "flac", "bitrate_kbps": 900, "duration": 200},
+        hashlib.sha256(source.read_bytes()).hexdigest(),
+    )
+    assert original.exists()
+    exporter = Exporter(store, root)
+    exporter.publish(exporter.records()[0])
+    store.cleanup_replacements()
+    assert not original.exists()
+    assert (
+        root / ".pig-music-trash" / job["id"] / "original.mp3"
+    ).read_bytes() == b"existing source"
+    assert track_file(store, track["id"]).read_bytes() == b"validated FLAC source"
+
+
+def test_direct_smb_storage_reuses_existing_folder_and_publishes_without_copy(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "nas"
+    root.mkdir()
+    store = Store(tmp_path / "data")
+    (root / ".pig-music-library.json").write_text(json.dumps({"library_id": "test"}))
+    (store.directory / "library-export.json").write_text(
+        json.dumps(
+            {
+                "enabled": True,
+                "library_id": "test",
+                "marker_path": ".pig-music-library.json",
+            }
+        )
+    )
+    monkeypatch.setenv("PIG_MUSIC_LIBRARY", str(root))
+    monkeypatch.setenv("PIG_MUSIC_DOWNLOAD_ROOT", str(root / ".pig-music-work"))
+    from server.storage import library_root
+
+    track, _ = acquired(store)
+    local = store.directory / "downloads" / "library" / track["relative_path"]
+    source = library_root(store) / track["relative_path"]
+    source.parent.mkdir(parents=True)
+    local.replace(source)
+    (store.directory / "library-snapshot.json").write_text(
+        json.dumps(
+            {
+                "tracks": [
+                    {
+                        **track,
+                        "id": "existing",
+                        "relative_path": "Artist/Album (2020 Deluxe)/existing.mp3",
+                    }
+                ]
+            }
+        )
+    )
+    exporter = Exporter(store, root)
+    monkeypatch.setattr(
+        "server.exporter.shutil.copyfileobj",
+        lambda *_: (_ for _ in ()).throw(
+            AssertionError("Same-NAS publication should not copy audio")
+        ),
+    )
+    exporter.publish(track)
+    exported = exporter.records()[0]
+    assert (
+        exported["export_relative_path"]
+        == "Artist/Album (2020 Deluxe)/Artist - Album - 01 - Song.mp3"
+    )
+    assert (
+        track_file(store, "song").read_bytes() == b"validated" and not source.exists()
+    )
+    exporter.process()
+    assert (
+        store.read_document("library-export-status")["status"] == "completed"
+    ), store.read_document("library-export-status")
+
+
+def test_direct_storage_refuses_missing_mount_marker(tmp_path, monkeypatch):
+    store = Store(tmp_path / "data")
+    root = tmp_path / "nas"
+    monkeypatch.setenv("PIG_MUSIC_LIBRARY", str(root))
+    monkeypatch.setenv("PIG_MUSIC_DOWNLOAD_ROOT", str(root / ".pig-music-work"))
+    from server.storage import library_root
+
+    with pytest.raises(ValueError):
+        library_root(store)
+    assert not root.exists()

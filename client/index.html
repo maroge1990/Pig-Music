@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#15111A" />
+    <script>
+      (() => {
+        let appearance = 'system';
+        try { appearance = localStorage.getItem('pig-music-appearance') || 'system'; } catch {}
+        const theme = appearance === 'light' || appearance === 'dark' ? appearance : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.dataset.theme = theme;
+        document.querySelector('meta[name="theme-color"]').content = theme === 'dark' ? '#15111A' : '#FBF8FA';
+      })();
+    </script>
+    <link rel="icon" type="image/png" href="/src/assets/pig.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="description" content="Your music, in one place. Browse your library and choose what comes next." />
+    <title>Pig Music · Your library</title>
+  </head>
+  <body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body>
+</html>

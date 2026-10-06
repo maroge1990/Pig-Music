@@ -1,0 +1,38 @@
+# Direct SMB transfers and publication, with Soulseek embedded in the same container.
+services:
+  pig-music:
+    image: pig-music:cleanup-20261006-v3
+    container_name: pig-music-preview
+    restart: unless-stopped
+    user: "99:100"
+    cpus: 2
+    mem_limit: 1g
+    labels:
+      net.unraid.docker.webui: "http://192.168.1.203:8765"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    ports:
+      - "192.168.1.235:8765:8765"
+    environment:
+      PIG_MUSIC_DATA: /data
+      PIG_MUSIC_DOWNLOAD_ROOT: /library/.pig-music-work
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - /mnt/user/appdata/pig-music-preview/data:/data
+      - /mnt/remotes/SERVER01_Audio:/library
+    networks:
+      preview:
+        gw_priority: 0
+      lan:
+        ipv4_address: 192.168.1.203
+        gw_priority: -1
+networks:
+  preview:
+    name: pig-music-preview
+    external: true
+  lan:
+    name: br0
+    external: true

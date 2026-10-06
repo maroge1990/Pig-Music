@@ -1,0 +1,21 @@
+FROM node:24-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20 AS frontend
+WORKDIR /build/client
+COPY client/package.json client/package-lock.json ./
+RUN npm ci
+COPY client/ ./
+RUN npm run build
+
+FROM slskd/slskd@sha256:ecd4026d4f8fb504e2cc55323efa2c1f5b56d20d3686b018249cc36b48ea17a6 AS soulseek
+
+FROM python:3.14-slim@sha256:3353bb7e9ae99c7cce6cad2b2f2b174e8f22813ac43e3b13e7a742627d2b01d8
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libicu76 libssl3t64 libstdc++6 && rm -rf /var/lib/apt/lists/*
+COPY --from=soulseek /slskd /opt/slskd
+COPY requirements.lock.txt ./
+RUN pip install --no-cache-dir -r requirements.lock.txt
+COPY server/ ./server/
+COPY --from=frontend /build/client/dist ./client/dist
+ENV PIG_MUSIC_DATA=/data
+EXPOSE 8765
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/api/health')"
+CMD ["python", "-m", "server.runtime"]

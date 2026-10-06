@@ -1,0 +1,172 @@
+"""Optional ListenBrainz popularity; keys and provider errors stay private."""
+
+import asyncio, hashlib, json, time
+import httpx, logging
+
+logger = logging.getLogger(__name__)
+from .catalogue import mbid
+from .media import settings
+from .releases import feature_album
+
+
+class Popularity:
+    def __init__(self, store, catalogue=None):
+        self.store = store
+        self.catalogue = catalogue
+        self.lock = asyncio.Lock()
+        self.artist_locks = {}
+        self.last_request = 0.0
+
+    async def get(self, client, artist_id):
+        token = settings(self.store).get("listenbrainz_token")
+        if not token:
+            return {"enabled": False, "songs": [], "albums": []}
+        artist_id = mbid(artist_id)
+        key = (
+            "popularity:v4:"
+            + hashlib.sha256(token.encode()).hexdigest()[:12]
+            + ":"
+            + artist_id
+        )
+        cached = self.store.read_document(key)
+        if cached and cached.get("retry_after", 0) > time.time():
+            return cached["data"]
+        async with self.artist_locks.setdefault(key, asyncio.Lock()):
+            cached = self.store.read_document(key)
+            if cached and cached.get("retry_after", 0) > time.time():
+                return cached["data"]
+            result = {"enabled": True, "songs": [], "albums": []}
+            try:
+                responses = []
+                failed = False
+                for kind in ("recordings", "release-groups"):
+                    try:
+                        async with self.lock:
+                            await asyncio.sleep(
+                                max(0, 1.05 - (time.monotonic() - self.last_request))
+                            )
+                            self.last_request = time.monotonic()
+                        async with client.stream(
+                            "GET",
+                            "https://api.listenbrainz.org/1/popularity/top-"
+                            + kind
+                            + "-for-artist/"
+                            + artist_id,
+                            headers={"Authorization": "Token " + token},
+                            timeout=25,
+                            follow_redirects=False,
+                        ) as response:
+                            response.raise_for_status()
+                            content = bytearray()
+                            async for chunk in response.aiter_bytes():
+                                content.extend(chunk)
+                                if len(content) > 16_000_000:
+                                    raise ValueError("Popularity response too large")
+                        data = json.loads(content)
+                        if not isinstance(data, list):
+                            raise ValueError("Invalid popularity response")
+                        ranked = []
+                        for value in data:
+                            if not isinstance(value, dict):
+                                continue
+                            try:
+                                count = int(value.get("total_listen_count") or 0)
+                            except (ValueError, TypeError):
+                                continue
+                            ranked.append((count, value))
+                        responses.append(
+                            [
+                                value
+                                for _, value in sorted(
+                                    ranked, key=lambda pair: pair[0], reverse=True
+                                )
+                            ]
+                        )
+                    except Exception as error:
+                        logger.warning(
+                            "Popularity %s request failed (%s)",
+                            kind,
+                            type(error).__name__,
+                        )
+                        responses.append([])
+                        failed = True
+                seen = set()
+                for item in responses[0]:
+                    try:
+                        if artist_id not in item.get("artist_mbids", []):
+                            continue
+                        recording = mbid(item["recording_mbid"])
+                        release = mbid(item["release_mbid"])
+                        if recording in seen:
+                            continue
+                        seen.add(recording)
+                        result["songs"].append(
+                            {
+                                "id": recording,
+                                "title": item["recording_name"],
+                                "artist": item.get("artist_name", ""),
+                                "album": item.get("release_name", ""),
+                                "release_id": release,
+                            }
+                        )
+                    except (ValueError, KeyError, TypeError):
+                        continue
+                    if len(result["songs"]) == 20:
+                        break
+                seen = set()
+                album_lookups = 0
+                for item in responses[1]:
+                    try:
+                        group = item.get("release_group") or {}
+                        if not isinstance(group, dict):
+                            continue
+                        if group.get("type") != "Album":
+                            continue
+                        identity = mbid(item["release_group_mbid"])
+                        if identity in seen:
+                            continue
+                        seen.add(identity)
+                        if self.catalogue:
+                            if album_lookups >= 40:
+                                break
+                            album_lookups += 1
+                            detail = await self.catalogue.get(
+                                client, "release-group/" + identity
+                            )
+                            if not feature_album(detail):
+                                continue
+                            group = {
+                                **group,
+                                "name": detail.get("title", group["name"]),
+                                "date": detail.get(
+                                    "first-release-date", group.get("date", "")
+                                ),
+                            }
+                        result["albums"].append(
+                            {
+                                "id": identity,
+                                "title": group["name"],
+                                "date": group.get("date", ""),
+                                "type": "Album",
+                            }
+                        )
+                    except (ValueError, KeyError, TypeError, httpx.HTTPError):
+                        failed = True
+                        continue
+                    if len(result["albums"]) == 10:
+                        break
+                ttl = 60 if failed else 86400
+            except Exception as error:
+                logger.warning("Popularity parsing failed (%s)", type(error).__name__)
+                # Unavailable or invalid credentials never add an empty/error panel.
+                result = {"enabled": True, "songs": [], "albums": []}
+                ttl = 60
+            with self.store.connect() as conn:
+                conn.execute(
+                    "INSERT INTO documents VALUES (?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
+                    (
+                        key,
+                        json.dumps({"retry_after": time.time() + ttl, "data": result}),
+                    ),
+                )
+            return result

@@ -1,0 +1,76 @@
+export type Track = {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  album_artist: string;
+  track_number: number;
+  disc_number: number;
+  duration: number;
+  codec?: string;
+  bitrate?: number;
+  relative_path?: string;
+  album_id?: string;
+  cover_url?: string | null;
+  available?: boolean;
+  status?: "downloaded" | "missing" | "review";
+  reason?: string;
+  selected?: boolean;
+  decision?: "requested" | "skip";
+};
+export type Album = {
+  id: string;
+  title: string;
+  artist: string;
+  artist_id?: string;
+  year: number;
+  compilation: boolean;
+  track_count: number;
+  tracks?: Track[];
+  codecs?: string[];
+  category: "album" | "compilation" | "soundtrack" | "musical";
+  cover_url?: string | null;
+  saved_count?: number;
+  selected_count?: number;
+};
+export type Artist = {
+  id: string;
+  name: string;
+  album_ids: string[];
+  album_count: number;
+  track_count: number;
+  compilation_only: boolean;
+  cover_url?: string | null;
+  albums?: Album[];
+  compilation_tracks?: Track[];
+};
+export type Library = {
+  artists: Artist[];
+  albums: Album[];
+  playlist_count?: number;
+  stats: {
+    tracks: number;
+    artists: number;
+    albums: number;
+    compilations: number;
+    soundtracks: number;
+    musicals: number;
+  };
+  snapshot: {
+    source: string;
+    captured_at: string;
+    read_failures: { path: string; error: string }[];
+  };
+};
+export type Migration = {
+  source_name: string;
+  imported_at: string;
+  albums: Album[];
+  stats: {
+    tracks: number;
+    saved: number;
+    missing: number;
+    review: number;
+    selected: number;
+  };
+};

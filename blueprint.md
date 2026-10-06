@@ -1,0 +1,172 @@
+# Pig Music blueprint and engineering handover
+
+Primary handover document. Updated 6 October 2026 (Australia/Sydney).
+
+Read this document first. It records the product contract, current implementation, prioritised future work and the decisions behind it. Update it at the end of every meaningful delivery, including verification and any remaining gaps. A plan is not evidence of delivery: distinguish **delivered**, **in progress**, **planned**, **proposed** and **unverified**.
+
+## Product and non-negotiable behaviour
+
+Pig Music is a private household music-library manager with one container, one interface, shared settings and one persistent download queue. It replaces the household's Lidarr, Soularr, Music Grabber and separate slskd containers. The slskd engine remains embedded inside Pig Music. Plex reads the same Synology files and remains the principal listening app during Phase 1.
+
+- Phone use should be quick: find an artist, inspect saved and available music, then request an artist, album or song without choosing a backend. Desktop supports investigation and troubleshooting. Keep technical and advanced options in Settings or collapsed disclosures; ask the owner before adding nonessential main-interface controls.
+- Preserve requested context. A live recording, compilation appearance or specific release edition must retain that identity. Conflicting known release or recording IDs never become a confident match based on equal names. Uncertain or ambiguous matches require review.
+- The same exact file may support multiple memberships and be stored once. Removing a membership must retain files still needed elsewhere. Household libraries are deferred to Phase 1b.
+- Quality defaults apply system → artist → album, with album most specific. Explicit upgrades **and downgrades acquire new source files**; never transcode to obtain a target quality. Validate the replacement before retiring the existing managed file. Lossless fallback and periodic improvements are supported. Automatic improvements never downgrade.
+- Import is reviewed before acquisition. An Apple XML playlist becomes a persistent ordered Pig Music playlist. Available files appear in Plex immediately; missing files join after acquisition/publication/indexing. Importing an inventory alone must not download everything.
+- Favourites are membership only. Starring a missing song must never submit a download.
+- Existing music can be scanned without modification. Naming/tagging changes need a concrete review, recoverable originals and hash/path guards. Do not bulk reorganise music as an incidental code migration.
+- Separate only multi-artist compilations; single-artist greatest hits remain with their artist. Soundtracks and musicals have separate sections. Empty section headings stay hidden.
+- Private deployment uses LAN/Tailscale. Do not add public exposure or new authentication assumptions. Existing secrets remain server-side and must not enter Git, bundles, logs, browser responses or handover documents.
+- Fanart and ListenBrainz are optional. Without a configured key/token, their optional artist enhancements should disappear naturally.
+
+## Current status and evidence
+
+Phase 1a operates independently on live NAS data. The four old container definitions have been retired; recovery data/images remain. The approved cleanup is **delivered** as `pig-music:cleanup-20261006-v3` on 6 October 2026. The preceding accepted image is `pig-music:preview-20261006-phase1a-final-v2` and remains available for rollback.
+
+Existing delivered capabilities include local/discovered search, artwork, artist discographies, popular songs/albums, saved and experimental remote playback, song/album/artist acquisition, optional artist monitoring, quality replacement/fallback/upgrades, scans, recovery/restore, reviewed organisation, Apple XML import, custom playlists, favourites and a single Plex owner integration.
+
+The pre-cleanup milestone verified 1,395 files with zero missing/read failures, 25 managed files indexed in Plex, genuine MP3→FLAC→MP3 replacement, restart persistence and 98 backend tests in an isolated Linux container. It is archived evidence, not a claim that every current UI journey or external provider has been verified.
+
+The cleanup review found fresh Import missing its file input, inconsistent edition matching/grouping/removal, repeated 20.6 MB snapshot reads, expensive playlist matching, overlapping polling, dead search code/styles and inconsistent playback branding. See [the audit](docs/cleanup-review-20261006.md) for baseline measurements and work packages. In particular, playlist listing had a five-request LAN median of 830 ms while library summary was 16 ms. Do not label five samples as p95.
+
+### Cleanup delivery, 6 October 2026
+
+- Shared indexed matching now serves import, discovery, playlists and favourites. Edition anchors retain prior album links/preferences; removal/exclusion/cancellation respects the edition. Saved-song fallback uses the in-memory snapshot index rather than reparsing the snapshot.
+- Browser requests share transport and mounted song membership is batched. Restart-safe content fingerprints replace repeated full-library/migration refreshes on queue ticks. Idle release/popular-song polling stops, hidden-page work pauses, artist scans yield to foreground metadata, and discography pagination fetches visible pages. Artist-job cancellation uses generation guards.
+- Shared song controls and saved/discovered artist presentation reduce duplicated UI. Search dead state and 59 obsolete style rules were removed; unused TypeScript declarations are checked. Mobile player metadata remains readable with protected dark/rose playback colours in both appearances. Settings spacing, album disclosures and playlist/direct artist links were checked.
+- Missing/wrong NAS markers permit cached browsing/settings but block workspace creation and managed writes. The runtime retries engine startup after the mount returns. Fanart metadata is shared by portraits/backdrops and changes its cache key when credentials rotate.
+- Documentation is consolidated into this blueprint plus current operations/testing guidance; 19 historical records are archived and labelled. Deployment uses source-only bundles, pinned image bases/lockfiles, isolated candidate tests, stopped-state backups and a migration check against a disposable copy of that backup.
+
+Verification: **106 backend tests passed on Windows and in the final isolated Linux image**, both frontend regression tests passed, strict TypeScript/build and Black/Prettier checks passed. The production-state migration check retained **1,395 tracks**, all existing album links and every existing durable row (queue, preferences, memberships), with only the additive edition-anchor document permitted. Live health confirms the NAS is available, downloads enabled as before, Soulseek connected and Plex connected; all 25 managed files are still indexed in Plex. All 27 existing queue entries remain completed.
+
+A final read-only NAS check opened all **1,395 files** with **zero missing files/read errors**, and all **25 managed file hashes matched** their validated records. The check did not modify files or submit downloads. All 27 Markdown documents passed the local-link check.
+
+Disposable browser journeys verified fresh XML import/review, favourite without acquisition, creating/adding a playlist, durable playlist reload and switching views, actual saved playback, readable phone player labels, and light/dark/system appearance. Live browser checks verified artist artwork/enrichment, separated dropdown search and direct discovered-artist navigation. Physical iPhone smoothness and off-site access remain V01, below. No new live acquisition or bulk file organisation was performed during this cleanup.
+
+Post-deployment performance: 1,395-track live library; Windows over LAN; one warmup and **30 sequential samples per endpoint**, nearest-rank p95. Baseline medians used five samples; compare medians, not inferred baseline p95.
+
+| Read-only endpoint | Baseline median | Cleanup median | Cleanup p95 |
+| --- | ---: | ---: | ---: |
+| Library summary | 16.1 ms | 16.49 ms | 22.66 ms |
+| Artist detail | 9.1 ms | 8.61 ms | 10.47 ms |
+| Album detail | 4.2 ms | 4.40 ms | 5.59 ms |
+| Queue | 14.3 ms | 13.92 ms | 17.62 ms |
+| Playlist cards | 830.0 ms | **22.52 ms** | 46.69 ms |
+| Local search | 45.4 ms | 30.64 ms | 34.27 ms |
+| Migration inventory | 41.2 ms | 30.19 ms | 38.40 ms |
+| Organisation review | 1,421.8 ms | 1,243.00 ms | 2,161.43 ms |
+
+Playlist cards are approximately **37× faster** by median. Cached local browsing meets the proposed 100 ms p95 gate and playlist cards the 150 ms gate. Organisation review remains a slower explicit NAS operation; preserve its fresh path/hash safeguards. These figures do not establish cold-provider latency, remote-stream reliability or physical-device performance. Synthetic matching of 200 songs took about 1.8 ms at 1k, 10k and 50k indexed tracks; index construction took 4.34, 42.70 and 259.41 ms respectively. Reproduce with the benchmark scripts in [testing guidance](docs/testing.md).
+
+Release image digest: `sha256:6eac49803706839ce8404733d93a6c7e993a544253ee7dfd5d900a0625964bfa`. Stopped-state backup: `/mnt/user/appdata/pig-music-preview/backups/pre-cleanup-20261006-v3`; retained prior container: `pig-music-preview-before-cleanup-20261006-v3`. Release source and final handover: `/mnt/user/appdata/pig-music-preview/releases/cleanup-20261006-v3`. The immediate rollback image is `pig-music:cleanup-20261006-v2`; its stopped container was recreated with the existing resource/storage protections after Compose selected its old service labels. The deployment tool now uses unique Compose project names, verified with isolated stopped containers, to preserve renamed predecessors. The pre-cleanup container/image and backup are also retained under the `pre-cleanup-20261006-v2` / `before-cleanup-20261006-v2` suffix. Do not remove these recovery artifacts during Phase 1b design.
+
+The release directory retains `source.tar.gz` as the original tested build input and `handover.tar.gz` as the closing source/documentation package. The latter adds final evidence, archived documents and the corrected deployment tooling; its runtime/backend/frontend/test source is checked against the tested input. The extracted blueprint and current docs are also available directly in that directory. Neither package includes appdata or credentials.
+
+## Prioritised roadmap
+
+Order is deliberate. Add new entries with a stable ID, rationale, dependencies and status; reorder here rather than leaving contradictory plans in scattered milestones.
+
+| Priority / ID | Feature or work | Status | Dependencies / completion gate |
+| --- | --- | --- | --- |
+| 1 / C01 | Approved cleanup: canonical matching, edition-safe identities/removal, indexed reads, batched membership, shared requests/navigation/components, brand/mobile polish, provider scheduling, documentation and reproducible deployment | Delivered, 6 October 2026 | Verified image/evidence above; retain regression coverage and rollback material |
+| 2 / V01 | Physical iPhone scrolling/player checks and a real off-site Tailscale session | Unverified acceptance work | Owner's device/off-site session; emulator/LAN results are insufficient |
+| 3 / H01 | Phase 1b household profiles and two library memberships over shared file assets | Planned; design first | Cleanup stable; agree ownership, sharing/removal semantics, visibility and scan mapping before implementation |
+| 4 / H02 | Per-user favourites/playlists and Plex owner/account export mapping | Planned | H01; validate native Plex users and each library mapping without changing another owner's playlists |
+| 5 / H03 | Overlapping album membership, shared quality policy and disk ownership across household libraries | Planned design question | H01; decide what happens when users request different editions or qualities; do not guess precedence |
+| 6 / S01 | Shazam capture → song inbox/request workflow | Planned Phase 2 investigation | Prefer a reliable share/import route first; determine supported access to the user's private Shazam library and review/matching behaviour before promising automatic sync |
+| 7 / S02 | Optional direct recognition/listening capability | Future Phase 2 | Investigate supported APIs/platform requirements and keys; preserve requested recording context |
+| 8 / P01 | Native iOS playback and library management | Future Phase 3 | Stable account/library API, playback contract and offline membership model; Mac available for Apple development |
+| 9 / P02 | Apple Watch playback with offline downloads | Future Phase 3 | P01; watch storage, transfer, sync and background behaviour require actual-device testing |
+| 10 / R01 | Additional remote-playback sources or replacement provider | Proposed experiment, not a reliability promise | Measure resolution latency, ambiguity and availability; owner is comfortable removing remote playback if inconsistent |
+
+Current remote playback is experimental and provider dependent. It never adds a file to the library. Do not confuse acquisition adapters with fast streaming providers or reintroduce an inactive Monochrome prototype as though it were a supported source.
+
+## Running decision dialogue
+
+Append dated entries with **Owner direction → Engineering response → Result/next question**. Keep current decisions reflected in the sections above; this log preserves why they changed.
+
+- **Phase 1 discovery, carried forward:** Owner requested one integration application, shared library, queue and settings, with Music Grabber sources as fallbacks where Soulseek is missing music. Engineering response: app-owned orchestration/publication plus embedded slskd and reused adapter parsers; retain upstream licence notices. Result: independent container delivered; do not recreate separate managers.
+- **Library/version policy, carried forward:** Owner said compilation/live/request context takes precedence and identical copies can be used in multiple places but stored once. Response: conservative contextual matching and future asset/membership separation. Result: cleanup strengthens edition handling; household ownership remains a Phase 1b design dependency.
+- **Quality clarification, carried forward:** Owner explicitly prohibited conversion and requested system defaults with artist/album overrides in both directions. Response: acquire and validate a new source, then retire the previous file. Result: live replacement was verified; retain recovery/failure checks through refactors.
+- **Playlists/favourites, carried forward:** Owner approved Plex showing available songs immediately and updating as missing songs arrive; favourites should not implicitly acquire songs. Result: these are acceptance requirements for every delivery.
+- **Storage/access, carried forward:** Owner approved direct existing SMB folder publication and existing Tailscale access. Per-user Plex work was deferred until the single-owner functionality worked. Result: no additional public exposure; NAS marker identity remains required before managed writes.
+- **6 October 2026 — cleanup review:** Owner requested a full review of integration, redundancy, interface, brand and speed. Response: reproduce defects, measure live read-only behaviour and scope five ordered packages. Result: review delivered without live changes.
+- **6 October 2026 — cleanup endorsement:** Owner endorsed the cleanup and added consolidation of all documentation plus a prioritised running blueprint as the primary engineering/agent handover. Response: implement the approved packages, archive historical milestones, establish current architecture/operations/testing guidance and record verified delivery here. Result: in progress; append final verification rather than silently changing this entry to a completion claim.
+- **6 October 2026 — cleanup delivery:** Engineering delivered `cleanup-20261006-v3`, with 106 passing backend tests on both platforms, isolated production-state migration verification and the live measurements above. Result: existing library/state retained; playlist-card median improved from 830 to 22.52 ms. Next: owner physical-phone/off-site acceptance, then agree Phase 1b ownership and Plex mappings before adding household complexity. Future decisions should append here and update the prioritised table, rather than start another competing roadmap.
+
+## Architecture and source map
+
+One Unraid container supervises FastAPI and a pinned internal slskd binary. The React/Vite bundle is served by FastAPI. SQLite owns durable queue, acquired records, playlists, preferences and metadata documents. Appdata holds the snapshot, private connection files, artwork caches and operation journals. NAS music remains the source of truth for files; scanning refreshes the application projection.
+
+| Area | Source / responsibility |
+| --- | --- |
+| HTTP composition and provider lifetime | `server/app.py` |
+| Durable state, queue claims, preferences, library refresh | `server/store.py` |
+| Album grouping and Apple XML ingestion/review | `server/library.py` |
+| Indexed contextual matching | `server/matching.py` |
+| Catalogue cache/rate limiter and editions | `server/catalogue.py`; release classification in `server/releases.py` |
+| Acquisition and complete-file validation/tagging | `server/downloader.py`; Soulseek API adapter `server/soulseek.py`; upstream parsers under `server/vendor/` |
+| Artist requests/monitoring | `server/artist_jobs.py`; generation-guard progress/cancellation |
+| Preferred/fallback quality and replacement bookkeeping | `server/quality.py`, quality methods in `server/store.py` |
+| NAS boundaries/publication and recovery | `server/storage.py`, `server/exporter.py`, `server/recovery.py`, `server/organisation.py` |
+| Initial/incremental tag scan | `server/scanner.py` |
+| Playlist/favourite membership and Plex | `server/playlists.py`, `server/plex.py` |
+| Playback/file range requests and optional remote resolution | `server/media.py`, `server/remote.py`, `client/src/Player.tsx` |
+| Artwork / optional rankings | `server/artwork.py`, `server/portraits.py`, `server/fanart.py`, `server/artist_backgrounds.py`, `server/popularity.py` |
+| Shared browser transport, membership, navigation/actions | `client/src/api.ts`, `membership.ts`, `navigation.ts`, `SongControls.tsx`, `SongActions.tsx` |
+| Main UI composition and views | `client/src/main.tsx` plus feature components |
+| Runtime supervision | `server/runtime.py` |
+
+### Identity and migration notes
+
+Snapshot track IDs remain stable; acquired records supersede snapshot IDs/paths for published replacements. The matching index is rebuilt on library refresh and excludes unavailable files from presence matches. Known release/recording conflicts reject matching. Multiple candidates require identical known hashes before choosing a file.
+
+Album edition anchors are an additive SQLite document (`album-edition-anchors`). The original context-derived album ID remains assigned to its first known edition; further editions receive separate IDs. Persist anchors so scan order does not move old links/preferences between editions. Unknown tags may join a sole known edition, but should not choose among multiple editions. Do not change this policy without migration fixtures and a backed-up production-state comparison.
+
+Intentional-removal exclusions use edition-aware keys; legacy exclusions still require compatibility. Restoration must clear only its removal's exclusions. Quality overrides and queued references must follow the correct album edition. Shared-file preservation is a boundary condition, not a licence to deduplicate unknown files automatically.
+
+Queue workers use claim tokens. Cancellation/clear invalidates a claim; stale workers must not publish into a new request with a reused ID. Artist jobs use a separate generation guard. Preserve both across refactoring and restarts.
+
+## Deployment and critical handover details
+
+Current household topology:
+
+- Unraid host: `192.168.1.235`; app LAN address: `192.168.1.203:8765`.
+- Container: `pig-music-preview`; appdata: `/mnt/user/appdata/pig-music-preview/data`.
+- Host music mount: `/mnt/remotes/SERVER01_Audio`; container mount: `/library`.
+- Direct download workspace: `/library/.pig-music-work`; published files use existing artist/album folders. Recovery originals live in hidden `.pig-music-trash`, with Plex exclusion handling.
+- Compose reference: `compose.unraid-preview.yaml`; deployed definition: `/mnt/user/appdata/pig-music-preview/compose.yaml`.
+- Container protections: user `99:100`, read-only root filesystem, dropped capabilities, no-new-privileges, bounded CPU/RAM and writable temporary filesystem. Internal engine API binds loopback; keep that boundary.
+- Two existing Docker networks: `pig-music-preview` and `br0`. The LAN address is static. Preserve network wiring and gateway priorities during updates.
+- Existing SSH key is provisioned on the engineer's machine. Supply it to the deploy tool; never copy it into this repository or a source archive.
+
+Private connection/config files include `slskd-connection.json`, `engine/engine.env`, `engine/slskd.yml`, `plex-connection.json`, `media-settings.json` and `library-export.json` in appdata. Document field requirements in [operations](docs/operations.md), not actual values. Plex export is currently one owner connection; never imply household support exists already.
+
+Use `scripts/deploy_unraid.py` for source-only candidate build and isolated Linux tests. Add `--deploy` only for an authorised live delivery. It refuses active transfers, pauses/restores download settings, retains the old container, backs up stopped appdata/Compose and checks health/storage/API readiness. No live data belongs in a candidate source bundle. See [operations](docs/operations.md) for commands and manual recovery, including partial-update failures.
+
+The pre-cleanup rollback image/container and `/mnt/user/appdata/pig-music-preview/backups/` must remain until the owner is happy. Old manager recovery material is under `backups/legacy-phase1a-20261006`; do not purge it during cleanup. Copying a database while active is not a substitute for SQLite backup or a stopped-state backup.
+
+If the NAS disappears, cached browsing/settings should remain accessible while managed writes and transfers pause. Never create a substitute empty library at the mount point or bypass marker validation. Restore the correct mount/marker and verify the engine/queue resume before reporting recovery.
+
+## Verification and ongoing maintenance
+
+Use [testing guidance](docs/testing.md). Backend tests use disposable fixtures, not live library paths. Complete-file FFmpeg validation and actual format checks remain required. Provider tests use mock transports; they do not establish live service availability.
+
+Before a release: format checks, unused TypeScript checks/build, frontend tests, backend suite and candidate Linux tests. Exercise browser journeys that backend tests cannot catch: fresh Import, reload/back/direct links, favourite-without-acquisition, playlist picker, active queue states, album settings and phone player metadata. Distinguish existing test results from checks actually run against the release candidate.
+
+Record before/after read-only performance samples and request counts. Cached responses, cold provider work and downloads are different measurements. Include dataset size, sample count and transport. Do not trade identity/file validation for speed.
+
+Brand source: [approved family standard](docs/pig-family-brand-standard.md) and [tokens](docs/pig-family-brand-tokens.json), originally supplied by the Pig-Branding sibling project. Preserve pig transparency, proportions and optical anchor. Playback keeps protected dark surfaces and fixed rose accent in both appearances. Any new wordmark needs approved Pig Music artwork; do not repurpose PigTV lettering.
+
+Historical documents are indexed in [the documentation directory](docs/README.md). Their URLs, container counts and safety assumptions may describe retired builds. This blueprint and current operations/testing documents take precedence.
+
+## Known limits / next engineer checklist
+
+- Single household owner/library and one Plex owner mapping today; no user-account isolation yet.
+- Experimental remote playback may fail or be slow; saved playback is independent. No guarantees about exact remote mastering.
+- Metadata/provider limits and availability are external dependencies. Optional enrichment must never block library browsing or expose credentials.
+- No filesystem watcher: use Scan library for changes made outside Pig Music. Initial ingestion uses native scanner; retired Music Grabber tooling is not a requirement.
+- Plex's native playlist deduplication means repeated songs appear once there; Pig Music retains all ordered occurrences.
+- Physical-phone smoothness and actual off-site access require real-device confirmation.
+- At task start: inspect repository instructions/status, read this blueprint, verify current deployed image and health, then check queue activity before a restart. Protect uncommitted work; the repository originally arrived with all inception files untracked.
+- At handover: state what changed, what was verified, current image/rollback path, open risks and the next prioritised work item. Update this document and the decision dialogue; do not scatter another competing roadmap into a new milestone.

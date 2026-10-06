@@ -1,0 +1,11 @@
+services:
+  pig-music:
+    build: .
+    container_name: pig-music-preview
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    environment:
+      PIG_MUSIC_DATA: /data
+    volumes:
+      - ${PIG_MUSIC_APPDATA:-./.localdata}:/data

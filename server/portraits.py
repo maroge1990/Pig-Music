@@ -1,0 +1,148 @@
+"""Bounded portrait enrichment with album artwork as the existing fallback."""
+
+import asyncio
+import hashlib
+import csv
+import io
+import json
+import re
+import time
+from urllib.parse import urlsplit
+
+import httpx
+from PIL import Image
+
+from .artwork import quoted
+from .library import identifier, normalise
+from .media import settings
+from .fanart import Fanart
+
+
+class Portraits:
+    def __init__(self, store, catalogue, artwork, fanart=None):
+        self.store, self.catalogue, self.artwork = store, catalogue, artwork
+        self.fanart = fanart or Fanart(store)
+        self.locks = {}
+        self.index_lock = asyncio.Lock()
+        self.slots = asyncio.Semaphore(3)
+
+    async def artistgrid(self, client, name):
+        async with self.index_lock:
+            index = self.store.read_document("artistgrid-index")
+            if index.get("retry_after", 0) > time.time():
+                return None
+            if time.time() - index.get("time", 0) > 604800:
+                async with client.stream(
+                    "GET", "https://artists.artistgrid.cx/artists.csv", timeout=12
+                ) as response:
+                    response.raise_for_status()
+                    data = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        data.extend(chunk)
+                        if len(data) > 2_000_000:
+                            raise ValueError("Portrait index too large")
+                names = [
+                    r["name"]
+                    for r in csv.DictReader(io.StringIO(data.decode("utf-8-sig")))
+                ]
+                index = {"time": time.time(), "names": names}
+                with self.store.connect() as conn:
+                    conn.execute(
+                        "INSERT INTO documents VALUES (?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
+                        ("artistgrid-index", json.dumps(index)),
+                    )
+        matches = [n for n in index["names"] if normalise(n) == normalise(name)]
+        slug = re.sub("[^a-z0-9]", "", name.lower())
+        # Reject punctuation collisions in the upstream filename scheme.
+        if (
+            len(matches) != 1
+            or sum(re.sub("[^a-z0-9]", "", n.lower()) == slug for n in index["names"])
+            != 1
+        ):
+            return None
+        return "https://assets.artistgrid.cx/jpg/" + slug + ".jpg"
+
+    async def get(self, client, name, artist_id=None):
+        config = settings(self.store)
+        if not config["portraits"]:
+            return None
+        provider = hashlib.sha256(config.get("fanart_key", "").encode()).hexdigest()[
+            :12
+        ]
+        key = identifier("portrait-v2", (artist_id or normalise(name)) + provider)
+        target = self.store.cover_dir / (key + ".jpg")
+        if target.exists():
+            return target
+        missing = (
+            "portrait-missing:"
+            + key
+            + (":fanart" if config.get("fanart_key") else ":grid")
+        )
+        if self.store.read_document(missing).get("retry_after", 0) > time.time():
+            return None
+        async with self.locks.setdefault(key, asyncio.Lock()), self.slots:
+            if target.exists():
+                return target
+            if self.store.read_document(missing).get("retry_after", 0) > time.time():
+                return None
+            url = None
+            if config.get("fanart_key"):
+                try:
+                    if not artist_id:
+                        data = await self.catalogue.get(
+                            client, "artist/", query="artist:" + quoted(name), limit=100
+                        )
+                        matches = [
+                            a
+                            for a in data.get("artists", [])
+                            if normalise(a.get("name", "")) == normalise(name)
+                        ]
+                        if data.get("count", len(matches)) <= 100 and len(matches) == 1:
+                            artist_id = matches[0]["id"]
+                    if artist_id:
+                        data = await self.fanart.get(
+                            client, artist_id, config["fanart_key"]
+                        )
+                        photos = data.get("artistthumb", [])
+                        photos.sort(key=lambda p: int(p.get("likes", 0)), reverse=True)
+                        url = photos[0]["url"] if photos else None
+                except (httpx.HTTPError, ValueError, KeyError):
+                    pass
+            try:
+                if not url:
+                    url = await self.artistgrid(client, name)
+                if url:
+                    parts = urlsplit(url)
+                    if (
+                        parts.scheme != "https"
+                        or parts.hostname
+                        not in {"assets.artistgrid.cx", "assets.fanart.tv"}
+                        or parts.username
+                        or parts.password
+                        or parts.port not in {None, 443}
+                    ):
+                        raise ValueError("Untrusted portrait address")
+                    async with client.stream(
+                        "GET", url, timeout=12, follow_redirects=False
+                    ) as response:
+                        response.raise_for_status()
+                        content = bytearray()
+                        async for chunk in response.aiter_bytes():
+                            content.extend(chunk)
+                            if len(content) > 5_000_000:
+                                raise ValueError("Portrait too large")
+                    self.artwork.save(bytes(content), target)
+                    return target
+            except (
+                httpx.HTTPError,
+                ValueError,
+                OSError,
+                KeyError,
+                Image.DecompressionBombError,
+            ):
+                if not url:
+                    self.artwork.remember_missing("artistgrid-index", 300)
+                self.artwork.remember_missing(missing, 300)
+                return None
+            self.artwork.remember_missing(missing, 86400)
+            return None

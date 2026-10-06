@@ -1,0 +1,10 @@
+.investigation/
+.venv/
+__pycache__/
+.pytest_cache/
+pytest-cache-files-*/
+*.pyc
+.localdata/
+client/node_modules/
+client/dist/
+.env

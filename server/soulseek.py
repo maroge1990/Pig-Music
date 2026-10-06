@@ -1,0 +1,406 @@
+"""App-owned slskd API adapter. Only completed files enter validation."""
+
+import json
+import os
+import re
+import time
+import threading
+from pathlib import Path, PureWindowsPath
+from urllib.parse import quote
+
+import httpx
+
+
+def words(value):
+    import unicodedata
+
+    return re.findall(
+        r"\w+",
+        "".join(
+            c
+            for c in unicodedata.normalize("NFKD", value).casefold()
+            if not unicodedata.combining(c)
+        ),
+    )
+
+
+def candidate_for(job, response, file):
+    name = file.get("filename", "")
+    path = PureWindowsPath(name.replace("/", "\\"))
+    codec = path.suffix.lower()
+    profile = job["quality_profile"]
+    if codec != {"lossless": ".flac", "aac_256": ".m4a"}.get(profile, ".mp3"):
+        return None
+    size = file.get("size", 0)
+    if not isinstance(size, int) or not 0 < size <= 256_000_000:
+        return None
+    path_words = set(words(name))
+    if not set(words(job["artist"])).issubset(path_words) or not set(
+        words(job["album"])
+    ).issubset(path_words):
+        return None
+    title = words(job["title"])
+    stem = words(path.stem)
+    if not title or not any(
+        stem[i : i + len(title)] == title for i in range(len(stem))
+    ):
+        return None
+    start = next(i for i in range(len(stem)) if stem[i : i + len(title)] == title)
+    remainder = stem[:start] + stem[start + len(title) :]
+    allowed = set(words(job["artist"] + " " + job["album"]))
+    if any(
+        w not in allowed
+        and not w.isdigit()
+        and not re.fullmatch(r"(?:cd|disc|d|t)\d+", w)
+        for w in remainder
+    ):
+        return None
+    from .downloader import VERSION_WORDS
+
+    expected = set(words(job["title"] + " " + job["album"])) & VERSION_WORDS
+    if path_words & VERSION_WORDS != expected:
+        return None
+    length = file.get("length", 0)
+    if (
+        not isinstance(length, (int, float))
+        or length <= 0
+        or job.get("duration")
+        and abs(length - job["duration"]) > 5
+    ):
+        return None
+    bitrate = file.get("bitRate", 0) or 0
+    minimum = {"mp3_320": 300, "mp3_128": 120, "aac_256": 240}.get(profile, 0)
+    if codec != ".flac" and bitrate < minimum:
+        return None
+    return {
+        "title": job["title"],
+        "channel": job["artist"],
+        "album": job["album"],
+        "duration": length,
+        "filename": name,
+        "size": size,
+        "username": response["username"],
+        "extension": codec,
+        "folder": str(path.parent),
+        "queue_length": response.get("queueLength", 0) or 0,
+        "quality": "320kbps" if bitrate >= 300 else str(bitrate),
+    }
+
+
+class Soulseek:
+    def __init__(self, store):
+        self.store = store
+        self.cache = {}
+        self.search_lock = threading.Lock()
+        self.peer_locks = {}
+        self.peer_guard = threading.Lock()
+
+    def config(self):
+        path = self.store.directory / "slskd-connection.json"
+        if not path.exists():
+            raise ValueError("Soulseek engine connection has not been configured")
+        config = json.loads(path.read_text(encoding="utf-8-sig"))
+        if not config.get("url") or not config.get("api_key"):
+            raise ValueError("Soulseek engine connection is incomplete")
+        return config
+
+    def client(self):
+        config = self.config()
+        return httpx.Client(
+            base_url=config["url"].rstrip("/") + "/api/v0/",
+            timeout=15,
+            headers={"X-API-Key": config["api_key"]},
+        )
+
+    def health(self):
+        try:
+            with self.client() as client:
+                response = client.get("server")
+                response.raise_for_status()
+                data = response.json()
+                connected = bool(data.get("isConnected") and data.get("isLoggedIn"))
+                return {"configured": True, "connected": connected}
+        except (ValueError, OSError, httpx.HTTPError):
+            return {
+                "configured": (self.store.directory / "slskd-connection.json").exists(),
+                "connected": False,
+            }
+
+    def search(self, job, check):
+        while not self.search_lock.acquire(timeout=0.5):
+            check()
+        try:
+            check()
+            return self._search(job, check)
+        finally:
+            self.search_lock.release()
+
+    def _search(self, job, check):
+        key = (job["artist"], job["album"])
+        cached = self.cache.get(key)
+        if cached and time.monotonic() - cached[0] < 600:
+            responses = cached[1]
+        else:
+            with self.client() as client:
+                check()
+                started = client.post(
+                    "searches", json={"searchText": f"{job['artist']} {job['album']}"}
+                )
+                started.raise_for_status()
+                search_id = quote(started.json()["id"], safe="")
+                try:
+                    deadline = time.monotonic() + 35
+                    while time.monotonic() < deadline:
+                        check()
+                        status = client.get("searches/" + search_id)
+                        status.raise_for_status()
+                        if status.json().get("isComplete"):
+                            break
+                        time.sleep(1)
+                    result = client.get(f"searches/{search_id}/responses")
+                    result.raise_for_status()
+                    responses = result.json()
+                finally:
+                    try:
+                        client.delete("searches/" + search_id)
+                    except httpx.HTTPError:
+                        pass  # Cleanup must not discard results or mask cancellation.
+            self.cache[key] = (time.monotonic(), responses)
+            if len(self.cache) > 50:
+                self.cache.pop(next(iter(self.cache)))
+        siblings = [
+            t
+            for t in self.store.queue()["items"]
+            if t["album"] == job["album"]
+            and t["album_artist"] == job["album_artist"]
+            and t.get("musicbrainz_release_id") == job.get("musicbrainz_release_id")
+        ]
+        candidates = []
+        for response in responses:
+            files = response.get("files", [])
+            for file in files:
+                candidate = candidate_for(job, response, file)
+                if candidate:
+                    candidate["album_coverage"] = sum(
+                        any(
+                            candidate_for(
+                                {**s, "quality_profile": job["quality_profile"]},
+                                response,
+                                f,
+                            )
+                            for f in files
+                            if str(PureWindowsPath(f.get("filename", "")).parent)
+                            == candidate["folder"]
+                        )
+                        for s in siblings
+                    )
+                    candidates.append(candidate)
+        return sorted(
+            candidates,
+            key=lambda c: (
+                -c["album_coverage"],
+                c["queue_length"],
+                c["username"],
+                c["filename"],
+            ),
+        )[:20]
+
+    def transfer(self, candidate, destination, check, progress):
+        with self.peer_guard:
+            lock = self.peer_locks.setdefault(candidate["username"], threading.Lock())
+        while not lock.acquire(timeout=0.5):
+            check()
+        try:
+            check()
+            return self._transfer(candidate, destination, check, progress)
+        finally:
+            lock.release()
+
+    def _transfer(self, candidate, destination, check, progress):
+        username = quote(candidate["username"], safe="")
+        transfer_id = None
+        with self.client() as client:
+            check()
+            try:
+                response = client.post(
+                    "transfers/downloads/" + username,
+                    json=[
+                        {"filename": candidate["filename"], "size": candidate["size"]}
+                    ],
+                )
+                response.raise_for_status()
+                deadline = time.monotonic() + 240
+                while time.monotonic() < deadline:
+                    check()
+                    response = client.get("transfers/downloads/" + username)
+                    response.raise_for_status()
+                    data = response.json()
+                    files = (
+                        [
+                            f
+                            for d in data.get("directories", [])
+                            for f in d.get("files", [])
+                        ]
+                        if isinstance(data, dict)
+                        else data
+                    )
+                    match = next(
+                        (
+                            f
+                            for f in files
+                            if f.get("filename") == candidate["filename"]
+                            and f.get("size") == candidate["size"]
+                        ),
+                        None,
+                    )
+                    if match:
+                        transfer_id = match["id"]
+                        state = str(
+                            match.get("stateDescription", match.get("state", ""))
+                        ).lower()
+                        progress(match.get("bytesTransferred", 0), candidate["size"])
+                        if "succeeded" in state:
+                            self.copy_completed(candidate, destination)
+                            check()
+                            return
+                        if any(
+                            s in state
+                            for s in (
+                                "failed",
+                                "cancelled",
+                                "rejected",
+                                "errored",
+                                "aborted",
+                            )
+                        ):
+                            raise ValueError("Soulseek peer transfer failed")
+                    time.sleep(1)
+                raise ValueError("Soulseek peer transfer timed out")
+            finally:
+                if transfer_id is None:
+                    try:
+                        response = client.get("transfers/downloads/" + username)
+                        response.raise_for_status()
+                        data = response.json()
+                        files = (
+                            [
+                                f
+                                for d in data.get("directories", [])
+                                for f in d.get("files", [])
+                            ]
+                            if isinstance(data, dict)
+                            else data
+                        )
+                        match = next(
+                            (
+                                f
+                                for f in files
+                                if f.get("filename") == candidate["filename"]
+                                and f.get("size") == candidate["size"]
+                            ),
+                            None,
+                        )
+                        transfer_id = match.get("id") if match else None
+                    except (httpx.HTTPError, ValueError, KeyError):
+                        pass
+                if transfer_id:
+                    # Cancel only the exact transfer owned by this request. Keep files for recovery.
+                    try:
+                        client.delete(
+                            f"transfers/downloads/{username}/{quote(str(transfer_id), safe='')}",
+                            params={"remove": False},
+                        )
+                    except httpx.HTTPError:
+                        pass
+
+    def copy_completed(self, candidate, destination):
+        config = self.config()
+        if config.get("ssh_host"):
+            import base64
+            import subprocess
+
+            payload = base64.b64encode(
+                json.dumps(
+                    {
+                        "root": (
+                            "/input"
+                            if config.get("ssh_copy_image")
+                            else config["download_root"]
+                        ),
+                        "filename": candidate["filename"],
+                        "size": candidate["size"],
+                    }
+                ).encode()
+            ).decode()
+            script = "\n".join(
+                [
+                    "import base64,json,pathlib,sys",
+                    f"data=json.loads(base64.b64decode('{payload}'))",
+                    "root=pathlib.Path(data['root']).resolve()",
+                    "original=pathlib.PureWindowsPath(data['filename'])",
+                    "assert 0<data['size']<=256000000",
+                    "matches=[p for p in root.rglob('*') if p.name==original.name and p.is_file() and p.resolve().is_relative_to(root) and p.stat().st_size==data['size'] and p.parent.name==original.parent.name]",
+                    "assert len(matches)==1",
+                    "sys.stdout.buffer.write(matches[0].open('rb').read(data['size']+1))",
+                ]
+            )
+            encoded = base64.b64encode(script.encode()).decode()
+            command = (
+                f"python3 -c \"import base64;exec(base64.b64decode('{encoded}'))\""
+            )
+            if config.get("ssh_copy_image"):
+                import shlex
+
+                code = f"import base64;exec(base64.b64decode('{encoded}'))"
+                command = (
+                    "docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --entrypoint python3 -v "
+                    + shlex.quote(config["download_root"] + ":/input:ro")
+                    + " "
+                    + shlex.quote(config["ssh_copy_image"])
+                    + " -c "
+                    + shlex.quote(code)
+                )
+            result = subprocess.run(
+                [
+                    "ssh",
+                    "-i",
+                    config["ssh_key"],
+                    "-o",
+                    "BatchMode=yes",
+                    "-o",
+                    "ConnectTimeout=5",
+                    config["ssh_host"],
+                    command,
+                ],
+                capture_output=True,
+                timeout=60,
+            )
+            if result.returncode or len(result.stdout) != candidate["size"]:
+                raise ValueError(
+                    "Completed Soulseek file could not be safely read from the test engine"
+                )
+            destination.write_bytes(result.stdout)
+            return
+        root = Path(config["download_root"]).resolve()
+        original = PureWindowsPath(candidate["filename"])
+        matches = [
+            p
+            for p in root.rglob("*")
+            if p.name == original.name
+            and p.is_file()
+            and p.resolve().is_relative_to(root)
+            and p.stat().st_size == candidate["size"]
+            and p.parent.name == original.parent.name
+        ]
+        if len(matches) != 1:
+            raise ValueError(
+                "Completed Soulseek file could not be uniquely located in the configured download folder"
+            )
+        with matches[0].open("rb") as source:
+            data = source.read(candidate["size"] + 1)
+        if len(data) != candidate["size"]:
+            raise ValueError("Completed Soulseek file changed during import")
+        destination.write_bytes(data)
+        work = os.environ.get("PIG_MUSIC_DOWNLOAD_ROOT")
+        if work and root.is_relative_to(Path(work).resolve()):
+            matches[0].unlink()

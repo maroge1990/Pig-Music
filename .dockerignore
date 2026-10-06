@@ -1,0 +1,10 @@
+.git
+.investigation
+.localdata
+.venv
+client/node_modules
+client/dist
+__pycache__
+.pytest_cache
+docs
+tests
