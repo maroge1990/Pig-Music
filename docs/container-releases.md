@@ -33,4 +33,14 @@ Rollback uses the retained container/image plus its matching state backup as doc
 
 ## Current access and evidence
 
-GitHub CLI access to the private `maroge1990/Pig-Music` repository is verified and Actions is enabled. Direct SSH to the documented Unraid address as root was rejected, and the documented deployment key is absent on this Mac. No service, container, network, appdata or NAS changes have been made. Actual GHCR publication/build evidence is recorded in the blueprint after the workflow runs. The live switch remains pending server access and release authorisation.
+GitHub access, Actions publication, Unraid registry pull access and dedicated SSH access are verified. The owner provisioned the deployment public key; private keys and registry credentials remain outside the repository.
+
+On 7 October 2026 the authorised release `registry-20261007-v1` deployed:
+
+- Image: `ghcr.io/maroge1990/pig-music@sha256:e2db668bfb99e41102cfbe6a8f6ad7b975262326347467057c1d39029b4dba8b`.
+- Revision: `e3fc247a5bd183d0787281319a7076da3f2cd781`; source label matches this repository. [Publishing run](https://github.com/maroge1990/Pig-Music/actions/runs/37445421140) passed.
+- Exact-image verification: 117 backend tests plus 10k/50k artwork benchmarks under 1 GB, repeated on Unraid. Stopped-state migration retained all 1,395 tracks, links and durable rows.
+- Live read-only checks: healthy service, available NAS, 1,395 readable files, 25 matching managed hashes, 98 albums, 27 completed queue rows and original download settings. Artwork files/responses verified.
+- Existing private address, NAS/appdata mounts, UID/GID 99:100, read-only root and 1 GB limit retained.
+- Rollback: stopped container `pig-music-preview-before-registry-20261007-v1` and matching state backup `/mnt/user/appdata/pig-music-preview/backups/pre-registry-20261007-v1`.
+- Release input: `/mnt/user/appdata/pig-music-preview/releases/registry-20261007-v1`. Later native/documentation commits do not change the running digest. Draft PRs remain unmerged.

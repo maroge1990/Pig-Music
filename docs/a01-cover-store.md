@@ -1,6 +1,6 @@
 # A01: content-addressed artwork foundation
 
-6 October 2026. Implemented and verified locally; Linux container and production-state acceptance are recorded separately. Branding remains deferred until the owner confirms completion.
+Implemented 6 October; delivered on Unraid 7 October 2026. Linux container and production-state acceptance passed. Branding remains deferred until the owner confirms completion.
 
 The scanner writes normalised JPEG artwork into appdata `covers/<sha256>.jpg`. Schema 3 snapshots contain track metadata and `cover_sha`, never an image-byte map. Album IDs and edition anchors are unchanged. Each edition selects its own track artwork. Quality replacements retain scanned art from the same edition.
 
@@ -31,4 +31,6 @@ Disposable macOS / Python 3.12 benchmark, 10 tracks per album, distinct noisy 51
 
 Reproduce with `python scripts/benchmark_cover_store.py`. The Linux image workflow must repeat both sizes under `--memory=1g`; 10k additionally asserts snapshot <25 MB and peak RSS <400 MB. The production-state verifier streams original track metadata and compares it after migration, checks artwork files, and retains its durable-row/album-link checks.
 
-Remaining release acceptance: actual Linux image checks, disposable copy of stopped production state, then an explicitly authorised release. A02 (non-blocking external artwork, derivatives and cache headers) and A03 (payload/grid performance) remain separate planned work.
+Release acceptance completed on 7 October 2026. The exact image passed 117 backend tests and both benchmark sizes under 1 GB in GitHub Linux and again on Unraid. Final Unraid 10k/50k peak RSS was 88.14/307.04 MB; migration plus first refresh took 35.032/168.943 seconds and warm refresh 0.450/3.163 seconds. A disposable stopped-state migration retained all 1,395 tracks, album links and durable rows before the authorised live switch.
+
+Live schema 3 snapshot is 927,914 bytes with 81 referenced covers, none missing; the original snapshot remains retained. All 1,395 NAS files opened without errors and all 25 managed hashes matched. Five live artwork responses matched their hashes. Existing 98 albums and 27 completed queue entries remain. Exact release and rollback references are in the blueprint. A02 (non-blocking external artwork, derivatives and cache headers) and A03 (payload/grid performance) remain separate planned work.
