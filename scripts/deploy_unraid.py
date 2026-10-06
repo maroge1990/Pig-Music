@@ -113,6 +113,47 @@ def main():
     def remote(command):
         subprocess.run(ssh + [command], check=True)
 
+    # Update only an already-configured PigMusic private endpoint; never create
+    # exposure or alter the separate Unraid/8443 services from a deployment.
+    serve = json.loads(
+        subprocess.check_output(
+            ssh
+            + [
+                "if test -x /usr/local/sbin/tailscale; then /usr/local/sbin/tailscale serve status --json; else printf '{}'; fi"
+            ],
+            text=True,
+        )
+    )
+    prior_proxy = (
+        serve.get("Web", {})
+        .get("passyflix.tail6d1471.ts.net:10000", {})
+        .get("Handlers", {})
+        .get("/", {})
+        .get("Proxy")
+    )
+    if prior_proxy and not re.fullmatch(
+        r"http://172\.25\.\d{1,3}\.\d{1,3}:8765", prior_proxy
+    ):
+        parser.error("Existing PigMusic private proxy has an unexpected target")
+
+    def refresh_private_proxy(target=None):
+        if not prior_proxy:
+            return
+        if target is None:
+            address = subprocess.check_output(
+                ssh
+                + [
+                    "docker inspect --format '{{(index .NetworkSettings.Networks \"pig-music-preview\").IPAddress}}' pig-music-preview"
+                ],
+                text=True,
+            ).strip()
+            if not re.fullmatch(r"172\.25\.\d{1,3}\.\d{1,3}", address):
+                raise RuntimeError("Unexpected private bridge address")
+            target = "http://" + address + ":8765"
+        remote(
+            "/usr/local/sbin/tailscale serve --bg --https=10000 " + shlex.quote(target)
+        )
+
     output = ROOT / ".localdata" / "deploy"
     output.mkdir(parents=True, exist_ok=True)
     archive = output / (args.version + ".tar.gz")
@@ -298,6 +339,7 @@ def main():
                 "/api/settings/media",
             ):
                 client.get(path).raise_for_status()
+            refresh_private_proxy()
             client.put("/api/settings/downloads", json=settings).raise_for_status()
             print(
                 "Deployed:",
@@ -323,6 +365,7 @@ def main():
                 )
             else:
                 remote("docker start pig-music-preview")
+            refresh_private_proxy(prior_proxy)
             for attempt in range(30):
                 try:
                     client.put(
