@@ -377,7 +377,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                     store.summary(),
                     separators=(",", ":"),
                 ).encode()
-                etag = '"' + hashlib.sha256(payload).hexdigest() + '"'
+                etag = 'W/"' + hashlib.sha256(payload).hexdigest() + '"'
                 store.library_payload = (signature, payload, etag)
             _, payload, etag = store.library_payload
         headers = {
@@ -386,7 +386,10 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             "Vary": "Accept-Encoding",
         }
         candidates = request.headers.get("if-none-match", "").split(",")
-        if any(value.strip().removeprefix("W/") in {etag, "*"} for value in candidates):
+        if any(
+            value.strip().removeprefix("W/") in {etag.removeprefix("W/"), "*"}
+            for value in candidates
+        ):
             return Response(status_code=304, headers=headers)
         return Response(payload, media_type="application/json", headers=headers)
 

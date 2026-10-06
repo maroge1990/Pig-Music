@@ -143,7 +143,7 @@ def test_library_compression_validator_and_playlist_invalidation(tmp_path):
         etag = result.headers["etag"]
         assert (
             client.get(
-                "/api/library", headers={"If-None-Match": "W/" + etag}
+                "/api/library", headers={"If-None-Match": etag.removeprefix("W/")}
             ).status_code
             == 304
         )
