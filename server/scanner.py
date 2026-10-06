@@ -1,6 +1,5 @@
 """Application-owned, read-only ingestion. No Music Grabber index is required."""
 
-import base64
 import hashlib
 import json
 import os
@@ -154,6 +153,7 @@ class LibraryScanner:
     def run(self):
         if not self.lock.acquire(blocking=False):
             return self.status()
+        self.store.covers.lock.acquire()
         try:
             root = self.root.resolve()
             if not root.is_dir():
@@ -175,7 +175,7 @@ class LibraryScanner:
                 if t.get("relative_path")
             }
             tracks = []
-            covers = dict(previous.get("covers", {}))
+            cover_hashes = {}
             failures = []
             directory_errors = []
             self.report(status="scanning", files=0)
@@ -208,33 +208,88 @@ class LibraryScanner:
                             cached
                             and cached.get("size_bytes") == stat.st_size
                             and cached.get("mtime_ns") == stat.st_mtime_ns
+                            and not cached.get("cover_rescan")
+                            and (
+                                not cached.get("cover_sha")
+                                or self.store.covers.path(cached["cover_sha"])
+                            )
                         ):
                             track = {**cached, "available": True}
                             cover = None
                         else:
                             track, cover = inspect_file(path, relative)
-                        tracks.append(track)
-                        key = track["album_artist"] + "\x1f" + track["album"]
-                        if not cover and key not in covers:
-                            for filename in (
-                                "cover.jpg",
-                                "folder.jpg",
-                                "cover.png",
-                                "folder.png",
-                            ):
-                                image = path.parent / filename
+                        try:
+                            if cover:
+                                raw_sha = hashlib.sha256(cover).hexdigest()
+                                if raw_sha not in cover_hashes:
+                                    cover_hashes[raw_sha] = self.store.covers.save(
+                                        cover
+                                    )
+                                track["cover_sha"] = cover_hashes[raw_sha]
+                                track["cover_source"] = "embedded"
+                            elif track.get("cover_source") != "embedded":
+                                # Folder artwork has its own fingerprint: replacing
+                                # it must not require modifying the audio file.
+                                image = next(
+                                    (
+                                        path.parent / name
+                                        for name in (
+                                            "cover.jpg",
+                                            "folder.jpg",
+                                            "cover.png",
+                                            "folder.png",
+                                        )
+                                        if (path.parent / name).is_file()
+                                        and not (path.parent / name).is_symlink()
+                                        and (path.parent / name)
+                                        .resolve()
+                                        .is_relative_to(root)
+                                        and (path.parent / name).stat().st_size
+                                        <= 5_000_000
+                                    ),
+                                    None,
+                                )
+                                signature = None
+                                if image:
+                                    image_stat = image.stat()
+                                    signature = [
+                                        image.relative_to(root).as_posix(),
+                                        image_stat.st_size,
+                                        image_stat.st_mtime_ns,
+                                    ]
                                 if (
-                                    image.is_file()
-                                    and not image.is_symlink()
-                                    and image.stat().st_size <= 5_000_000
+                                    signature != track.get("cover_signature")
+                                    or track.get("cover_rescan")
+                                    or (
+                                        image
+                                        and not self.store.covers.path(
+                                            track.get("cover_sha")
+                                        )
+                                    )
                                 ):
-                                    cover = image.read_bytes()
-                                    break
-                        if cover:
-                            covers[key] = {
-                                "data": base64.b64encode(cover).decode("ascii"),
-                                "mime": "image/jpeg",
-                            }
+                                    track.pop("cover_sha", None)
+                                    if image:
+                                        raw = image.read_bytes()
+                                        raw_sha = hashlib.sha256(raw).hexdigest()
+                                        if raw_sha not in cover_hashes:
+                                            cover_hashes[raw_sha] = (
+                                                self.store.covers.save(raw)
+                                            )
+                                        track["cover_sha"] = cover_hashes[raw_sha]
+                                track["cover_source"] = "folder"
+                                track["cover_signature"] = signature
+                            track.pop("cover_rescan", None)
+                        except (ValueError, OSError) as exc:
+                            # Invalid display art must not hide playable audio.
+                            track.pop("cover_sha", None)
+                            track["cover_rescan"] = True
+                            failures.append(
+                                {
+                                    "path": relative,
+                                    "error": "Artwork: " + str(exc)[:140],
+                                }
+                            )
+                        tracks.append(track)
                     except Exception as exc:
                         failures.append(
                             {
@@ -257,18 +312,15 @@ class LibraryScanner:
                 if path not in present
             ]
             payload = {
-                "schema_version": 2,
+                "schema_version": 3,
                 "captured_at": datetime.now(timezone.utc).isoformat(),
                 "source": previous.get("source") or str(root),
                 "tracks": tracks + missing,
-                "covers": covers,
                 "read_failures": failures,
             }
-            temporary = self.store.directory / "library-snapshot.scan.tmp"
-            temporary.write_text(
-                json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+            self.store.covers.write_snapshot(
+                self.store.directory / "library-snapshot.json", payload
             )
-            temporary.replace(self.store.directory / "library-snapshot.json")
             self.store.refresh_library()
             self.report(
                 status="completed",
@@ -280,5 +332,6 @@ class LibraryScanner:
         except (OSError, ValueError) as exc:
             self.report(status="failed", error=str(exc)[:200])
         finally:
+            self.store.covers.lock.release()
             self.lock.release()
         return self.status()

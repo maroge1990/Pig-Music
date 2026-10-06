@@ -70,6 +70,7 @@ def snapshot(directory, tracks=None, covers=None):
         json.dumps({"portraits": False}), encoding="utf-8"
     )
     payload = {
+        "schema_version": 3,
         "tracks": tracks
         or [
             {
@@ -80,8 +81,10 @@ def snapshot(directory, tracks=None, covers=None):
                 "album": "Greatest Hits",
             }
         ],
-        "covers": covers or {},
     }
+    if covers:
+        payload["schema_version"] = 2
+        payload["covers"] = covers
     path = directory / "library-snapshot.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path

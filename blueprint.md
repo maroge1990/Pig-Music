@@ -69,6 +69,10 @@ Order is deliberate. Add new entries with a stable ID, rationale, dependencies a
 | Priority / ID | Feature or work | Status | Dependencies / completion gate |
 | --- | --- | --- | --- |
 | 1 / C01 | Approved cleanup: canonical matching, edition-safe identities/removal, indexed reads, batched membership, shared requests/navigation/components, brand/mobile polish, provider scheduling, documentation and reproducible deployment | Delivered, 6 October 2026 | Verified image/evidence above; retain regression coverage and rollback material |
+| 2 / A01 | Content-addressed artwork, metadata-only snapshots, streaming migration, edition artwork, rescan detection and safe pruning | Implemented; local verification complete; release acceptance pending | [A01 evidence](docs/a01-cover-store.md); Linux 1 GB gate and stopped-state migration before deployment |
+| 2 / A02 | Non-blocking enrichment, derivatives, immutable caching and incremental provider work | Planned next | A01 |
+| 2 / A03 | Library compression/conditional reads, indexed lookups and grid performance | Planned | A01/A02 verification |
+| Deferred / B01–B02 | Brand tokens/type and final Pig Music identity integration | Deferred by owner, 6 October 2026 | Owner confirmation branding is complete; assess existing Pig-Branding exports first |
 | 2 / V01 | Physical iPhone scrolling/player checks and a real off-site Tailscale session | Unverified acceptance work | Owner's device/off-site session; emulator/LAN results are insufficient |
 | 3 / H01 | Phase 1b household profiles and two library memberships over shared file assets | Planned; design first | Cleanup stable; agree ownership, sharing/removal semantics, visibility and scan mapping before implementation |
 | 4 / H02 | Per-user favourites/playlists and Plex owner/account export mapping | Planned | H01; validate native Plex users and each library mapping without changing another owner's playlists |
@@ -170,3 +174,5 @@ Historical documents are indexed in [the documentation directory](docs/README.md
 - Physical-phone smoothness and actual off-site access require real-device confirmation.
 - At task start: inspect repository instructions/status, read this blueprint, verify current deployed image and health, then check queue activity before a restart. Protect uncommitted work; the repository originally arrived with all inception files untracked.
 - At handover: state what changed, what was verified, current image/rollback path, open risks and the next prioritised work item. Update this document and the decision dialogue; do not scatter another competing roadmap into a new milestone.
+
+- **6 October 2026 — audit follow-up authorised:** Owner approved artwork foundations first, Swift feasibility preparation alongside them, and branding deferred until confirmed complete. A01 implementation removes image bytes from snapshots without changing track/edition identities. Local benchmark and regression evidence is in `docs/a01-cover-store.md`; Linux image and stopped-state release acceptance remain pending. A02 is next.

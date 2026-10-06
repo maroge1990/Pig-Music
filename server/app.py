@@ -86,6 +86,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             export_task = asyncio.create_task(exporter.run())
             artist_task = asyncio.create_task(artist_jobs.run(client))
             preload_task = asyncio.create_task(preload_library())
+            maintenance_task = asyncio.create_task(maintain_artwork())
             if (
                 scanner.root.is_dir()
                 and not (store.directory / "library-snapshot.json").exists()
@@ -102,6 +103,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 await artist_task
                 preload_stopping.set()
                 preload_task.cancel()
+                maintenance_task.cancel()
                 await task
                 await plex_task
                 await export_task
@@ -109,8 +111,18 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                     await preload_task
                 except asyncio.CancelledError:
                     pass
+                try:
+                    await maintenance_task
+                except asyncio.CancelledError:
+                    pass
                 if scan_task:
                     await scan_task
+
+    async def maintain_artwork():
+        # Wait a week after startup; never prune during startup migration.
+        while True:
+            await asyncio.sleep(7 * 86400)
+            await asyncio.to_thread(store.prune_artwork)
 
     app = FastAPI(title="Pig Music", version="0.1.0", lifespan=lifespan)
     app.state.store = store

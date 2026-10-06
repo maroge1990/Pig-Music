@@ -4,3 +4,4 @@ mutagen>=1.47,<2
 Pillow>=11,<13
 httpx>=0.28,<1
 pycryptodome>=3.23,<4
+ijson>=3.4,<4

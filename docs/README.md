@@ -11,3 +11,5 @@ Start with [blueprint.md](../blueprint.md), the primary engineering/agent handov
 - [Historical records](archive/README.md): earlier milestones, design decisions and upstream investigations. These are evidence, not current operational instructions.
 
 Credentials, appdata, music exports, private measurements and screenshots remain ignored local artifacts. They are not handover prerequisites; record the reproducible procedure and verification summary in current docs.
+
+- [A01 artwork foundation](a01-cover-store.md): implementation, local scale evidence, migration and release gates.

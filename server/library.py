@@ -137,6 +137,9 @@ def build_library(
             "tracks": tracks,
             "codecs": sorted({t["codec"].upper() for t in tracks}),
             "cover_key": first["album_artist"] + "\x1f" + first["album"],
+            "cover_sha": next(
+                (t.get("cover_sha") for t in tracks if t.get("cover_sha")), None
+            ),
             "duration": sum(t["duration"] for t in tracks),
         }
         albums.append(album)

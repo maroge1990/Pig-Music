@@ -37,3 +37,7 @@ The API benchmark uses the current household artist ID by default; supply `--art
 `deploy_unraid.py` also runs `verify_state_migration.py` against a read-only stopped-state backup copied into temporary container storage, without NAS/network access. It checks existing track counts, album links and durable database rows, allowing only the new edition-anchor document. A migration failure aborts deployment and restores the prior container; inspect the result before reporting success.
 
 Each handover must state which checks actually ran, the image tested/deployed, rollback location and remaining checks. Prior passing milestones are historical evidence, not substitutes for candidate verification.
+
+## Artwork scaling
+
+Run `python scripts/benchmark_cover_store.py` against disposable fixtures. It tests legacy migration and warm refresh with distinct artwork at 10k and 50k, records per-process peak RSS, and asserts the A01 10k limits. Repeat in the candidate Linux image with a 1 GB memory limit before release. See [A01 evidence](a01-cover-store.md).

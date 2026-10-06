@@ -1,5 +1,3 @@
-import base64
-import io
 import json
 import hashlib
 import os
@@ -10,7 +8,7 @@ import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
-from PIL import Image, ImageOps
+from .cover_store import CoverStore
 
 from .library import (
     build_library,
@@ -35,6 +33,8 @@ class Store:
         directory.mkdir(parents=True, exist_ok=True)
         self.cover_dir = directory / "covers"
         self.cover_dir.mkdir(exist_ok=True)
+        self.covers = CoverStore(self.cover_dir)
+        self.covers.migrate(self.directory / "library-snapshot.json")
         self.database = directory / "pig-music.sqlite3"
         with self.connect() as conn:
             conn.executescript(
@@ -105,7 +105,7 @@ class Store:
                 "INSERT INTO documents VALUES (?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
                 ("album-edition-anchors", json.dumps(anchors)),
             )
-        self._cache_covers(snapshot.get("covers", {}))
+        self._cache_covers(snapshot.get("tracks", []))
         self.index = LibraryIndex(self.library)
         self.snapshot_tracks = {t["id"]: t for t in snapshot.get("tracks", [])}
         fingerprint = hashlib.sha256(
@@ -825,27 +825,34 @@ class Store:
             ).fetchone()
         return json.loads(row[0]) if row else {}
 
-    def _cache_covers(self, covers):
+    def _cache_covers(self, snapshot_tracks):
+        # Quality replacements can supersede every scanned track in an album.
+        # Retain its display artwork without moving the old file membership.
+        scanned_art = {}
+        for track in snapshot_tracks:
+            if track.get("cover_sha"):
+                key = (
+                    normalise(
+                        track.get("album_artist", track.get("artist", "Unknown artist"))
+                    ),
+                    normalise(track.get("album", "Singles")),
+                )
+                scanned_art.setdefault(key, []).append(track)
         for album in self.library["albums"]:
-            cover = covers.get(album["cover_key"])
-            album["cover_url"] = None
-            if not cover:
-                continue
-            filename = identifier("cover", album["cover_key"]) + ".jpg"
-            target = self.cover_dir / filename
-            try:
-                if not target.exists():
-                    with Image.open(
-                        io.BytesIO(base64.b64decode(cover["data"], validate=True))
-                    ) as image:
-                        if image.width * image.height > 30_000_000:
-                            continue
-                        image = ImageOps.exif_transpose(image).convert("RGB")
-                        image.thumbnail((512, 512))
-                        image.save(target, "JPEG", quality=84)
-                album["cover_url"] = "/api/artwork/" + filename
-            except (ValueError, OSError, KeyError):
-                continue
+            if not album.get("cover_sha"):
+                candidates = scanned_art.get(
+                    (normalise(album["artist"]), normalise(album["title"])), []
+                )
+                release = album.get("musicbrainz_release_id")
+                hashes = {
+                    t["cover_sha"]
+                    for t in candidates
+                    if not release or t.get("musicbrainz_release_id") == release
+                }
+                if len(hashes) == 1:
+                    album["cover_sha"] = next(iter(hashes))
+            target = self.covers.path(album.get("cover_sha"))
+            album["cover_url"] = "/api/artwork/" + target.name if target else None
         albums = {a["id"]: a for a in self.library["albums"]}
         # Prefer any available own-album cover, rather than only the first album.
         for artist in self.library["artists"]:
@@ -871,6 +878,36 @@ class Store:
                 artist["cover_url"] = (
                     "/api/library-artwork/artists/" + artist["id"] + "?portraits=1"
                 )
+
+    def prune_artwork(self, now=None):
+        now = time.time() if now is None else now
+        with self.covers.lock, self.library_lock:
+            snapshot = load_json(self.directory / "library-snapshot.json")
+            references = {t.get("cover_sha") for t in snapshot.get("tracks", [])}
+            references.update(a.get("cover_sha") for a in self.library["albums"])
+            with self.connect() as conn:
+                for (payload,) in conn.execute("SELECT payload FROM acquired"):
+                    references.add(json.loads(payload).get("cover_sha"))
+                expired = []
+                for name, payload in conn.execute(
+                    "SELECT name,payload FROM documents WHERE name LIKE 'missing-artwork:%' OR name LIKE 'catalogue:%'"
+                ):
+                    value = json.loads(payload)
+                    expiry = (
+                        value.get("retry_after")
+                        if name.startswith("missing-artwork:")
+                        else value.get("time", now) + 86400
+                    )
+                    if isinstance(expiry, (int, float)) and expiry < now:
+                        expired.append((name, payload))
+                # Compare payload as well so a concurrently refreshed cache wins.
+                conn.executemany(
+                    "DELETE FROM documents WHERE name=? AND payload=?", expired
+                )
+            return {
+                "covers_removed": self.covers.prune(references, now),
+                "documents_removed": len(expired),
+            }
 
     def summary(self):
         with self.connect() as conn:
