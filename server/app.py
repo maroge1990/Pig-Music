@@ -19,7 +19,8 @@ from starlette.middleware.gzip import GZipMiddleware
 from .transport import public_origin
 from .enrichment import Enrichment
 from .change_feed import ChangeFeed
-from .image_cache import public_image, variant, SIZES
+from .image_cache import public_image
+from .routes.artwork import artwork_router
 from .portraits import portrait_target
 from .artist_backgrounds import background_target
 from pydantic import BaseModel, Field
@@ -1315,37 +1316,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             "note": "Not saved. Provider quality and exact mastering are unverified.",
         }
 
-    @app.get("/api/artwork/{filename}")
-    async def cached_artwork(
-        request: Request, filename: str, w: int = 0, soft: bool = False, v: int = 1
-    ):
-        if not filename.endswith(".jpg") or len(filename) != 68:
-            # Old provider URLs are aliases, never immutable filenames.
-            if Path(filename).name != filename or not filename.endswith(".jpg"):
-                raise HTTPException(404, "Artwork not found.")
-            return await image_response(store.cover_dir / filename, w, soft)
-        target = store.covers.path(filename[:-4])
-        if not target:
-            raise HTTPException(404, "Artwork not found.")
-        if v != 1:
-            raise HTTPException(400, "Unsupported image variant version.")
-        if w and w not in SIZES:
-            raise HTTPException(400, "Unsupported image size.")
-        if soft and not w:
-            raise HTTPException(400, "Blurred variants require a size.")
-        if w:
-            async with image_slots:
-                target = await asyncio.to_thread(variant, target, w, soft)
-        etag = '"' + filename[:-4] + (f"-v1-{w}-{int(soft)}" if w else "") + '"'
-        headers = {"Cache-Control": "public, max-age=31536000, immutable", "ETag": etag}
-        if any(
-            value.strip().removeprefix("W/") in {etag, "*"}
-            for value in request.headers.get("if-none-match", "").split(",")
-        ):
-            return Response(status_code=304, headers=headers)
-        return FileResponse(
-            target, media_type="image/webp" if w else "image/jpeg", headers=headers
-        )
+    app.include_router(artwork_router(store, image_slots, enrichment, image_response))
 
     dist = client_dir or ROOT / "client" / "dist"
     if dist.exists():

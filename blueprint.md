@@ -1,6 +1,6 @@
 # Pig Music blueprint and engineering handover
 
-Primary handover document. Updated 6 October 2026 (Australia/Sydney).
+Primary handover document. Updated 7 October 2026 (Australia/Melbourne).
 
 Read this document first. It records the product contract, current implementation, prioritised future work and the decisions behind it. Update it at the end of every meaningful delivery, including verification and any remaining gaps. A plan is not evidence of delivery: distinguish **delivered**, **in progress**, **planned**, **proposed** and **unverified**.
 
@@ -234,3 +234,7 @@ Private HTTPS origin and exact-proxy trust are implemented; 145 backend tests pa
 **Delivered:** B01/B02, M00 and T01 as `brand-https-20261007-v1`. Image source revision `6fafc59e2f352139844c810a8929991367c4ab17`; immutable digest `sha256:37b16f9cdad35bf9dbe013fa8293c90a06a22069d3cda6b15c0dfce4af158e43`. Exact-image Unraid tests145, scale gates and stopped-state verification passed. Prior audit release is retained as immediate rollback, with matching backup `pre-brand-https-20261007-v1`.
 
 Private URL: **https://passyflix.tail6d1471.ts.net:10000/**. Port443 remains Unraid administration;8443 remains the existing other service. Proxy uses the existing container bridge; exact gateway trust and public origin were corrected in final runtime configuration. Certificate/HTTP2/HTTPS-health/icons/manifest/Origin checks passed from Unraid. This Mac lacks private hostname resolution; both phones still need LAN/cellular acceptance. No Funnel/public exposure. Account branches are development only and excluded from this release.
+
+## Remaining audit checkpoint — 7 October 2026
+
+The live release is brand-https-20261007-v1, including approved PigMusic branding, schema migrations and private HTTPS on passyflix.tail6d1471.ts.net:10000. The remaining-audit candidate adds enlarged-text layout, bounded collection pages, generated protected-media/shadow roles, local artwork metadata and removal of the test-client warning. See docs/audit-followup-delivery.md for exact implementation and outstanding evidence. Accounts/personal libraries remain separate un-deployed development foundations. The physical Watch spike is not installed.

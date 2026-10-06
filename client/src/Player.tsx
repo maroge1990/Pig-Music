@@ -14,6 +14,7 @@ import {
 import type { Track } from "./types";
 import { SongActions } from "./SongActions";
 import { MusicLink } from "./MusicLink";
+import { useFixedHeight } from "./useFixedHeight";
 import { Cover } from "./Cover";
 
 type Playing = {
@@ -51,6 +52,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const queue = useRef<Track[]>([]);
   const cursor = useRef(-1);
   const [song, setSong] = useState<Playing | null>(null);
+  const playerBar = useFixedHeight("--player-height", !!song);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [playing, setPlaying] = useState(false);
@@ -227,7 +229,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           }}
         />
         {song && (
-          <section className="music-player" aria-label="Music player">
+          <section
+            ref={playerBar}
+            className="music-player"
+            aria-label="Music player"
+          >
             <div className="player-song">
               <Cover
                 title={song.title}

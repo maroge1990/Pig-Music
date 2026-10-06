@@ -888,6 +888,14 @@ class Store:
                 artist["cover_url"] = (
                     "/api/library-artwork/artists/" + artist["id"] + "?portraits=1"
                 )
+        # Optional image metadata is read from a small sidecar, never decoded here.
+        for item in [*self.library["albums"], *self.library["artists"]]:
+            url = item.get("cover_url", "") or ""
+            if url.startswith("/api/artwork/"):
+                sha = url.removeprefix("/api/artwork/").removesuffix(".jpg")
+                metadata = self.covers.presentation(sha)
+                if metadata:
+                    item["artwork_metadata"] = metadata
 
     def prune_artwork(self, now=None):
         now = time.time() if now is None else now
