@@ -21,7 +21,7 @@ Pig Music is a private household music-library manager with one container, one i
 
 ## Current status and evidence
 
-Phase 1a operates independently on live NAS data. The four old container definitions have been retired; recovery data/images remain. The approved cleanup was delivered as `pig-music:cleanup-20261006-v3` on 6 October 2026. A01 and D01 are **delivered** on 7 October 2026 as the immutable GHCR release recorded below. The preceding accepted image is `pig-music:preview-20261006-phase1a-final-v2` and remains available for rollback.
+Phase 1a operates independently on live NAS data. The four old container definitions have been retired; recovery data/images remain. The approved cleanup was delivered as `pig-music:cleanup-20261006-v3` on 6 October 2026. A01 and D01 were delivered on 7 October 2026. The current release is **A02/A03, `audit-20261007-v1`**, delivered later that day as the immutable GHCR image recorded below. The Phase 1a image `pig-music:preview-20261006-phase1a-final-v2` remains retained as historical recovery material; the immediate rollback is recorded with the current release.
 
 Existing delivered capabilities include local/discovered search, artwork, artist discographies, popular songs/albums, saved and experimental remote playback, song/album/artist acquisition, optional artist monitoring, quality replacement/fallback/upgrades, scans, recovery/restore, reviewed organisation, Apple XML import, custom playlists, favourites and a single Plex owner integration.
 
@@ -70,8 +70,8 @@ Order is deliberate. Add new entries with a stable ID, rationale, dependencies a
 | --- | --- | --- | --- |
 | 1 / C01 | Approved cleanup: canonical matching, edition-safe identities/removal, indexed reads, batched membership, shared requests/navigation/components, brand/mobile polish, provider scheduling, documentation and reproducible deployment | Delivered, 6 October 2026 | Verified image/evidence above; retain regression coverage and rollback material |
 | 2 / A01 | Content-addressed artwork, metadata-only snapshots, streaming migration, edition artwork, rescan detection and safe pruning | Delivered 7 October 2026; live migration and integrity checks passed | [A01 evidence](docs/a01-cover-store.md); 117 image tests, Linux/Unraid 1 GB gates and stopped-state migration passed |
-| 2 / A02 | Non-blocking enrichment, derivatives, immutable caching and incremental provider work | Implemented; candidate release verification in progress | [A02/A03 evidence](docs/a02-a03-delivery.md) |
-| 2 / A03 | Library compression/conditional reads, indexed lookups and grid performance | Implemented; candidate release verification in progress | [A02/A03 evidence](docs/a02-a03-delivery.md) |
+| 2 / A02 | Non-blocking enrichment, derivatives, immutable caching and incremental provider work | Delivered 7 October 2026; image, scale and live HTTP gates passed | [A02/A03 evidence](docs/a02-a03-delivery.md) |
+| 2 / A03 | Library compression/conditional reads, indexed lookups and grid performance | Delivered 7 October 2026; image, scale and live HTTP gates passed | [A02/A03 evidence](docs/a02-a03-delivery.md) |
 | Deferred / B01–B02 | Brand tokens/type and final Pig Music identity integration | Deferred by owner, 6 October 2026 | Owner confirmation branding is complete; assess existing Pig-Branding exports first |
 | 2 / D01 | GitHub-linked GHCR image releases for the existing Unraid deployment | Delivered 7 October 2026; published and running on Unraid | [Container releases](docs/container-releases.md); immutable digest, image tests, stopped-state migration and authorised switch |
 | Alongside foundations / S00 | Unbranded iPhone/Watch feasibility spike | Preparation and unsigned device IPA built; actual-device proof pending | [Native spike](docs/native-spike.md); free-account Sideloadly installation/refresh and private HTTPS/device tests |
@@ -200,3 +200,16 @@ Owner direction → Continue after provisioning SSH access. Engineering response
 
 
 - **7 October 2026 — continue through audit:** Owner requested continuation through audit findings. A02/A03 now implement non-blocking provider work, responsive immutable artwork, compressed/conditional library reads, indexed lookups and settings caching. Related phone-tab, hero, incremental preload, lazy operator-view and SSE findings are included. Branding remains deferred. Local tests/benchmarks and an explicit finding-by-finding disposition are in `docs/a02-a03-delivery.md`; image/live acceptance is still pending at this entry. Secure account/API/private HTTPS and actual-device gates remain separate.
+
+
+### A02/A03 current release, 7 October 2026
+
+Owner direction → Continue through the audit findings, keeping branding deferred. Engineering response → Implement bounded non-blocking image enrichment, content-hash derivatives/caching, compressed and conditional library delivery, indexed reads/settings caching, incremental preload, phone tab containment, pre-blurred hero layers, lazy operator views and shared latest-state SSE. Result → **Delivered on Unraid**; remaining branding, account/API/HTTPS and actual-device milestones are explicitly separated in the [finding disposition and evidence](docs/a02-a03-delivery.md).
+
+Current image: `ghcr.io/maroge1990/pig-music@sha256:2bd79291eb160058a711772a9c8288ca3c6ad1bf6a0a1894f1f4fd1059abfbd9`; deployed source: `47a2c86b0897c15b1c37684ef5eaf8df1ed7a6ba`. Later handover commits do not alter that runtime. **127 backend tests** and both 1 GB scale gates passed on GitHub and Unraid; three frontend regressions, strict build and formatting passed. The 50k Unraid artwork peak is **316.34 MB**; compressed library fixture is **223,760 bytes** with **1.897 ms** conditional median (30 local-container samples).
+
+Live migration retained **1,395 tracks**, album links and durable rows. API/HTTP acceptance retains **98 albums**, **27 completed queue entries**, original download settings and healthy available storage. Library transfer is **23,280 bytes** compressed; unchanged reads return 304; five content-hash/WebP/conditional artwork checks, immutable static assets and immediate SSE passed. Physical iPhone and off-site results remain V01; no new acquisition, music/tag edit, branding adoption or private transport configuration change was performed.
+
+Current rollback container: `pig-music-preview-before-audit-20261007-v1` (stopped); matching state backup: `/mnt/user/appdata/pig-music-preview/backups/pre-audit-20261007-v1`; release input: `/mnt/user/appdata/pig-music-preview/releases/audit-20261007-v1`. Existing 1 GB, UID/GID 99:100, read-only root and private topology are preserved. Draft review: [PR #4](https://github.com/maroge1990/Pig-Music/pull/4), stacked on S00; all draft branches remain unmerged.
+
+Final A02/A03 read-only integrity acceptance: all **1,395 files** opened with **zero read failures**, all **25 managed hashes matched**, schema 3 snapshot **927,914 bytes** with no image map, **81 referenced covers** and none missing. The pre-v3 snapshot is retained. The running image is Docker-healthy; its source labels and preserved resource/storage protections were inspected after deployment.

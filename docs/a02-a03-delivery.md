@@ -1,6 +1,6 @@
 # Audit delivery: artwork responsiveness and library transport
 
-7 October 2026. Implemented; candidate image and live acceptance are recorded below when complete. Branding remains deferred.
+7 October 2026. Delivered on Unraid as `audit-20261007-v1`; exact-image and live HTTP acceptance passed. Final file integrity is recorded below. Branding remains deferred.
 
 Image requests now read local files only, returning a local content-hash redirect or an uncached 404 immediately. Provider work uses two background workers, a 128-item waiting queue, duplicate suppression and bounded retry records. Local album art remains the artist fallback while portraits are fetched. Successful enrichment changes the artwork feed and refreshes library URLs; missing images retry on one shared visible-page clock. Known artist identities are retained and passed to portrait/background providers.
 
@@ -16,7 +16,7 @@ Library JSON is compressed, with a response-content ETag shared safely across co
 
 ## Verification
 
-- Backend: 127 tests pass locally, including blocked-provider HTTP responsiveness, queue bounds/deduplication/backoff, lock ordering, safe derivative pruning, validated additive presentation-cache migration, corrupt legacy-cache startup, WebP dimensions, immutable/alias policies, conditional reads, playlist validator changes, settings invalidation and feed reconnect/slow-reader cleanup.
+- Backend: 127 tests pass in the exact candidate image on GitHub Linux and Unraid, including blocked-provider HTTP responsiveness, queue bounds/deduplication/backoff, lock ordering, safe derivative pruning, validated additive presentation-cache migration, corrupt legacy-cache startup, WebP dimensions, immutable/alias policies, conditional reads, playlist validator changes, settings invalidation and feed reconnect/slow-reader cleanup.
 - Frontend: conditional-body reuse regression plus existing discography regressions pass; strict TypeScript/build and formatting pass.
 - Disposable HTTP fixture, macOS/Python 3.12, 30 warm conditional requests per size:
 
@@ -34,8 +34,8 @@ Peak RSS is cumulative across the two fixtures, not independent migration memory
 | Findings | Disposition |
 | --- | --- |
 | P0-1, P0-2 | A01 delivered previously; original snapshot and rollback retained |
-| P0-3, P1-1, P1-2, P1-6 | A02 implemented in this package |
-| P1-7, P2-1, P2-2 | A03 implemented; content visibility chosen before full windowing |
+| P0-3, P1-1, P1-2, P1-6 | A02 delivered in this package |
+| P1-7, P2-1, P2-2 | A03 delivered; content visibility chosen before full windowing |
 | P2-3 | Responsive/pre-blurred hero implemented; colour metadata deferred with branding |
 | P2-4, P2-5 | Server-cached fallback and incremental enrichment implemented |
 | P2-8, P2-10 | Scrollable phone tabs and shared SSE observation feed implemented |
@@ -47,3 +47,17 @@ Peak RSS is cumulative across the two fixtures, not independent migration memory
 | F-4 feature ideas | Suggestions, not audit defects or additional user instructions |
 
 No library audio/tags are modified by these changes. Source review and stopped-state migration precede any live switch; retain the prior image and matching backup.
+
+
+## Release acceptance, 7 October 2026
+
+- Running image: `ghcr.io/maroge1990/pig-music@sha256:2bd79291eb160058a711772a9c8288ca3c6ad1bf6a0a1894f1f4fd1059abfbd9`.
+- Source revision: `47a2c86b0897c15b1c37684ef5eaf8df1ed7a6ba`; source repository label matches Pig-Music. [Publishing run](https://github.com/maroge1990/Pig-Music/actions/runs/37527982717) and [draft validation](https://github.com/maroge1990/Pig-Music/actions/runs/37527989169) passed. [Draft PR #4](https://github.com/maroge1990/Pig-Music/pull/4) remains unmerged.
+- Exact-image Unraid acceptance: **127 backend tests passed**; independent 10k/50k artwork peak RSS **95.59/316.34 MB**, snapshots **3.01/15.37 MB**, migration plus first refresh **35.027/163.730 s**, warm refresh **0.497/3.408 s**, all under 1 GB. HTTP fixture conditional medians **1.916/1.897 ms**, p95 **2.507/2.271 ms** over 30 samples per size; 50k compressed payload **223,760 bytes**, cumulative HTTP fixture peak **355.43 MB**.
+- Stopped-state migration retained **1,395 tracks**, existing album links and durable rows. Only validated additive display-cache pointers and the established edition-anchor document are permitted by the verifier; prior preferences, queue and memberships must remain identical.
+- Live HTTP acceptance: healthy service, NAS available, **98 albums**, **27 completed queue entries**, downloads enabled as before. Library JSON **113,258 bytes**, actual gzip transfer **23,280 bytes**, and an unchanged conditional read returned **304**. Five artwork hash/128px WebP/conditional checks passed; those samples totalled **508,534 bytes** of JPEG masters versus **15,510 bytes** of 128px WebP. Static bundles were immutable, and the SSE stream delivered an immediate current snapshot without compression buffering. These sample sizes are not a claim about every tile or physical-device speed.
+- Container protections retained: **1 GB**, **UID/GID 99:100**, read-only root, existing private addressing and NAS/appdata mounts. Docker health is healthy.
+- Matching backup: `/mnt/user/appdata/pig-music-preview/backups/pre-audit-20261007-v1`; stopped rollback container: `pig-music-preview-before-audit-20261007-v1`; source input: `/mnt/user/appdata/pig-music-preview/releases/audit-20261007-v1`. The prior registry/cleanup recovery artifacts are retained too. Use the matching backup if rolling state back; do not remove recovery material during native/account work.
+- Read-only transport inventory found an existing Unraid Tailscale HTTPS endpoint on port 8443 for another service. It was left unchanged; Pig Music HTTPS/proxy trust remains T01 work.
+
+Final read-only file acceptance: **1,395 NAS files opened**, **zero failures**, **25/25 managed hashes matched**. Snapshot remains schema 3 at **927,914 bytes**, with no image map; **81 referenced covers**, none missing, and the original pre-v3 snapshot retained.
