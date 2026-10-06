@@ -7,6 +7,7 @@ import sys
 import time
 from pathlib import Path
 
+from .transport import proxy_trust
 from .storage import require_library_mount
 
 
@@ -132,6 +133,9 @@ def main():
                     "0.0.0.0",
                     "--port",
                     "8765",
+                    "--proxy-headers",
+                    "--forwarded-allow-ips",
+                    proxy_trust(),
                 ]
             )
         )

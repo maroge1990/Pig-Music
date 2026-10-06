@@ -224,3 +224,7 @@ Owner accepted Mark as administrator, highest requested shared-file quality, own
 ### M00 implementation, 7 October 2026
 
 Versioned baseline migration and foreign-key connection enforcement are implemented and pass 133 backend tests. Existing rows are unchanged; the deployment verifier admits only the validated additive schema ledger. Container/stopped-state deployment verification remains pending. See `docs/m00-delivery.md`.
+
+### T01 implementation, 7 October 2026
+
+Private HTTPS origin and exact-proxy trust are implemented; 145 backend tests pass. Existing Unraid hostname and port443 are approved, with the other service on8443 preserved. Proxy/certificate deployment and physical phone acceptance remain pending. See `docs/t01-delivery.md`.

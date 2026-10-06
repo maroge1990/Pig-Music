@@ -16,6 +16,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
+from .transport import public_origin
 from .enrichment import Enrichment
 from .change_feed import ChangeFeed
 from .image_cache import public_image, variant, SIZES
@@ -64,6 +65,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
+    https_origin = public_origin()
     store = Store(
         data_dir or Path(os.environ.get("PIG_MUSIC_DATA", ROOT / ".localdata"))
     )
@@ -185,7 +187,10 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     async def headers(request, call_next):
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
             origin = request.headers.get("origin")
-            if origin and origin.rstrip("/") != str(request.base_url).rstrip("/"):
+            if origin and origin.rstrip("/") not in {
+                https_origin,
+                str(request.base_url).rstrip("/"),
+            }:
                 return Response("Cross-origin writes are not allowed.", status_code=403)
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -202,7 +207,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         return response
 
     @app.get("/api/health")
-    def health():
+    def health(request: Request):
         try:
             download_root(store)
             storage_available = True
@@ -210,6 +215,8 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             storage_available = False
         return {
             "status": "ok",
+            "https": request.url.scheme == "https",
+            "public_origin": https_origin,
             "mode": (
                 "direct_library"
                 if os.environ.get("PIG_MUSIC_DOWNLOAD_ROOT")

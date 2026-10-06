@@ -81,3 +81,7 @@ Backups live below `/mnt/user/appdata/pig-music-preview/backups/`; retained cont
 ## Registry images
 
 The owner has selected GHCR for the existing Unraid server. See [container releases](container-releases.md). Use `deploy_unraid.py --image ghcr.io/maroge1990/pig-music@sha256:<digest>` to verify a published image against its exact source commit. The normal backup, migration and explicit live-release safeguards still apply.
+
+## Private HTTPS transition
+
+The approved PigMusic endpoint is `https://passyflix.tail6d1471.ts.net`. Keep the other service on 8443 unchanged. See [T01 delivery](t01-delivery.md) for source/proxy configuration and verification status. Both iPhones must run Tailscale and be tested on LAN and cellular before retiring the existing private LAN URL.

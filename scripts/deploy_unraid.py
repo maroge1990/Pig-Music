@@ -37,7 +37,14 @@ def bundle(target):
                 "blueprint.md",
             )
         ]
-        for folder in ("server", "client", "tests", "docs", "scripts"):
+        for folder in (
+            "server",
+            "client",
+            "tests",
+            "docs",
+            "scripts",
+            "swift/PigKit/Sources",
+        ):
             files.extend(
                 p
                 for p in (ROOT / folder).rglob("*")
