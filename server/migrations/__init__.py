@@ -2,7 +2,7 @@
 
 from importlib import import_module
 
-MIGRATIONS = ((1, "0001_baseline"),)
+MIGRATIONS = ((1, "0001_baseline"), (2, "0002_accounts"))
 
 
 def migrate(conn):

@@ -228,3 +228,7 @@ Versioned baseline migration and foreign-key connection enforcement are implemen
 ### T01 implementation, 7 October 2026
 
 Private HTTPS origin and exact-proxy trust are implemented; 145 backend tests pass. Existing Unraid hostname and port443 are approved, with the other service on8443 preserved. Proxy/certificate deployment and physical phone acceptance remain pending. See `docs/t01-delivery.md`.
+
+### M01 account foundation, 7 October 2026
+
+Additive accounts, Argon2id hashing, opaque revocable sessions, secure HTTPS-only account router, one-use activation and interactive owner recovery are implemented. Full local suite: **159 tests passed**. Account router is not yet mounted into the main app; no live account cutover is authorised by this implementation status. M02 default-deny protection and M03 personal-library scope precede sign-in deployment. See `docs/m01-delivery.md`.

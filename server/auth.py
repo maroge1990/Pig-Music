@@ -1,0 +1,432 @@
+"""Argon2id accounts and hashed, immediately revocable opaque sessions.
+
+This module never logs credentials. Public session IDs differ from stored token
+hashes. Call password work off the event loop using a bounded worker gate.
+"""
+
+import hashlib
+import hmac
+import re
+import secrets
+import time
+import uuid
+
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError
+
+DAY = 86400
+COOKIE = "__Host-pig_session"
+COMMON_PASSWORDS = frozenset(
+    {
+        "password1234",
+        "123456789012",
+        "qwerty123456",
+        "passwordpassword",
+        "letmeinletmein",
+        "iloveyou12345",
+        "abcdefghijkl",
+        "111111111111",
+        "1234567890123",
+        "12345678901234",
+    }
+)
+HASHER = PasswordHasher()  # Argon2id library defaults (64MiB, three iterations).
+DUMMY_HASH = HASHER.hash(secrets.token_urlsafe(32))
+
+
+class AuthError(ValueError):
+    def __init__(self, code, status=401):
+        super().__init__(code)
+        self.code, self.status = code, status
+
+
+def digest(value):
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def username(value):
+    value = value.strip().lower()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{1,63}", value):
+        raise AuthError("invalid_username", 422)
+    return value
+
+
+def validate_password(value, name):
+    if (
+        not isinstance(value, str)
+        or not 12 <= len(value) <= 256
+        or value.casefold() in COMMON_PASSWORDS
+        or value.casefold() == name.casefold()
+    ):
+        raise AuthError("password_not_accepted", 422)
+
+
+def public_user(row):
+    return {key: row[key] for key in ("id", "username", "display_name", "role")}
+
+
+def records(cursor):
+    names = [column[0] for column in cursor.description]
+    return [dict(zip(names, row)) for row in cursor]
+
+
+class Auth:
+    def __init__(self, store, clock=time.time):
+        self.store, self.clock = store, clock
+
+    def now(self):
+        return int(self.clock())
+
+    def ready(self):
+        with self.store.connect() as conn:
+            return (
+                conn.execute(
+                    "SELECT 1 FROM users WHERE role='owner' AND disabled=0 AND password_hash IS NOT NULL"
+                ).fetchone()
+                is not None
+            )
+
+    def create_owner(self, name, password, display_name=None):
+        name = username(name)
+        validate_password(password, name)
+        hashed = HASHER.hash(password)
+        now = self.now()
+        identity = str(uuid.uuid4())
+        with self.store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if conn.execute("SELECT 1 FROM users WHERE role='owner'").fetchone():
+                raise AuthError("owner_already_exists", 409)
+            conn.execute(
+                "INSERT INTO users VALUES (?,?,?,?,?,?,0,?)",
+                (identity, name, display_name or name, "owner", hashed, now, now),
+            )
+        return identity
+
+    def user(self, identity):
+        with self.store.connect() as conn:
+            found = records(conn.execute("SELECT * FROM users WHERE id=?", (identity,)))
+        if not found or found[0]["disabled"]:
+            raise AuthError("authentication_required")
+        return found[0]
+
+    def event(self, conn, event, ip, identity=None):
+        conn.execute(
+            "INSERT INTO auth_events(at,user_id,event,ip,detail) VALUES (?,?,?,?,?)",
+            (self.now(), identity, event, ip[:128], ""),
+        )
+
+    def keys(self, name, ip):
+        return ("name:" + digest(name.strip().casefold()), "ip:" + digest(ip))
+
+    def locked(self, name, ip):
+        with self.store.connect() as conn:
+            return any(
+                conn.execute(
+                    "SELECT 1 FROM login_attempts WHERE key=? AND locked_until>?",
+                    (key, self.now()),
+                ).fetchone()
+                for key in self.keys(name, ip)
+            )
+
+    def failure(self, name, ip, event="login_failed"):
+        now = self.now()
+        with self.store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            for key in self.keys(name, ip):
+                found = conn.execute(
+                    "SELECT failures,window_started,lockouts,locked_until,updated_at FROM login_attempts WHERE key=?",
+                    (key,),
+                ).fetchone()
+                failures, started, strikes, until, updated = found or (
+                    0,
+                    now,
+                    0,
+                    0,
+                    now,
+                )
+                if now - started >= 900:
+                    failures, started = 0, now
+                if now - updated >= DAY:
+                    strikes = 0
+                if until <= now:
+                    failures += 1
+                    if failures >= 5:
+                        until = now + min(60 * 2 ** min(strikes, 6), 3600)
+                        strikes += 1
+                        failures = 0
+                conn.execute(
+                    "INSERT OR REPLACE INTO login_attempts VALUES (?,?,?,?,?,?)",
+                    (key, failures, started, strikes, until, now),
+                )
+            self.event(conn, event, ip)
+            conn.execute(
+                "DELETE FROM login_attempts WHERE updated_at<?", (now - 30 * DAY,)
+            )
+            conn.execute("DELETE FROM auth_events WHERE at<?", (now - 90 * DAY,))
+
+    def login(self, name, password, kind, device_name, platform, ip):
+        if not self.ready():
+            raise AuthError("setup_required", 503)
+        if (
+            kind not in {"web", "device"}
+            or not 1 <= len(device_name) <= 128
+            or platform not in {"web", "ios", "watchos"}
+        ):
+            raise AuthError("invalid_device", 422)
+        if not isinstance(password, str) or len(password) > 256 or len(name) > 64:
+            self.failure(name[:64], ip)
+            raise AuthError("invalid_credentials")
+        if self.locked(name, ip):
+            self.failure(name, ip)
+            raise AuthError("invalid_credentials")
+        with self.store.connect() as conn:
+            found = records(
+                conn.execute(
+                    "SELECT * FROM users WHERE username=? COLLATE NOCASE",
+                    (name.strip(),),
+                )
+            )
+        person = found[0] if found else None
+        hashed = (
+            person["password_hash"]
+            if person and person["password_hash"]
+            else DUMMY_HASH
+        )
+        try:
+            HASHER.verify(hashed, password)
+            verified = bool(
+                person and person["password_hash"] and not person["disabled"]
+            )
+        except (VerificationError, InvalidHashError):
+            verified = False
+        if not verified:
+            self.failure(name, ip)
+            raise AuthError("invalid_credentials")
+        now = self.now()
+        token = secrets.token_urlsafe(32)
+        expires = now + (14 if kind == "web" else 180) * DAY
+        with self.store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            # Re-read after expensive verification: password reset/disable wins races.
+            current = conn.execute(
+                "SELECT password_hash,disabled FROM users WHERE id=?", (person["id"],)
+            ).fetchone()
+            if not current or current[1] or current[0] != hashed:
+                raise AuthError("invalid_credentials")
+            if HASHER.check_needs_rehash(hashed):
+                conn.execute(
+                    "UPDATE users SET password_hash=? WHERE id=?",
+                    (HASHER.hash(password), person["id"]),
+                )
+            conn.execute(
+                "INSERT INTO sessions VALUES (?,?,?,?,?,?,?,?,?,NULL)",
+                (
+                    digest(token),
+                    str(uuid.uuid4()),
+                    person["id"],
+                    kind,
+                    device_name,
+                    platform,
+                    now,
+                    now,
+                    expires,
+                ),
+            )
+            conn.execute(
+                "DELETE FROM login_attempts WHERE key=?", (self.keys(name, ip)[0],)
+            )
+            self.event(conn, "login", ip, person["id"])
+        return {"token": token, "user": public_user(person)}
+
+    def authenticate(self, token, kind=None):
+        if not token or len(token) > 256:
+            raise AuthError("authentication_required")
+        hashed, now = digest(token), self.now()
+        with self.store.connect() as conn:
+            found = records(
+                conn.execute("SELECT * FROM sessions WHERE id=?", (hashed,))
+            )
+            if not found:
+                raise AuthError("authentication_required")
+            session = found[0]
+            if (
+                not hmac.compare_digest(session["id"], hashed)
+                or session["revoked_at"] is not None
+                or session["expires_at"] <= now
+                or (kind and session["kind"] != kind)
+                or (
+                    session["kind"] == "web" and session["created_at"] + 60 * DAY <= now
+                )
+            ):
+                raise AuthError("authentication_required")
+            person = records(
+                conn.execute("SELECT * FROM users WHERE id=?", (session["user_id"],))
+            )
+            if not person or person[0]["disabled"] or not person[0]["password_hash"]:
+                raise AuthError("authentication_required")
+            if now - session["last_seen_at"] >= 3600:
+                expires = now + (14 if session["kind"] == "web" else 180) * DAY
+                if session["kind"] == "web":
+                    expires = min(expires, session["created_at"] + 60 * DAY)
+                conn.execute(
+                    "UPDATE sessions SET last_seen_at=?,expires_at=? WHERE id=? AND revoked_at IS NULL",
+                    (now, expires, hashed),
+                )
+        return public_user(person[0]), session
+
+    def sessions(self, identity):
+        with self.store.connect() as conn:
+            return records(
+                conn.execute(
+                    "SELECT public_id AS id,kind,device_name,platform,created_at,last_seen_at,expires_at,revoked_at FROM sessions WHERE user_id=? ORDER BY created_at DESC",
+                    (identity,),
+                )
+            )
+
+    def revoke(self, identity, public_id):
+        with self.store.connect() as conn:
+            result = conn.execute(
+                "UPDATE sessions SET revoked_at=? WHERE user_id=? AND public_id=?",
+                (self.now(), identity, public_id),
+            )
+            if not result.rowcount:
+                raise AuthError("session_not_found", 404)
+            self.event(conn, "session_revoked", "", identity)
+
+    def reset_password(self, name, password):
+        name = username(name)
+        validate_password(password, name)
+        hashed, now = HASHER.hash(password), self.now()
+        with self.store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            person = conn.execute(
+                "SELECT id FROM users WHERE username=? COLLATE NOCASE", (name,)
+            ).fetchone()
+            if not person:
+                raise AuthError("user_not_found", 404)
+            conn.execute(
+                "UPDATE users SET password_hash=?,password_changed_at=? WHERE id=?",
+                (hashed, now, person[0]),
+            )
+            conn.execute(
+                "UPDATE sessions SET revoked_at=? WHERE user_id=?", (now, person[0])
+            )
+            conn.execute(
+                "UPDATE setup_codes SET used_at=? WHERE user_id=? AND used_at IS NULL",
+                (now, person[0]),
+            )
+            conn.execute(
+                "DELETE FROM login_attempts WHERE key=?", (self.keys(name, "")[0],)
+            )
+            self.event(conn, "password_reset", "", person[0])
+
+    def change_password(self, person, session, current_password, password):
+        row = self.user(person["id"])
+        try:
+            HASHER.verify(row["password_hash"], current_password)
+        except (VerificationError, InvalidHashError):
+            raise AuthError("invalid_credentials")
+        validate_password(password, row["username"])
+        hashed = HASHER.hash(password)
+        with self.store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = conn.execute(
+                "SELECT password_hash FROM users WHERE id=?", (person["id"],)
+            ).fetchone()
+            if not current or current[0] != row["password_hash"]:
+                raise AuthError("invalid_credentials")
+            conn.execute(
+                "UPDATE users SET password_hash=?,password_changed_at=? WHERE id=?",
+                (hashed, self.now(), person["id"]),
+            )
+            conn.execute(
+                "UPDATE sessions SET revoked_at=? WHERE user_id=? AND id!=?",
+                (self.now(), person["id"], session["id"]),
+            )
+            conn.execute(
+                "UPDATE setup_codes SET used_at=? WHERE user_id=? AND used_at IS NULL",
+                (self.now(), person["id"]),
+            )
+            self.event(conn, "password_changed", "", person["id"])
+
+    def setup_code(self, owner_id, name=None, display_name=None, identity=None):
+        if self.user(owner_id)["role"] != "owner":
+            raise AuthError("owner_required", 403)
+        now, code = self.now(), "".join(
+            secrets.choice("23456789ABCDEFGHJKLMNPQRSTUVWXYZ") for _ in range(16)
+        )
+        with self.store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if identity:
+                if identity == owner_id:
+                    raise AuthError("use_password_change", 422)
+                target = conn.execute(
+                    "SELECT id FROM users WHERE id=? AND role='member'", (identity,)
+                ).fetchone()
+                if not target:
+                    raise AuthError("user_not_found", 404)
+                conn.execute(
+                    "UPDATE users SET password_hash=NULL,password_changed_at=? WHERE id=?",
+                    (now, identity),
+                )
+            else:
+                name = username(name or "")
+                identity = str(uuid.uuid4())
+                if conn.execute(
+                    "SELECT 1 FROM users WHERE username=? COLLATE NOCASE", (name,)
+                ).fetchone():
+                    raise AuthError("username_unavailable", 409)
+                conn.execute(
+                    "INSERT INTO users VALUES (?,?,?,?,NULL,NULL,0,?)",
+                    (identity, name, (display_name or name)[:128], "member", now),
+                )
+            conn.execute(
+                "UPDATE sessions SET revoked_at=? WHERE user_id=?", (now, identity)
+            )
+            conn.execute(
+                "UPDATE setup_codes SET used_at=? WHERE user_id=? AND used_at IS NULL",
+                (now, identity),
+            )
+            conn.execute(
+                "INSERT INTO setup_codes VALUES (?,?,?,?,NULL)",
+                (str(uuid.uuid4()), identity, digest(code), now + DAY),
+            )
+            self.event(conn, "setup_issued", "", identity)
+        return {"user_id": identity, "code": code, "expires_at": now + DAY}
+
+    def activate(self, code, password, ip):
+        normalized = code.strip().upper()
+        if len(normalized) > 64 or self.locked("setup:" + digest(normalized), ip):
+            raise AuthError("invalid_setup_code")
+        with self.store.connect() as conn:
+            found = records(
+                conn.execute(
+                    "SELECT u.*,s.id AS setup_id,s.code_hash,s.expires_at,s.used_at FROM setup_codes s JOIN users u ON u.id=s.user_id WHERE s.code_hash=?",
+                    (digest(normalized),),
+                )
+            )
+        if (
+            not found
+            or found[0]["used_at"] is not None
+            or found[0]["expires_at"] <= self.now()
+            or found[0]["disabled"]
+        ):
+            self.failure("setup:" + digest(normalized), ip, "setup_failed")
+            raise AuthError("invalid_setup_code")
+        person = found[0]
+        validate_password(password, person["username"])
+        hashed = HASHER.hash(password)
+        with self.store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            updated = conn.execute(
+                "UPDATE setup_codes SET used_at=? WHERE id=? AND used_at IS NULL AND expires_at>?",
+                (self.now(), person["setup_id"], self.now()),
+            )
+            if not updated.rowcount:
+                raise AuthError("invalid_setup_code")
+            conn.execute(
+                "UPDATE users SET password_hash=?,password_changed_at=? WHERE id=?",
+                (hashed, self.now(), person["id"]),
+            )
+            self.event(conn, "setup_completed", ip, person["id"])
+        return public_user(person)

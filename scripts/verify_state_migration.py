@@ -98,7 +98,7 @@ def main():
             if r[0] != "album-edition-anchors" and r[0] not in added_images
         ]
     ledger = after.pop("schema_migrations", [])
-    assert [r[0] for r in ledger] == [1], "Unexpected migration versions"
+    assert [r[0] for r in ledger] == [1, 2], "Unexpected migration versions"
     assert all(
         isinstance(r[1], str) and r[1] for r in ledger
     ), "Missing migration timestamps"
@@ -106,6 +106,11 @@ def main():
     assert set(original_ledger).issubset(
         set(ledger)
     ), "Existing migration ledger changed"
+    for table in ("users", "sessions", "setup_codes", "auth_events", "login_attempts"):
+        if table not in before:
+            assert (
+                after.pop(table, []) == []
+            ), "Account foundation populated unexpected records"
     assert before == after, "Existing durable preferences, queue or membership changed"
     print(
         "Stopped-state migration verified:",

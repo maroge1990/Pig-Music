@@ -1,0 +1,190 @@
+"""HTTPS-only account API. Credential work is bounded to two worker threads."""
+
+import asyncio
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel, Field, SecretStr
+
+from ..auth import Auth, AuthError, COOKIE, DAY
+
+
+class Credentials(BaseModel):
+    username: str = Field(min_length=2, max_length=64)
+    password: SecretStr = Field(max_length=256)
+
+
+class DeviceCredentials(Credentials):
+    device_name: str = Field(min_length=1, max_length=128)
+    platform: Literal["ios", "watchos"]
+
+
+class PasswordChange(BaseModel):
+    current_password: SecretStr = Field(max_length=256)
+    password: SecretStr = Field(min_length=12, max_length=256)
+
+
+class Activation(BaseModel):
+    code: SecretStr = Field(min_length=8, max_length=64)
+    password: SecretStr = Field(min_length=12, max_length=256)
+
+
+class Person(BaseModel):
+    username: str = Field(min_length=2, max_length=64)
+    display_name: str = Field(min_length=1, max_length=128)
+
+
+def error(exc):
+    raise HTTPException(exc.status, detail=exc.code)
+
+
+def set_cookie(response, token):
+    response.set_cookie(
+        COOKIE,
+        token,
+        max_age=14 * DAY,
+        secure=True,
+        httponly=True,
+        samesite="strict",
+        path="/",
+    )
+
+
+def auth_router(auth: Auth):
+    router = APIRouter(prefix="/api/v1", tags=["accounts"])
+    workers = asyncio.Semaphore(2)
+
+    async def run(function, *args, **kwargs):
+        async with workers:
+            try:
+                return await asyncio.to_thread(function, *args, **kwargs)
+            except AuthError as exc:
+                error(exc)
+
+    def require_https(request: Request):
+        if request.url.scheme != "https":
+            raise HTTPException(400, "https_required")
+        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+            if (
+                not request.headers.get("authorization", "").startswith("Bearer ")
+                and request.headers.get("x-pig-request") != "1"
+            ):
+                raise HTTPException(403, "request_header_required")
+            origin = request.headers.get("origin")
+            if origin and origin.rstrip("/") != str(request.base_url).rstrip("/"):
+                raise HTTPException(403, "invalid_origin")
+
+    async def current(request: Request, response: Response):
+        require_https(request)
+        bearer = request.headers.get("authorization", "")
+        if bearer:
+            if not bearer.startswith("Bearer "):
+                raise HTTPException(401, "authentication_required")
+            token, kind = bearer[7:], "device"
+        else:
+            token, kind = request.cookies.get(COOKIE, ""), "web"
+        result = await run(auth.authenticate, token, kind)
+        person, session = result
+        if kind == "web" and auth.now() - session["last_seen_at"] >= 3600:
+            set_cookie(response, token)
+        request.state.user, request.state.session = person, session
+        return result
+
+    async def owner(result=Depends(current)):
+        if result[0]["role"] != "owner":
+            raise HTTPException(403, "owner_required")
+        return result
+
+    @router.post("/auth/login", dependencies=[Depends(require_https)])
+    async def login(body: Credentials, request: Request, response: Response):
+        result = await run(
+            auth.login,
+            body.username,
+            body.password.get_secret_value(),
+            "web",
+            "Browser",
+            "web",
+            request.client.host,
+        )
+        set_cookie(response, result["token"])
+        return {"user": result["user"]}
+
+    @router.post("/auth/device", dependencies=[Depends(require_https)])
+    async def device(body: DeviceCredentials, request: Request):
+        return await run(
+            auth.login,
+            body.username,
+            body.password.get_secret_value(),
+            "device",
+            body.device_name,
+            body.platform,
+            request.client.host,
+        )
+
+    @router.post("/setup", dependencies=[Depends(require_https)])
+    async def activate(body: Activation, request: Request):
+        return {
+            "user": await run(
+                auth.activate,
+                body.code.get_secret_value(),
+                body.password.get_secret_value(),
+                request.client.host,
+            )
+        }
+
+    @router.get("/me")
+    async def me(result=Depends(current)):
+        return result[0]
+
+    @router.get("/me/sessions")
+    async def sessions(result=Depends(current)):
+        return {"sessions": await run(auth.sessions, result[0]["id"])}
+
+    @router.delete("/me/sessions/{identity}")
+    async def revoke(identity: str, result=Depends(current)):
+        await run(auth.revoke, result[0]["id"], identity)
+        return {"revoked": True}
+
+    @router.post("/auth/logout")
+    async def logout(response: Response, result=Depends(current)):
+        await run(auth.revoke, result[0]["id"], result[1]["public_id"])
+        response.delete_cookie(
+            COOKIE, path="/", secure=True, httponly=True, samesite="strict"
+        )
+        return {"logged_out": True}
+
+    @router.post("/me/password")
+    async def password(body: PasswordChange, result=Depends(current)):
+        await run(
+            auth.change_password,
+            result[0],
+            result[1],
+            body.current_password.get_secret_value(),
+            body.password.get_secret_value(),
+        )
+        return {"changed": True}
+
+    @router.get("/people")
+    async def people(result=Depends(owner)):
+        from ..auth import records
+
+        with auth.store.connect() as conn:
+            return {
+                "people": records(
+                    conn.execute(
+                        "SELECT id,username,display_name,role,disabled FROM users ORDER BY created_at"
+                    )
+                )
+            }
+
+    @router.post("/people")
+    async def add(body: Person, result=Depends(owner)):
+        return await run(
+            auth.setup_code, result[0]["id"], body.username, body.display_name
+        )
+
+    @router.post("/people/{identity}/setup-code")
+    async def reset(identity: str, result=Depends(owner)):
+        return await run(auth.setup_code, result[0]["id"], identity=identity)
+
+    return router

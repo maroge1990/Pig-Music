@@ -1,0 +1,13 @@
+# M01: account and session foundation
+
+7 October 2026. This package implements an additive account schema, the isolated HTTPS account router and interactive owner bootstrap/recovery CLI. **It is not yet connected to the main app and must not be deployed as an account cutover until M02/M03/M07 are complete.** Existing private routes retain their previous behavior during development; the production HTTPS release excludes this branch.
+
+Argon2id hashes passwords using library defaults. Passwords are 12–256 characters, reject the username and a common-password list, and impose no composition rule. Token issuers generate 32 random bytes; SQLite stores SHA-256 digests only. Public session IDs are independent UUIDs so session listings do not disclose token hashes. Web cookies are Secure/HttpOnly/SameSite Strict with __Host prefix; web sessions have 14-day idle/60-day absolute expiry, device sessions 180-day sliding expiry. Last-seen writes are at most hourly; password/reset/disable and revocation take effect on the next request.
+
+Owner bootstrap and recovery require a real interactive terminal and never accept passwords as command arguments. People activation uses a 16-character one-use code valid for 24 hours; reissuing a code revokes sessions and invalidates earlier codes. Username/IP limits trigger after five failures per 15-minute window, then exponential 1–60-minute locks. Setup attempts are limited per code fingerprint and IP. Credential hashing runs behind a two-worker gate, off the event loop. Diagnostic filtering and validation response redaction are supplied; auth routes never log request bodies or secret fields.
+
+The account schema uses integer Unix seconds for unambiguous expiry arithmetic. Existing tracks, queues and playlists remain untouched. The stopped-state verifier allows only empty additive account tables at this phase.
+
+Tests cover owner uniqueness/Argon2id, opaque token non-persistence, session privacy/revocation, idle/absolute/device expiry, hourly writes, one-use/expired/reset setup codes, disabled accounts, password reset/change revocation, known/unknown user rate limits, weak passwords, HTTPS/cookie flags/Origin/CSRF/Bearer handling, member rejection and secret-free validation/logging. Full regression results are recorded in the blueprint when complete.
+
+Remaining integration: default-deny route authorisation, signed media URLs, per-user library/request/playlist scope, people/sign-in/setup screens, and owner password bootstrap at the actual release. Do not ask for passwords in chat. Members retain personal playlist import and music requests.
