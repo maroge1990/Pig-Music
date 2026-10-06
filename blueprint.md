@@ -232,3 +232,7 @@ Private HTTPS origin and exact-proxy trust are implemented; 145 backend tests pa
 ### M01 account foundation, 7 October 2026
 
 Additive accounts, Argon2id hashing, opaque revocable sessions, secure HTTPS-only account router, one-use activation and interactive owner recovery are implemented. Full local suite: **159 tests passed**. Account router is not yet mounted into the main app; no live account cutover is authorised by this implementation status. M02 default-deny protection and M03 personal-library scope precede sign-in deployment. See `docs/m01-delivery.md`.
+
+### M02 default-deny implementation, 7 October 2026
+
+The main app now has a startup-audited default-deny guard, HTTPS account routes, cookie CSRF protection and session-bound signed media URLs. **165 backend tests pass.** Members can manage their account but are blocked from unscoped household routes until M03. This development branch is excluded from the live transport release; no owner account or live sign-in cutover is claimed. See `docs/m02-delivery.md`.

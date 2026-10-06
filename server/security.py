@@ -1,0 +1,173 @@
+"""Default-deny API guard and session-bound, revocable playback URLs."""
+
+import asyncio
+import hashlib
+import hmac
+import os
+from pathlib import Path
+import secrets
+import stat
+import tempfile
+from urllib.parse import urlencode
+
+from fastapi import HTTPException, Request
+
+from .auth import AuthError, COOKIE, public_user, records
+
+PUBLIC = frozenset(
+    {
+        ("GET", "/api/health"),
+        ("HEAD", "/api/health"),
+        ("POST", "/api/v1/auth/login"),
+        ("POST", "/api/v1/auth/device"),
+        ("POST", "/api/v1/setup"),
+    }
+)
+PERSONAL_ACCOUNT_PREFIXES = ("/api/v1/me", "/api/v1/auth/logout")
+
+
+def secret_file(directory):
+    path = Path(directory) / "auth-secret"
+    if not path.exists():
+        with tempfile.NamedTemporaryFile(
+            dir=directory, prefix=".auth-secret-", delete=False
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(secrets.token_bytes(32))
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            try:
+                os.link(temporary, path, follow_symlinks=False)
+            except FileExistsError:
+                pass
+        finally:
+            temporary.unlink()
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    with os.fdopen(fd, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError("Authentication secret must be a regular file")
+        os.fchmod(stream.fileno(), 0o600)
+        value = stream.read(33)
+    if len(value) != 32:
+        raise ValueError("Authentication secret must be 32 bytes")
+    return value
+
+
+class Security:
+    def __init__(self, auth, legacy_test=False):
+        self.auth = auth
+        self.legacy_test = legacy_test
+        self.secret = secret_file(auth.store.directory)
+
+    async def current_user(self, request: Request):
+        if not request.url.path.startswith("/api/"):
+            return None
+        if self.legacy_test:
+            return None
+        if request.url.path == "/api/health" and request.method in {"GET", "HEAD"}:
+            return None
+        if not await asyncio.to_thread(self.auth.ready):
+            raise HTTPException(503, "setup_required")
+        if (request.method, request.url.path) in PUBLIC:
+            return None
+        authorization = request.headers.get("authorization", "")
+        token = request.cookies.get(COOKIE, "")
+        kind = "web"
+        if authorization:
+            if not authorization.startswith("Bearer "):
+                raise HTTPException(401, "authentication_required")
+            token, kind = authorization[7:], "device"
+        try:
+            if (
+                not token
+                and request.url.path.startswith("/api/playback/files/")
+                and request.method in {"GET", "HEAD"}
+                and any(key in request.query_params for key in ("exp", "sid", "sig"))
+            ):
+                person, session = await asyncio.to_thread(
+                    self.verify_url, request.url.path, dict(request.query_params)
+                )
+            else:
+                person, session = await asyncio.to_thread(
+                    self.auth.authenticate, token, kind
+                )
+        except AuthError as exc:
+            raise HTTPException(exc.status, exc.code)
+        if kind == "web" and request.method not in {"GET", "HEAD", "OPTIONS"}:
+            if (
+                request.url.scheme != "https"
+                or request.headers.get("x-pig-request") != "1"
+            ):
+                raise HTTPException(403, "request_header_required")
+        if (
+            kind == "web"
+            and token
+            and self.auth.now() - session["last_seen_at"] >= 3600
+        ):
+            request.state.refresh_cookie = token
+        # Personal media/library projection lands in M03. Never expose the
+        # old household projection to members during this intermediate package.
+        if person["role"] != "owner" and not request.url.path.startswith(
+            PERSONAL_ACCOUNT_PREFIXES
+        ):
+            raise HTTPException(403, "personal_libraries_pending")
+        request.state.user, request.state.session = person, session
+        return person
+
+    def sign_url(self, path, person, session):
+        if not path.startswith("/api/playback/files/") or "?" in path:
+            raise ValueError("Only a saved-track playback path can be signed")
+        expiry = min(self.auth.now() + 6 * 3600, session["expires_at"])
+        message = f"{person['id']}|{session['public_id']}|{path}|{expiry}"
+        signature = hmac.new(self.secret, message.encode(), hashlib.sha256).hexdigest()
+        return (
+            path
+            + "?"
+            + urlencode({"exp": expiry, "sid": session["public_id"], "sig": signature})
+        )
+
+    def verify_url(self, path, params):
+        try:
+            expiry = int(params["exp"])
+            sid = params["sid"]
+            signature = params["sig"]
+        except (KeyError, ValueError):
+            raise AuthError("invalid_playback_url", 403)
+        now = self.auth.now()
+        if (
+            expiry <= now
+            or expiry > now + 6 * 3600
+            or len(sid) > 64
+            or len(signature) != 64
+        ):
+            raise AuthError("invalid_playback_url", 403)
+        with self.auth.store.connect() as conn:
+            found = records(
+                conn.execute("SELECT * FROM sessions WHERE public_id=?", (sid,))
+            )
+        if not found:
+            raise AuthError("invalid_playback_url", 403)
+        session = found[0]
+        if (
+            session["revoked_at"] is not None
+            or session["expires_at"] <= now
+            or (session["kind"] == "web" and session["created_at"] + 60 * 86400 <= now)
+        ):
+            raise AuthError("invalid_playback_url", 403)
+        person = self.auth.user(session["user_id"])
+        message = f"{person['id']}|{sid}|{path}|{expiry}"
+        expected = hmac.new(self.secret, message.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise AuthError("invalid_playback_url", 403)
+        return public_user(person), session
+
+
+def audit_routes(app, guard):
+    for route in app.routes:
+        if getattr(route, "path", "").startswith("/api/"):
+            if not any(dep.call == guard for dep in route.dependant.dependencies):
+                raise RuntimeError(
+                    "API route is missing its default-deny guard: " + route.path
+                )

@@ -136,7 +136,14 @@ def main():
                     "--proxy-headers",
                     "--forwarded-allow-ips",
                     proxy_trust(),
-                ]
+                    "--log-config",
+                    str(Path(__file__).with_name("logging.json")),
+                ],
+                env={
+                    key: value
+                    for key, value in os.environ.items()
+                    if key != "PIG_MUSIC_TEST_LEGACY_API"
+                },
             )
         )
         next_engine_check = 0

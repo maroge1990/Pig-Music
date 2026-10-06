@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import (
     FileResponse,
     Response,
@@ -16,6 +16,10 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
+from .auth import Auth
+from .auth_logging import install_validation_redaction
+from .routes.auth import auth_router, set_cookie
+from .security import Security, audit_routes
 from .transport import public_origin
 from .enrichment import Enrichment
 from .change_feed import ChangeFeed
@@ -177,7 +181,21 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             await asyncio.sleep(7 * 86400)
             await asyncio.to_thread(store.prune_artwork)
 
-    app = FastAPI(title="Pig Music", version="0.1.0", lifespan=lifespan)
+    auth = Auth(store)
+    security = Security(
+        auth, legacy_test=os.environ.get("PIG_MUSIC_TEST_LEGACY_API") == "1"
+    )
+    guard = security.current_user
+    app = FastAPI(
+        title="Pig Music",
+        version="0.1.0",
+        lifespan=lifespan,
+        dependencies=[Depends(guard)],
+    )
+    app.state.auth = auth
+    app.state.security = security
+    app.include_router(auth_router(auth))
+    install_validation_redaction(app)
     app.state.store = store
     app.state.enrichment = enrichment
     app.state.change_feed = change_feed
@@ -193,6 +211,8 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             }:
                 return Response("Cross-origin writes are not allowed.", status_code=403)
         response = await call_next(request)
+        if getattr(request.state, "refresh_cookie", None):
+            set_cookie(response, request.state.refresh_cookie)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
         if request.url.path.startswith("/api/") and not request.url.path.startswith(
@@ -213,6 +233,12 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             storage_available = True
         except (OSError, ValueError):
             storage_available = False
+        if not security.legacy_test:
+            return {
+                "status": "ok",
+                "https": request.url.scheme == "https",
+                "storage_available": storage_available,
+            }
         return {
             "status": "ok",
             "https": request.url.scheme == "https",
@@ -1243,6 +1269,21 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
+    @app.post("/api/v1/playback/{track_id}/url")
+    def playback_url(track_id: str, request: Request):
+        try:
+            track_file(store, track_id)
+        except FileNotFoundError:
+            raise HTTPException(404, "File unavailable")
+        return {
+            "url": security.sign_url(
+                "/api/playback/files/" + track_id,
+                request.state.user,
+                request.state.session,
+            ),
+            "expires_in": 6 * 3600,
+        }
+
     @app.get("/api/playback/saved/{track_id}")
     def playback_saved(track_id: str):
         try:
@@ -1368,6 +1409,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 dist / "index.html", headers={"Cache-Control": "no-cache"}
             )
 
+    audit_routes(app, guard)
     return app
 
 
