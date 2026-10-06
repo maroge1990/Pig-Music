@@ -10,7 +10,7 @@ export function Cover({
   src,
   artist = false,
   className = "",
-  sizes = "(max-width: 600px) 33vw, (max-width: 1200px) 25vw, 200px",
+  sizes = "(max-width: 480px) 50vw, (max-width: 600px) 33vw, (max-width: 1200px) 25vw, 200px",
 }: {
   title: string;
   src?: string | null;

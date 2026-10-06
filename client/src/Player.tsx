@@ -229,7 +229,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         {song && (
           <section className="music-player" aria-label="Music player">
             <div className="player-song">
-              <Cover title={song.title} src={song.cover_url} />
+              <Cover
+                title={song.title}
+                src={song.cover_url}
+                sizes="(max-width: 600px) 40px, 54px"
+              />
               <div>
                 <strong>{song.title}</strong>
                 <span>

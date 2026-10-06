@@ -113,7 +113,12 @@ export function ArtistHero({
         </div>
       )}
       <div className="detail-hero artist-hero">
-        <Cover artist title={artist.name} src={artist.cover_url} />
+        <Cover
+          artist
+          title={artist.name}
+          src={artist.cover_url}
+          sizes="(max-width: 600px) 160px, (max-width: 800px) 130px, (max-width: 1200px) 170px, 210px"
+        />
         <div className="artist-identity">
           <h1>{artist.name}</h1>
           {!discovered && (

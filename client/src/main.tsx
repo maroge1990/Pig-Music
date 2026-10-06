@@ -749,7 +749,11 @@ function App() {
           </button>
 
           <div className="detail-hero album-hero">
-            <Cover title={albumDetail.title} src={albumDetail.cover_url} />
+            <Cover
+              title={albumDetail.title}
+              src={albumDetail.cover_url}
+              sizes="(max-width: 600px) 190px, (max-width: 800px) 130px, (max-width: 1200px) 170px, 210px"
+            />
             <div>
               <div className="eyebrow">
                 {albumDetail.compilation
