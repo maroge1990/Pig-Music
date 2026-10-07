@@ -61,6 +61,10 @@ def test_private_imports_favourites_and_shared_membership(tmp_path, monkeypatch)
             == 404
         )
         assert store.queue()["items"] == []
+        search = client.get("/api/v1/search", params={"q": "One"})
+        assert search.json()["tracks"] == []
+        assert search.json()["household_tracks"][0]["household_available"] is True
+        assert "relative_path" not in search.text and "absolute_path" not in search.text
         result = client.post(
             "/api/v1/requests",
             json={
@@ -81,6 +85,8 @@ def test_private_imports_favourites_and_shared_membership(tmp_path, monkeypatch)
         assert result.status_code == 200, result.text
         assert store.queue()["items"] == []
         assert client.get("/api/v1/library").json()["stats"]["tracks"] == 1
+        search = client.get("/api/v1/search", params={"q": "One"}).json()
+        assert len(search["tracks"]) == 1 and search["household_tracks"] == []
         response = client.get("/api/v1/playlists/" + personal[0]["id"])
         assert (
             "relative_path" not in response.text

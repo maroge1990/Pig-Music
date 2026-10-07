@@ -222,6 +222,48 @@ class UserLibrary:
                 self.cache.popitem(last=False)
             return value
 
+    def search(self, user_id, query):
+        from itertools import islice
+
+        query = normalise(query[:150])
+        with self.store.library_lock:
+            data = self.projection(user_id)
+            personal_ids = {t["id"] for t in data["tracks"]}
+
+            def matches(track):
+                return query and query in normalise(
+                    track["artist"] + " " + track["title"] + " " + track["album"]
+                )
+
+            return {
+                "tracks": list(
+                    islice((track_dto(t) for t in data["tracks"] if matches(t)), 100)
+                ),
+                "artists": list(
+                    islice(
+                        (
+                            a
+                            for a in data["artists"]
+                            if query and query in normalise(a["name"])
+                        ),
+                        30,
+                    )
+                ),
+                "household_tracks": list(
+                    islice(
+                        (
+                            {**track_dto(t), "household_available": True}
+                            for album in self.store.library["albums"]
+                            for t in album["tracks"]
+                            if t["id"] not in personal_ids
+                            and t.get("available", True)
+                            and matches(t)
+                        ),
+                        100,
+                    )
+                ),
+            }
+
     def summary(self, user_id):
         projection = self.projection(user_id)
         from .playlists import Playlists

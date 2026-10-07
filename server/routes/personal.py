@@ -6,7 +6,6 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from ..library import normalise
 from ..playlists import Playlists, PlaylistConflict
 from ..user_library import track_dto
 
@@ -187,20 +186,7 @@ def personal_router(store, artist_jobs):
 
     @router.get("/search")
     async def search(request: Request, q: str = ""):
-        query = normalise(q[:150])
-        data = await run(users.projection, identity(request))
-        return {
-            "tracks": [
-                track_dto(t)
-                for t in data["tracks"]
-                if query
-                and query
-                in normalise(t["artist"] + " " + t["title"] + " " + t["album"])
-            ][:100],
-            "artists": [
-                a for a in data["artists"] if query and query in normalise(a["name"])
-            ][:30],
-        }
+        return await run(users.search, identity(request), q)
 
     @router.post("/library/membership")
     async def add(body: Membership, request: Request):

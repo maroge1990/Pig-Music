@@ -246,3 +246,10 @@ Private URL: **https://passyflix.tail6d1471.ts.net:10000/**. Port443 remains Unr
 ## Remaining audit checkpoint — 7 October 2026
 
 The live release is audit-followup-20261007-v1, including approved PigMusic branding, schema migrations and private HTTPS on passyflix.tail6d1471.ts.net:10000. This release adds enlarged-text layout, bounded collection pages, generated protected-media/shadow roles, local artwork metadata and removal of the test-client warning. See docs/audit-followup-delivery.md for exact implementation and outstanding evidence. Accounts/personal libraries remain separate un-deployed development foundations. The physical Watch spike is not installed.
+
+
+### Personal-library continuation — 7 October 2026
+
+**Implemented in development, not deployed:** private playlist imports and lifecycle controls, revision checks for stale edits, personal artist monitoring/cancellation, bounded personal search with household-availability annotation, membership-checked artwork and playback, personal history/preferences and shared request beneficiaries. The full local suite passes 177 tests. The mounted-test import failure is corrected; exact-container acceptance is tracked in docs/m03-delivery.md.
+
+A disposable copy of the stopped production backup passed migration and exact first-owner attribution for 1,395 tracks, existing playlist/request payloads and stable links. Repeating attribution changes nothing. Live accounts remain uncreated. The deployed audit release independently passed all file/hash/cover checks. Next in the account sequence are shared-file removal/restore and quality/scan rules (M04), personal Plex output (M05), account management (M06) and authenticated screens (M07). Physical Watch playback remains pending installation of the prepared feasibility IPA.
