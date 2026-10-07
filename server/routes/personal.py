@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 
 from ..playlists import Playlists, PlaylistConflict
 from ..user_library import track_dto
+from ..personal_removal import PersonalRemoval, RemovalChanged
 
 
 class TrackInput(BaseModel):
@@ -29,6 +30,10 @@ class Tracks(BaseModel):
 
 class Membership(BaseModel):
     track_ids: list[str] = Field(min_length=1, max_length=500)
+
+
+class Removal(Membership):
+    confirmation: str = Field(min_length=64, max_length=64)
 
 
 class PlaylistName(BaseModel):
@@ -96,9 +101,10 @@ class ArtistRequest(BaseModel):
     request: bool = False
 
 
-def personal_router(store, artist_jobs):
+def personal_router(store, artist_jobs, recovery):
     router = APIRouter(prefix="/api/v1", tags=["personal-library"])
     users = store.user_libraries
+    removal = PersonalRemoval(store, recovery)
 
     def identity(request):
         return request.state.user["id"]
@@ -191,6 +197,33 @@ def personal_router(store, artist_jobs):
     @router.post("/library/membership")
     async def add(body: Membership, request: Request):
         return await run(users.add, identity(request), body.track_ids)
+
+    async def remove_call(fn, *args):
+        try:
+            return await asyncio.to_thread(fn, *args)
+        except LookupError as exc:
+            raise HTTPException(404, str(exc))
+        except RemovalChanged as exc:
+            raise HTTPException(409, str(exc))
+        except (ValueError, OSError):
+            raise HTTPException(
+                400,
+                "Removal or restore unavailable. Refresh or ask the administrator to check Recovery.",
+            )
+
+    @router.post("/library/removal-preview")
+    async def preview_removal(body: Membership, request: Request):
+        return await remove_call(removal.preview, identity(request), body.track_ids)
+
+    @router.post("/library/remove")
+    async def remove_music(body: Removal, request: Request):
+        return await remove_call(
+            removal.remove, identity(request), body.track_ids, body.confirmation
+        )
+
+    @router.post("/library/removals/{operation_id}/undo")
+    async def undo_removal(operation_id: str, request: Request):
+        return await remove_call(removal.undo, identity(request), operation_id)
 
     @router.get("/playlists")
     async def playlists(request: Request):

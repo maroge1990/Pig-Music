@@ -11,6 +11,7 @@ import time
 
 from .library import identifier, normalise
 from .media import public_settings
+from .lifecycle import coordinated
 
 TRACK_FIELDS = frozenset(
     {
@@ -288,6 +289,7 @@ class UserLibrary:
                 is not None
             )
 
+    @coordinated
     def add(self, user_id, track_ids, source="household-add"):
         initialise_owner(self.store)
         with self.store.library_lock, self.store.connect() as conn:
@@ -298,6 +300,14 @@ class UserLibrary:
                 for t in a["tracks"]
                 if t.get("available", True)
             }
+            removing = {
+                json.loads(raw)["track_id"]
+                for (raw,) in conn.execute(
+                    "SELECT payload FROM documents WHERE name LIKE 'removed:%'"
+                )
+                if json.loads(raw).get("status") in {"removing", "removed"}
+            }
+            available -= removing
             if not set(track_ids).issubset(available):
                 raise ValueError("One or more files are unavailable")
             changed = 0

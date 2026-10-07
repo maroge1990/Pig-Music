@@ -1,5 +1,7 @@
 """Application-owned, read-only ingestion. No Music Grabber index is required."""
 
+from .lifecycle import coordinated
+
 import hashlib
 import json
 import os
@@ -150,6 +152,7 @@ class LibraryScanner:
                 (json.dumps(details),),
             )
 
+    @coordinated
     def run(self):
         if not self.lock.acquire(blocking=False):
             return self.status()

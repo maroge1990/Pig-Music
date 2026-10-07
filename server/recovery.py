@@ -1,6 +1,7 @@
 """Hash-guarded, recoverable removal on the existing SMB filesystem."""
 
 import hashlib, json, os, threading, uuid
+from .lifecycle import coordinated
 from pathlib import Path
 from .media import saved_track, track_file
 from .library import identifier, normalise, load_json
@@ -40,51 +41,86 @@ class Recovery:
     def check_mount(self, root):
         require_library_mount(self.store.directory, root)
 
+    def prepare(self, track_id):
+        track, root = saved_track(self.store, track_id)
+        if not track:
+            raise ValueError("Song not found.")
+        self.check_mount(root)
+        if (root / track.get("relative_path", "")).is_symlink():
+            raise ValueError("Linked files need review.")
+        path = track_file(self.store, track_id)
+        root = root.resolve()
+        if path.is_symlink():
+            raise ValueError("Linked files need review before removal.")
+        original = path.relative_to(root).as_posix()
+        identity = str(uuid.uuid4())
+        trash = ".pig-music-trash/" + identity + "/" + original
+        record = {
+            "id": identity,
+            "track_id": track_id,
+            "track": track,
+            "root": str(root),
+            "original": original,
+            "trash": trash,
+            "sha256": self.digest(path),
+            "status": "removing",
+            "shared": any(
+                t["id"] != track_id
+                and (t.get("export_relative_path") or t.get("relative_path"))
+                == original
+                for a in self.store.library["albums"]
+                for t in a["tracks"]
+            ),
+        }
+        with self.store.connect() as conn:
+            record["memberships"] = [
+                list(r)
+                for r in conn.execute(
+                    "SELECT * FROM library_members WHERE track_id=?", (track_id,)
+                )
+            ]
+        return record, root
+
+    def begin(self, conn, record):
+        from .user_library import bump
+
+        conn.execute(
+            "INSERT INTO documents VALUES (?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
+            ("removed:" + record["id"], json.dumps(record)),
+        )
+        conn.execute(
+            "INSERT INTO documents VALUES (?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
+            (
+                "excluded:" + exclusion_key(record["track"]),
+                json.dumps({"track": record["track"], "removal_id": record["id"]}),
+            ),
+        )
+        owners = [
+            r[0]
+            for r in conn.execute(
+                "SELECT user_id FROM library_members WHERE track_id=?",
+                (record["track_id"],),
+            )
+        ]
+        conn.execute(
+            "DELETE FROM library_members WHERE track_id=?", (record["track_id"],)
+        )
+        for owner in owners:
+            bump(conn, owner)
+        for job_id, payload in conn.execute("SELECT id,payload FROM queue").fetchall():
+            if same_song(json.loads(payload), record["track"]):
+                conn.execute(
+                    "UPDATE queue SET status='cancelled' WHERE id=? AND status IN ('waiting_for_sources','searching','downloading','validating','importing')",
+                    (job_id,),
+                )
+
+    @coordinated
     def remove(self, track_id):
         with self.lock:
-            track, root = saved_track(self.store, track_id)
-            if not track:
-                raise ValueError("Song not found.")
-            self.check_mount(root)
-            if (root / track.get("relative_path", "")).is_symlink():
-                raise ValueError("Linked files need review.")
-            path = track_file(self.store, track_id)
-            root = root.resolve()
-            if path.is_symlink():
-                raise ValueError("Linked files need review before removal.")
-            original = path.relative_to(root).as_posix()
-            identity = str(uuid.uuid4())
-            trash = ".pig-music-trash/" + identity + "/" + original
-            record = {
-                "id": identity,
-                "track_id": track_id,
-                "track": track,
-                "root": str(root),
-                "original": original,
-                "trash": trash,
-                "sha256": self.digest(path),
-                "status": "removing",
-                "shared": any(
-                    t["id"] != track_id
-                    and (t.get("export_relative_path") or t.get("relative_path"))
-                    == original
-                    for a in self.store.library["albums"]
-                    for t in a["tracks"]
-                ),
-            }
-            self.save("removed:" + identity, record)
-            key = exclusion_key(track)
-            self.save("excluded:" + key, {"track": track, "removal_id": identity})
-            with self.store.connect() as c:
-                for job_id, payload in c.execute(
-                    "SELECT id,payload FROM queue"
-                ).fetchall():
-                    job = json.loads(payload)
-                    if same_song(job, track):
-                        c.execute(
-                            "UPDATE queue SET status='cancelled' WHERE id=? AND status IN ('waiting_for_sources','searching','downloading','validating','importing')",
-                            (job_id,),
-                        )
+            record, root = self.prepare(track_id)
+            with self.store.connect() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                self.begin(conn, record)
             self.finish(record, root)
             self.store.refresh_library()
             self.save("plex-refresh-required", True)
@@ -110,6 +146,7 @@ class Recovery:
         record["status"] = "removed"
         self.save("removed:" + record["id"], record)
 
+    @coordinated
     def restore(self, identity):
         with self.lock:
             record = self.store.read_document("removed:" + identity)
@@ -129,8 +166,25 @@ class Recovery:
             if not original.exists():
                 os.link(trash, original)
             record["status"] = "restored"
-            self.save("removed:" + identity, record)
             with self.store.connect() as c:
+                c.execute("BEGIN IMMEDIATE")
+                c.execute(
+                    "UPDATE documents SET payload=? WHERE name=?",
+                    (json.dumps(record), "removed:" + identity),
+                )
+                from .user_library import bump
+
+                for membership in record.get("memberships", []):
+                    if c.execute(
+                        "SELECT 1 FROM users WHERE id=?",
+                        (membership[0],),
+                    ).fetchone():
+                        added = c.execute(
+                            "INSERT OR IGNORE INTO library_members VALUES (?,?,?,?)",
+                            membership,
+                        ).rowcount
+                        if added:
+                            bump(c, membership[0])
                 for name, payload in c.execute(
                     "SELECT name,payload FROM documents WHERE name LIKE 'excluded:%'"
                 ).fetchall():
@@ -140,6 +194,7 @@ class Recovery:
             self.save("plex-refresh-required", True)
             return record
 
+    @coordinated
     def recover(self):
         for record in self.list():
             if record["status"] != "removing":

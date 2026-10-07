@@ -1,3 +1,4 @@
+from .lifecycle import coordinated
 import json
 import hashlib
 import os
@@ -31,6 +32,7 @@ class Store:
 
     def __init__(self, directory: Path):
         self.directory = directory
+        self.lifecycle_lock = threading.RLock()
         self.library_lock = threading.RLock()
         directory.mkdir(parents=True, exist_ok=True)
         self.cover_dir = directory / "covers"
@@ -277,6 +279,7 @@ class Store:
                 _claim_token=claim_token,
             )
 
+    @coordinated
     def publish_request(self, job, source, target, probe, sha):
         target = target.resolve()
         root = library_root(self).resolve()
@@ -415,6 +418,7 @@ class Store:
                 if added:
                     bump(conn, beneficiary)
 
+    @coordinated
     def recover_requests(self):
         root = library_root(self).resolve()
         stage = self.directory / "downloads" / "staging"
@@ -492,6 +496,7 @@ class Store:
         self.refresh_library()
         self.cleanup_replacements()
 
+    @coordinated
     def cleanup_replacements(self):
         root = library_root(self).resolve()
         with self.connect() as conn:
@@ -717,6 +722,7 @@ class Store:
         )
         return True
 
+    @coordinated
     def quality_override(self, kind, item_id, preferred):
         if preferred is not None and preferred not in PROFILES:
             raise ValueError("Choose a supported quality")
@@ -784,6 +790,7 @@ class Store:
             "effective_profile": self.quality_policy(track)["preferred"],
         }
 
+    @coordinated
     def schedule_upgrades(self):
         if not self.download_settings()["enabled"]:
             return
@@ -1127,6 +1134,7 @@ class Store:
                 "downloads_enabled": settings["enabled"],
             }
 
+    @coordinated
     def submit_catalogue(self, tracks, preferred=None, user_id=None):
         settings = self.download_settings()
         if preferred and tracks:

@@ -197,7 +197,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     app.state.auth = auth
     app.state.security = security
     app.include_router(auth_router(auth))
-    app.include_router(personal_router(store, artist_jobs))
+    app.include_router(personal_router(store, artist_jobs, recovery))
     install_validation_redaction(app)
     app.state.store = store
     app.state.enrichment = enrichment

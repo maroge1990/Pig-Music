@@ -5,6 +5,8 @@ guarded originals until validated publication. NAS mode requires explicit mount
 identity/configuration; isolated previews remain the default.
 """
 
+from .lifecycle import coordinated
+
 import asyncio
 import hashlib
 import json
@@ -169,6 +171,7 @@ class Exporter:
                 (json.dumps(value),),
             )
 
+    @coordinated
     def publish(self, track):
         source_root = library_root(self.store)
         if not contained(source_root, track["relative_path"]).is_file():
@@ -243,6 +246,7 @@ class Exporter:
         if source.exists() and digest(source) == expected:
             source.unlink()
 
+    @coordinated
     def process(self):
         if self.config().get("enabled") is not True or not self.lock.acquire(
             blocking=False

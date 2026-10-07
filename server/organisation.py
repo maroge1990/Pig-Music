@@ -1,5 +1,7 @@
 """Review-first organisation with preserved originals and restart recovery."""
 
+from .lifecycle import coordinated
+
 import json, os, shutil, uuid
 from pathlib import Path
 from .library import load_json
@@ -76,6 +78,7 @@ class Organisation:
             "note": "Existing album folders and release identities are retained. Tags use the current library metadata. Originals are preserved for recovery.",
         }
 
+    @coordinated
     def apply(self, ids, tags=False):
         rows = {r["id"]: r for r in self.plan()["items"]}
         results = []
@@ -208,6 +211,7 @@ class Organisation:
         record["status"] = "completed"
         self.recovery.save("organisation:" + record["id"], record)
 
+    @coordinated
     def recover(self):
         with self.store.connect() as c:
             records = [
@@ -245,6 +249,7 @@ class Organisation:
                 )
             ]
 
+    @coordinated
     def undo(self, identity):
         with self.recovery.lock:
             record = self.store.read_document("organisation:" + identity)
