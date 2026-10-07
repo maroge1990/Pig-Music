@@ -488,4 +488,57 @@ def catalogue_router(
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
+    async def warm_artist(artist_id, full=False):
+        """Prepare what an artist page loads, in the same caches the page reads.
+
+        Returns covers worth preparing: (kind, catalogue id) pairs.
+        """
+        artist_id = mbid(artist_id)
+        client = http_client()
+        covers = []
+        try:
+            popular = await popularity.get(client, artist_id)
+            covers += [
+                ("release", s["release_id"]) for s in popular.get("songs", [])[:5]
+            ]
+        except Exception:
+            pass
+        if public_settings(store)["portraits"]:
+            cache_key = "catalogue-artist-image:" + artist_id + ":" + image_config()
+            cached = store.read_document(cache_key).get("file", "")
+            if not cached or not (store.cover_dir / Path(cached).name).is_file():
+                try:
+                    await enrich_catalogue_artist(artist_id, cache_key)
+                except Exception:
+                    pass
+            if public_settings(store)["fanart_configured"]:
+                await backgrounds.get(client, artist_id)
+                if logos is not None:
+                    await logos.get(client, artist_id)
+        if full:
+            try:
+                data = await music_catalogue.get(
+                    client,
+                    "release-group/",
+                    query=release_query(artist_id, "album"),
+                    limit=100,
+                    offset=0,
+                )
+                covers += [
+                    ("release-group", r["id"])
+                    for r in data.get("release-groups", [])[:24]
+                ]
+            except (httpx.HTTPError, ValueError, KeyError):
+                pass
+        return covers
+
+    async def library_identity(artist_id):
+        """Catalogue identity for a library artist, or None when ambiguous."""
+        try:
+            return (await library_artist_catalogue(artist_id))["id"]
+        except (HTTPException, KeyError):
+            return None
+
+    router.warm_artist = warm_artist
+    router.library_identity = library_identity
     return router, library_artist_catalogue, valid_id, release_data

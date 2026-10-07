@@ -4,9 +4,14 @@ import asyncio
 import json
 import time
 import httpx
-from .catalogue import mbid, credit
+from .catalogue import mbid, credit, warming
 from .media import settings
 from .releases import feature_album
+
+
+def renew_margin():
+    # Hour-long feeds are renewed by the warmer with 20 minutes to spare.
+    return 1200 if warming.get() else 0
 
 
 class HomeDiscovery:
@@ -17,11 +22,11 @@ class HomeDiscovery:
     async def feed(self, client, path, **params):
         key = "home-feed:v1:" + path + repr(sorted(params.items()))
         cached = self.store.read_document(key)
-        if cached and cached.get("until", 0) > time.time():
+        if cached and cached.get("until", 0) - renew_margin() > time.time():
             return cached["data"], cached.get("failed", False)
         async with self.locks.setdefault(key, asyncio.Lock()):
             cached = self.store.read_document(key)
-            if cached and cached.get("until", 0) > time.time():
+            if cached and cached.get("until", 0) - renew_margin() > time.time():
                 return cached["data"], cached.get("failed", False)
             try:
                 headers = {

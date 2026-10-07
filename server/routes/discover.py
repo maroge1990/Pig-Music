@@ -10,7 +10,7 @@ from ..library import normalise
 from ..api_models import TrackDTO
 
 
-def discover_router(store, catalogue, popularity=None):
+def discover_router(store, catalogue, popularity=None, warmer=None):
     router = APIRouter(prefix="/api/v1/catalogue", tags=["personal-library"])
 
     def valid(value):
@@ -30,6 +30,9 @@ def discover_router(store, catalogue, popularity=None):
         if len(q.strip()) < 2:
             return {"artists": []}
         result = await metadata(request, "artist/", query=q.strip()[:150], limit=12)
+        if warmer is not None:
+            # Prepare the likely next tap on the server, for every device.
+            warmer.search([a["id"] for a in result.get("artists", []) if "id" in a])
         return {
             "artists": [
                 {

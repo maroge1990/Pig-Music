@@ -336,3 +336,17 @@ The first preflight caught a quoting error in the release state probe before any
 - Real Fanart logos and album-cover fallback with the household key.
 - Physical iPhone PWA behaviour: safe areas, scroll folding, service worker on iOS.
 - Download to *device* (offline audio) does not exist. Rows show only server/library state.
+
+### Server pre-cache, 8 October 2026
+
+**Owner direction:** Home is the same on every device, and each person's library is known, so prepare these on the server rather than only on each device.
+
+**Delivered:** `server/warmer.py` is a background worker that prepares artist pages in the server's shared caches. It covers the portrait, Fanart photograph and logo, popular songs, the first album page, and up to 24 covers (12 for library artists), with 256 and 512 px sizes pre-generated.
+- **Every 30 minutes** it queues Home, each active person's recommendations and every library artist that is not compilation-only. Home artists come first, with full detail for the first two.
+- **Every catalogue search** queues the top three results at once, with full detail for the first two.
+- **Priority.** Search runs before Home, and Home before library. All provider calls run as background metadata work, so a person waiting on a page always goes first.
+- **Early renewal.** While warming, day-long catalogue and popularity answers renew four hours early and hour-long Home feeds twenty minutes early, so foreground requests do not meet an expired cache.
+- **Off switch.** The warmer runs only when `PIG_MUSIC_PRELOAD` is not `false`.
+- **Status.** Owner-only `GET /api/warmer` returns the status. Admin → Overview shows "Artist pages ready", and each pass logs `Pre-cache pass complete …`.
+
+**Verification:** 237 backend tests pass, including `tests/test_warmer.py`. On local disposable data the first pass prepared 16 artist pages in 29.5 s with no failures, and a search prepared its results within seconds.

@@ -4,9 +4,14 @@ import asyncio, hashlib, json, time
 import httpx, logging
 
 logger = logging.getLogger(__name__)
-from .catalogue import mbid
+from .catalogue import RENEW, mbid, warming
 from .media import settings
 from .releases import feature_album
+
+
+def margin():
+    """While warming, renew a day-long answer a few hours before it lapses."""
+    return RENEW if warming.get() else 0
 
 
 class Popularity:
@@ -29,11 +34,11 @@ class Popularity:
             + artist_id
         )
         cached = self.store.read_document(key)
-        if cached and cached.get("retry_after", 0) > time.time():
+        if cached and cached.get("retry_after", 0) - margin() > time.time():
             return cached["data"]
         async with self.artist_locks.setdefault(key, asyncio.Lock()):
             cached = self.store.read_document(key)
-            if cached and cached.get("retry_after", 0) > time.time():
+            if cached and cached.get("retry_after", 0) - margin() > time.time():
                 return cached["data"]
             result = {
                 "enabled": True,

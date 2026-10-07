@@ -58,6 +58,14 @@ def release_tracks(release):
 
 
 background_metadata = ContextVar("background_metadata", default=False)
+# Set by the server warmer: cached answers this close to expiry are renewed
+# now, so nobody ever waits on an expired cache.
+warming = ContextVar("warming", default=False)
+RENEW = 4 * 3600
+
+
+def still_fresh(age, lifetime, margin=RENEW):
+    return age < lifetime - (margin if warming.get() else 0)
 
 
 class Catalogue:
@@ -70,7 +78,7 @@ class Catalogue:
     async def get(self, client, path, **params):
         key = "catalogue:" + path + repr(sorted(params.items()))
         cached = self.store.read_document(key)
-        if cached and time.time() - cached["time"] < 86400:
+        if cached and still_fresh(time.time() - cached["time"], 86400):
             return cached["data"]
         background = background_metadata.get()
         if not background:
@@ -80,7 +88,7 @@ class Catalogue:
                 await asyncio.sleep(0.05)
             async with self.lock:
                 cached = self.store.read_document(key)
-                if cached and time.time() - cached["time"] < 86400:
+                if cached and still_fresh(time.time() - cached["time"], 86400):
                     return cached["data"]
                 delay = max(0, 1.05 - (time.monotonic() - self.last_request))
                 if delay:

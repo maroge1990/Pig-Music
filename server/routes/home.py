@@ -6,9 +6,9 @@ from ..home import HomeDiscovery
 from ..api_models import HomeFeedDTO, RecentAlbums
 
 
-def home_router(store, catalogue):
+def home_router(store, catalogue, home=None):
     router = APIRouter(tags=["personal-library"])
-    home = HomeDiscovery(store, catalogue)
+    home = home or HomeDiscovery(store, catalogue)
 
     @router.get("/api/v1/home/popular", response_model=HomeFeedDTO)
     async def popular(request: Request):

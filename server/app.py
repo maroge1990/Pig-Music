@@ -50,6 +50,9 @@ from .portraits import Portraits
 from .popularity import Popularity
 from .artist_backgrounds import Backgrounds
 from .artist_logos import Logos
+from .home import HomeDiscovery
+from .warmer import Warmer
+from .image_cache import variant
 from .media import (
     public_settings,
     track_file,
@@ -152,6 +155,8 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             export_task = asyncio.create_task(exporter.run())
             artist_task = asyncio.create_task(artist_jobs.run(client))
             preload_task = asyncio.create_task(preload_library())
+            if os.environ.get("PIG_MUSIC_PRELOAD", "true").lower() != "false":
+                warmer.start()
             maintenance_task = asyncio.create_task(maintain_artwork())
             if (
                 scanner.root.is_dir()
@@ -169,6 +174,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 await artist_task
                 preload_stopping.set()
                 preload_task.cancel()
+                await warmer.close()
                 await enrichment.close()
                 await change_feed.close()
                 maintenance_task.cancel()
@@ -214,8 +220,10 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
 
     from .routes.home import home_router
 
-    app.include_router(home_router(store, music_catalogue))
-    app.include_router(discover_router(store, music_catalogue, popularity))
+    home = HomeDiscovery(store, music_catalogue)
+    warmer = Warmer(store, home, lambda: app.state.http)
+    app.include_router(home_router(store, music_catalogue, home))
+    app.include_router(discover_router(store, music_catalogue, popularity, warmer))
     app.include_router(personal_router(store, artist_jobs, recovery))
     install_validation_redaction(app)
     app.state.store = store
@@ -953,6 +961,33 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         )
     )
     app.include_router(catalogue_routes)
+    warmer.warm_artist = catalogue_routes.warm_artist
+    warmer.library_identity = catalogue_routes.library_identity
+
+    async def warm_cover(kind, item_id):
+        """Fetch a catalogue cover and its common sizes; True when new."""
+        key = "catalogue-artwork:" + kind + ":" + item_id
+        target = store.cover_dir / (identifier(key) + ".jpg")
+        if target.is_file():
+            return False
+        if not await catalogue_cover(kind, item_id, target):
+            return False
+
+        def sizes():
+            public = public_image(store, target)
+            if public:
+                for width in (256, 512):
+                    variant(public, width)
+
+        async with image_slots:
+            await asyncio.to_thread(sizes)
+        return True
+
+    warmer.cover = warm_cover
+
+    @app.get("/api/warmer")
+    def warmer_status():
+        return warmer.status()
 
     async def preload_library():
         if os.environ.get("PIG_MUSIC_PRELOAD", "true").lower() == "false":

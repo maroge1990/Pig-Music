@@ -21,7 +21,16 @@ export function AdminGlance({
 }) {
   const [people, setPeople] = useState<number | null>(null);
   const [unassigned, setUnassigned] = useState<number | string | null>(null);
+  const [warm, setWarm] = useState<{
+    artists_ready: number;
+    covers_prepared: number;
+    queued: number;
+    last_pass_finished: number | null;
+  } | null>(null);
   useEffect(() => {
+    void api<NonNullable<typeof warm>>("/warmer")
+      .then(setWarm)
+      .catch(() => setWarm(null));
     void api<{ people: { disabled?: boolean }[] }>("/v1/people")
       .then((d) => setPeople(d.people.filter((p) => !p.disabled).length))
       .catch(() => setPeople(null));
@@ -62,6 +71,18 @@ export function AdminGlance({
       warn: true,
     },
     { label: "People", value: people, href: "#/admin/people" },
+    {
+      label: "Artist pages ready",
+      value: warm?.artists_ready ?? null,
+      note: !warm
+        ? ""
+        : warm.queued
+          ? `Preparing ${warm.queued} more`
+          : warm.last_pass_finished
+            ? `Refreshed ${Math.max(1, Math.round((Date.now() / 1000 - warm.last_pass_finished) / 60))} min ago`
+            : "First pass starting",
+      href: "#/admin/overview",
+    },
   ];
   return (
     <ul className="admin-glance" aria-label="At a glance">
