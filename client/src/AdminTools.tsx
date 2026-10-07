@@ -13,6 +13,7 @@ import { api, updateArtworkRevision } from "./api";
 import { Cover } from "./Cover";
 import { Empty } from "./EmptyState";
 import { MediaSettings } from "./MediaSettings";
+import { AdminGlance } from "./AdminGlance";
 import { QueueView, type Queue } from "./QueueView";
 import {
   DownloadSettingsPanel,
@@ -796,6 +797,9 @@ export function AdminTools({ route }: { route: Route }) {
             <X size={16} />
           </button>
         </div>
+      )}
+      {section === "overview" && (
+        <AdminGlance queue={queue} library={library} />
       )}
       {section === "overview" && (
         <SystemStatus

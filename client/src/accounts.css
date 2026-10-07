@@ -581,3 +581,35 @@ main h1[tabindex="-1"]:focus {
 .account-section form button[type="submit"]:not([class]) {
   justify-self: start;
 }
+.admin-glance {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: var(--space-12);
+  margin: var(--space-16) 0 var(--space-24);
+  padding: 0;
+  list-style: none;
+}
+.admin-glance a {
+  display: grid;
+  gap: var(--space-4);
+  height: 100%;
+  padding: var(--space-16);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+.admin-glance strong {
+  font-size: var(--type-title);
+  line-height: 1;
+}
+.admin-glance span,
+.admin-glance small {
+  font-size: var(--type-footnote);
+  color: var(--secondary);
+}
+.admin-glance a.needs-attention {
+  border-color: var(--warning);
+  background: var(--warning-fill);
+}
