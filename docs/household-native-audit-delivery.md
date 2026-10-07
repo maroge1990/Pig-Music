@@ -31,3 +31,52 @@ python -m server.admin create-owner --username mark
 Run inside the prepared candidate with `docker exec -it`; it prompts twice without echo. Candidate staging and the final exact command belong in the operational handover once the image is verified. Then create household members in Account → People and share their one-use setup codes privately. All original shared library files and legacy playlists are attributed to Mark once, new external scans stay Unassigned, and personal imports remain available to each member.
 
 Actual phone Tailscale/cellular and accessibility checks need the user's devices. The feasibility IPA is still uninstalled; Watch installation, headphone playback and the re-sign cycle remain unproven. Production Watch work stays behind that gate. M10 device-copy storage/invalidation and the complete iPhone app are subsequent roadmap packages, not shipped by this API foundation. Original NAS files are never transcoded to meet a library quality preference. Optional new artwork-accent treatments require their own brand decision.
+
+## Audit closure and release checkpoint
+
+The code findings are addressed across the existing live audit release and this household candidate. Account-dependent changes become live at the account cutover.
+
+| Audit items | Implementation status |
+| --- | --- |
+| P0-1–3 | Metadata-only snapshot, edition/content identity, safe pruning and non-blocking artwork enrichment |
+| P1-1–2, P1-6 | Modern image derivatives, immutable URLs/validators, bounded off-thread/per-key work |
+| P1-3–5 | Approved branding/icons/manifest, generated CSS/Swift tokens, rem text, accessible controls and protected player roles |
+| P1-7, P2-1–2 | Compressed conditional summaries, bounded collection pages, ID maps and cached settings |
+| P2-3–6 | Small/pre-blurred hero derivatives, dominant metadata, local provider fallback, incremental preload and vocabulary tokens |
+| P2-7–9 | Dedicated views/styles/routers, artwork maintenance extraction, horizontally scrolling tabs and branded placeholders |
+| P2-10, F-1 | Scoped revocable events, typed v1 contract, revision cursors and durable final-state sync; Swift API package commenced |
+| P3 | Redundant personal saved ticks removed, rare tools split, TestClient dependency warning resolved, authenticated native/browser writes |
+| F-2 | Private household libraries/playlists/favourites/imports/requests and independent Plex connections |
+| F-3–4 | Shared generated brand foundation and private listening events; new artwork-accent treatment, manual artwork editor and recently-added shelf remain optional roadmap ideas |
+
+Local final checks: 205 backend tests, four frontend tests, strict production build, formatting, token/OpenAPI drift checks, three generated-client tests and unsigned iPhone build. Stopped-backup owner attribution retains 1,395 tracks and durable state. At 50k tracks the authenticated Mac HTTP fixture starts in 6.761 seconds, uses 435.65 MB cumulative peak RSS and transfers 223,760 gzip bytes; conditional p95 is 3.720 ms.
+
+A final release-check review found and fixed two issues: output logging had masked the old unauthenticated HTTP benchmark failure, and household inbox refresh rebuilt a large union for each track. CI now fails on benchmark errors and guards metadata startup time. The older deployment shortcut rejects account releases before any service changes.
+
+The protected setup container is isolated from networking and the NAS is read-only. Its data starts from a retained backup. After interactive owner setup, take a fresh stopped backup and preserve the setup credential while attributing the latest live state before switching. Do not promote the staged backup wholesale or discard intervening playlist/queue changes. Keep the current live container and rollback available until authenticated acceptance passes.
+
+Remaining human acceptance: Mark's password through the interactive CLI; phone HTTPS over cellular/Tailscale, VoiceOver/enlarged text and revocation during playback; Sideloadly iPhone/Watch installation, headphones audio and refresh cycle. The complete production iPhone/Watch apps and device-copy policy/storage are subsequent native roadmap packages, not completed by this API foundation.
+
+### Exact candidate acceptance
+
+Runtime source: `c4bedc305ed939dfd09cb4c8ded3da827af5c57c`. Image: `ghcr.io/maroge1990/pig-music@sha256:6ae265a8200ca89bf373c3ebdd78e27d9f60e159eae56edcc3b04fab9d9cb3a4`. [Registry verification](https://github.com/maroge1990/Pig-Music/actions/runs/37558311809) and [native verification](https://github.com/maroge1990/Pig-Music/actions/runs/37558311857) passed. The image passed **205 tests on both GitHub and Unraid**.
+
+All Unraid scale commands ran with a 1 GB limit: 50k artwork migration/refresh peak **322.76 MB**; authenticated HTTP peak **379.22 MB**, startup **13.708 s**, conditional p95 **5.166 ms**, gzip body **223,760 bytes**; two people sharing 50k tracks peaked at **388.63 MB**, cold sync **10.703 s**. A separate worst-case fixture gave each person 50k distinct tracks (100k unique in total): **573.36 MB**, refresh **8.910 s**, cold sync **10.663 s**. These are server measurements, not phone scroll/launch results. The Unraid host enforces memory but reports no swap-limit capability. The native gate was completed with its default arguments after correcting the deployment helper's unsupported `--sizes` option; no already-passing application checks were omitted.
+
+Exact-image stopped-backup migration and owner attribution retained **1,395 tracks**, existing links and durable rows; the source backup was read-only and unchanged. The disposable attribution account was removed with its validation fixture. `pig-music-household-setup` contains a separate copy of the retained appdata and has no owner yet. Its network is `none`, it publishes no ports, uses `99:100`, a read-only root, a 1 GB limit and a read-only `/library` NAS mount. It runs only a sleeping helper, not the web application. Candidate data: `/mnt/user/appdata/pig-music-preview/candidates/household-audit-20261007-v1/data`.
+
+In **Unraid's terminal**, create Mark's password with:
+
+```sh
+docker exec -it pig-music-household-setup python -m server.admin create-owner --username mark
+```
+
+It prompts twice without echo and accepts 12–256 characters subject to the password policy. Report only completion; never send the password in chat. The live container remains the verified `audit-followup-20261007-v1` image pending this prerequisite and fresh-state authenticated cutover. The actual setup result must be checked before promotion. Later acceptance-script, deployment-helper and handover changes do not alter the runtime source/image above.
+
+Reproduce the disjoint-collection check with:
+
+```sh
+docker run --rm -i --network none --memory=1g --entrypoint python \
+  ghcr.io/maroge1990/pig-music@sha256:6ae265a8200ca89bf373c3ebdd78e27d9f60e159eae56edcc3b04fab9d9cb3a4 - \
+  < scripts/benchmark_disjoint_sync.py
+```

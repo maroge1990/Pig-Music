@@ -225,7 +225,7 @@ def main():
     remote(
         "docker run --rm --network none --memory=1g --entrypoint python "
         + shlex.quote(image)
-        + " /app/scripts/benchmark_native_sync.py --sizes 10000 50000"
+        + " /app/scripts/benchmark_native_sync.py"
     )
     print(
         "Candidate passed isolated Linux tests, artwork and HTTP delivery scale gates:",

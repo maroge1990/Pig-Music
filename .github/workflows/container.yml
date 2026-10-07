@@ -64,6 +64,9 @@ jobs:
           docker run --rm --network none --memory=1g \
             -e PYTHONDONTWRITEBYTECODE=1 --entrypoint python pig-music:candidate \
             scripts/benchmark_native_sync.py | tee native-sync-benchmark.json
+          docker run --rm -i --network none --memory=1g \
+            -e PYTHONDONTWRITEBYTECODE=1 --entrypoint python pig-music:candidate - \
+            < scripts/benchmark_disjoint_sync.py | tee disjoint-sync-benchmark.json
       - name: Brand token drift
         run: python scripts/generate_brand_tokens.py --check
       - name: Frontend tests and formatting

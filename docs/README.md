@@ -19,3 +19,5 @@ Credentials, appdata, music exports, private measurements and screenshots remain
 - [A02/A03 audit delivery and remaining findings](a02-a03-delivery.md)
 
 - [Remaining audit delivery](audit-followup-delivery.md): current release, accessibility/scale checks and remaining physical-device evidence.
+
+- [Household and native audit continuation](household-native-audit-delivery.md): final code-finding ledger, exact candidate/Unraid evidence, protected owner setup and device gates.
