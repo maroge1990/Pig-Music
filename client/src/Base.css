@@ -21,6 +21,8 @@
 }
 body {
   margin: 0;
+  /* The canvas bloom paints on body; it must cover the whole viewport. */
+  min-height: 100dvh;
 }
 button,
 input,

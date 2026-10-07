@@ -12,6 +12,7 @@ import {
   Play,
   ArrowLeft,
   Ellipsis,
+  ListMusic,
 } from "lucide-react";
 import { api } from "./api";
 import { PersonalRequests } from "./PersonalRequests";
@@ -43,6 +44,12 @@ type Playlist = {
   revision: number;
   favourites?: boolean;
   entries: Entry[];
+};
+type PlaylistSummary = {
+  id: string;
+  name: string;
+  track_count?: number;
+  available_count?: number;
 };
 type Preview = {
   confirmation: string;
@@ -100,9 +107,8 @@ export function PersonalLibrary({
     albums?: Album[];
     playlist?: Playlist;
   } | null>(null);
-  const [playlists, setPlaylists] = useState<{ id: string; name: string }[]>(
-    [],
-  );
+  const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
+  const [favouriteList, setFavouriteList] = useState<Playlist | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [removal, setRemoval] = useState<{
@@ -117,7 +123,7 @@ export function PersonalLibrary({
   async function refresh() {
     const [summary, list] = await Promise.all([
       api<Library>("/v1/library"),
-      api<{ playlists: { id: string; name: string }[] }>("/v1/playlists"),
+      api<{ playlists: PlaylistSummary[] }>("/v1/playlists"),
     ]);
     setLibrary(summary);
     setPlaylists(list.playlists);
@@ -126,10 +132,14 @@ export function PersonalLibrary({
     );
     if (favouriteList) {
       const values = await api<Playlist>("/v1/playlists/" + favouriteList.id);
+      setFavouriteList(values);
       setFavourites(
         new Set(values.entries.map((t) => t.saved_track?.id || t.id)),
       );
-    } else setFavourites(new Set());
+    } else {
+      setFavouriteList(null);
+      setFavourites(new Set());
+    }
   }
   useEffect(() => {
     void refresh().catch((e) => setError(e.message));
@@ -677,9 +687,22 @@ export function PersonalLibrary({
               )}
             </CollectionPages>
           )}
-          {(tab === "playlists" || tab === "favourites") && (
+          {tab === "favourites" &&
+            (favouriteList?.entries.length ? (
+              songs(
+                favouriteList.entries.map((e) => e.saved_track || e),
+                favouriteList,
+              )
+            ) : (
+              <p className="muted">
+                Tap the heart on any song to keep it here. Favourites never
+                download anything by themselves.
+              </p>
+            ))}
+          {tab === "playlists" && (
             <>
               <form
+                className="search-form"
                 onSubmit={(e) => {
                   e.preventDefault();
                   const form = e.currentTarget;
@@ -700,20 +723,31 @@ export function PersonalLibrary({
                   New playlist
                   <input name="name" required maxLength={100} />
                 </label>
-                <button type="submit">Create</button>
+                <button type="submit" className="secondary-button">
+                  Create
+                </button>
               </form>
-              {playlists
-                .filter(
-                  (p) =>
-                    tab !== "favourites" || p.id.startsWith("pig-favourites:"),
-                )
-                .map((p) => (
-                  <p key={p.id}>
-                    <button onClick={() => go("/library/playlist/" + p.id)}>
-                      {p.name}
-                    </button>
-                  </p>
-                ))}
+              <ul className="playlist-list">
+                {playlists
+                  .filter((p) => !p.id.startsWith("pig-favourites:"))
+                  .map((p) => (
+                    <li key={p.id}>
+                      <a href={"#/library/playlist/" + p.id}>
+                        <ListMusic size={22} aria-hidden="true" />
+                        <strong>{p.name}</strong>
+                        <span>
+                          {p.track_count ?? 0} song
+                          {p.track_count === 1 ? "" : "s"}
+                          {p.track_count &&
+                          p.available_count !== undefined &&
+                          p.available_count < p.track_count
+                            ? ` · ${p.available_count} available`
+                            : ""}
+                        </span>
+                      </a>
+                    </li>
+                  ))}
+              </ul>
               {tab === "playlists" && (
                 <section className="account-section">
                   <h2>Import your playlists</h2>
