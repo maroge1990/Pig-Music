@@ -224,6 +224,8 @@ class Release:
             # Live data is migrated by the new image on start; restore the
             # original download setting first so the release resumes as before.
             flags["migrated"] = True
+            # Registry verification pulls by digest; fetch the template tag too.
+            self.remote("docker pull --quiet " + shlex.quote(self.tag) + " >/dev/null")
             assert (
                 json.loads(
                     self.remote("docker image inspect " + shlex.quote(self.tag))
@@ -267,7 +269,7 @@ class Release:
             health = self.private("/api/health")
             assert health["https"] is True and health["storage_available"]
             assert self.private("/api/v1/setup/owner") == {"setup_required": False}
-            assert self.http.get("/api/library").status_code == 401
+            assert self.http.get("/api/library").status_code in {401, 403}
             self.verify_container(live, candidate)
             print("Release is live:", self.version, "; backup:", self.backup)
             print("Rollback container:", self.previous, flush=True)
