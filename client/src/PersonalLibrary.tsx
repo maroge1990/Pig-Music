@@ -559,27 +559,34 @@ export function PersonalLibrary({
           <button className="text-button" onClick={backToLibrary}>
             <ArrowLeft size={18} /> Back to library
           </button>
-          {detail.playlist && (
+          {(detail.playlist || detail.quality?.scope === "album") && (
             <div className="release-actions">
-              {[false, true].map((shuffle) => (
-                <button
-                  key={String(shuffle)}
-                  className={shuffle ? "secondary-button" : "primary-button"}
-                  disabled={
-                    !detail.playlist!.entries.some((e) => e.saved_track)
-                  }
-                  onClick={() => {
-                    const tracks = detail.playlist!.entries.flatMap((e) =>
+              {[false, true].map((shuffle) => {
+                const playable = detail.playlist
+                  ? detail.playlist.entries.flatMap((e) =>
                       e.saved_track ? [e.saved_track] : [],
-                    );
-                    const queue = shuffle ? shuffled(tracks) : tracks;
-                    player.playSaved(queue[0], queue, 0);
-                  }}
-                >
-                  {shuffle ? <Shuffle size={18} /> : <Play size={18} />}{" "}
-                  {shuffle ? "Shuffle" : "Play"}
-                </button>
-              ))}
+                    )
+                  : (detail.tracks || [])
+                      .filter((t) => t.available !== false)
+                      .map((t) => ({
+                        ...t,
+                        cover_url: t.cover_url || detail.cover,
+                      }));
+                return (
+                  <button
+                    key={String(shuffle)}
+                    className={shuffle ? "secondary-button" : "primary-button"}
+                    disabled={!playable.length}
+                    onClick={() => {
+                      const queue = shuffle ? shuffled(playable) : playable;
+                      player.playSaved(queue[0], queue, 0);
+                    }}
+                  >
+                    {shuffle ? <Shuffle size={18} /> : <Play size={18} />}{" "}
+                    {shuffle ? "Shuffle" : "Play"}
+                  </button>
+                );
+              })}
             </div>
           )}
           {detail.quality && (

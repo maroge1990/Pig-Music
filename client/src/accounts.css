@@ -454,3 +454,7 @@ a.album-card {
 .home-section h3 {
   margin: var(--space-24) 0 var(--space-12);
 }
+/* Headings receive programmatic focus on navigation; they are not controls. */
+main h1[tabindex="-1"]:focus {
+  outline: none;
+}

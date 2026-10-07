@@ -72,6 +72,13 @@ export function AppShell() {
     const changed = () => {
       setRoute(parseRoute());
       window.scrollTo(0, 0);
+      // Move keyboard and screen-reader focus to the new page's heading.
+      requestAnimationFrame(() => {
+        const heading = document.querySelector<HTMLElement>("main h1");
+        if (!heading) return;
+        heading.tabIndex = -1;
+        heading.focus({ preventScroll: true });
+      });
     };
     window.addEventListener("hashchange", changed);
     return () => window.removeEventListener("hashchange", changed);
