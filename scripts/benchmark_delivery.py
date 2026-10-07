@@ -38,8 +38,23 @@ def measure(size):
             )
         )
         app = create_app(root)
-        with TestClient(app) as client:
+        auth = app.state.auth
+        auth.create_owner("deliveryfixture", "disposable delivery fixture password")
+        token = auth.login(
+            "deliveryfixture",
+            "disposable delivery fixture password",
+            "device",
+            "benchmark",
+            "ios",
+            "fixture",
+        )["token"]
+        with TestClient(
+            app,
+            base_url="https://private.ts.net",
+            headers={"Authorization": "Bearer " + token},
+        ) as client:
             result = client.get("/api/library", headers={"Accept-Encoding": "gzip"})
+            assert result.status_code == 200, result.text
             assert result.json()["stats"]["tracks"] == size
             assert result.headers["content-encoding"] == "gzip"
             etag = result.headers["etag"]

@@ -85,6 +85,12 @@ def main():
         help="After passing candidate tests, update the live container",
     )
     args = parser.parse_args()
+    if args.deploy and (ROOT / "api/openapi.v1.json").exists():
+        contract = json.loads((ROOT / "api/openapi.v1.json").read_text())
+        if "/api/v1/auth/device" in contract.get("paths", {}):
+            parser.error(
+                "This account release needs interactive owner bootstrap and an authenticated cutover. Use candidate verification without --deploy; the legacy cutover cannot safely accept this release."
+            )
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{3,70}", args.version):
         parser.error("Use a lowercase version suffix")
     if args.image and not re.fullmatch(

@@ -51,6 +51,7 @@ jobs:
             pig-music:candidate -m pytest /tests -q -p no:cacheprovider --basetemp=/tmp/pig-tests
       - name: Artwork scale gate under 1 GB
         run: |
+          set -euo pipefail
           docker run --rm --network none --memory=1g \
             -e PYTHONDONTWRITEBYTECODE=1 --entrypoint python pig-music:candidate \
             scripts/benchmark_cover_store.py --sizes 10000 50000 | tee artwork-benchmark.json
@@ -59,6 +60,7 @@ jobs:
             scripts/benchmark_delivery.py | tee delivery-benchmark.json
       - name: Two-user native sync scale gate under 1 GB
         run: |
+          set -euo pipefail
           docker run --rm --network none --memory=1g \
             -e PYTHONDONTWRITEBYTECODE=1 --entrypoint python pig-music:candidate \
             scripts/benchmark_native_sync.py | tee native-sync-benchmark.json
