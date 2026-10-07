@@ -9,7 +9,7 @@ import pytest
 
 from server.app import create_app
 from server.auth import AuthError
-from server.security import PUBLIC, audit_routes, secret_file
+from server.security import PUBLIC, api_routes, audit_routes, secret_file
 
 PASSWORD = "security fixture password"
 
@@ -26,13 +26,12 @@ def protected(tmp_path, monkeypatch, owner=True):
 
 
 def request_paths(app):
-    for route in app.routes:
-        if getattr(route, "path", "").startswith("/api/"):
-            path = route.path
-            for name in route.param_convertors:
-                path = path.replace("{" + name + "}", "fixture")
-            for method in route.methods:
-                yield method, path
+    for route in api_routes(app):
+        path = route.path
+        for name in route.param_convertors:
+            path = path.replace("{" + name + "}", "fixture")
+        for method in route.methods:
+            yield method, path
 
 
 def test_every_api_route_is_anonymous_denied_and_bootstrap_closed(
@@ -77,14 +76,14 @@ def test_member_cannot_see_unscoped_legacy_routes(tmp_path, monkeypatch):
     ) as client:
         personal_paths = {
             route.path
-            for route in app.routes
-            if "personal-library" in getattr(route, "tags", [])
+            for route in api_routes(app)
+            if "personal-library" in (getattr(route, "tags", None) or [])
         }
         for method, path in request_paths(app):
             if any(
                 path == re.sub(r"\{[^}]+\}", "fixture", route.path)
-                for route in app.routes
-                if getattr(route, "path", "") in personal_paths
+                for route in api_routes(app)
+                if route.path in personal_paths
                 for name in route.param_convertors
             ):
                 continue

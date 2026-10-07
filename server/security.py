@@ -210,10 +210,31 @@ class Security:
         return public_user(person), session
 
 
-def audit_routes(app, guard):
-    for route in app.routes:
+def api_routes(app):
+    """Every effective API route, including those behind included routers.
+
+    FastAPI 0.14x wraps ``include_router`` results lazily, so ``app.routes``
+    alone omits them; their effective contexts carry the app dependencies.
+    """
+
+    def walk(routes):
+        for route in routes:
+            contexts = getattr(route, "effective_route_contexts", None)
+            if contexts is not None:
+                yield from contexts()
+            elif getattr(route, "original_router", None) is not None:
+                yield from walk(route.original_router.routes)
+            else:
+                yield route
+
+    for route in walk(app.routes):
         if getattr(route, "path", "").startswith("/api/"):
-            if not any(dep.call == guard for dep in route.dependant.dependencies):
-                raise RuntimeError(
-                    "API route is missing its default-deny guard: " + route.path
-                )
+            yield route
+
+
+def audit_routes(app, guard):
+    for route in api_routes(app):
+        if not any(dep.call == guard for dep in route.dependant.dependencies):
+            raise RuntimeError(
+                "API route is missing its default-deny guard: " + route.path
+            )
