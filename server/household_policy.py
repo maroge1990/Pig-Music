@@ -208,11 +208,12 @@ class HouseholdPolicy:
             r[0] for r in conn.execute("SELECT DISTINCT track_id FROM library_members")
         }
         managed = {r[0] for r in conn.execute("SELECT id FROM acquired")}
+        already_assigned = owned | managed
         unassigned = {
             t["id"]
             for a in self.store.library["albums"]
             for t in a["tracks"]
-            if t.get("available", True) and t["id"] not in owned | managed
+            if t.get("available", True) and t["id"] not in already_assigned
         }
         for identity in unassigned:
             conn.execute(

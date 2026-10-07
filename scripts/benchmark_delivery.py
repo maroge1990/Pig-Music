@@ -37,6 +37,7 @@ def measure(size):
                 }
             )
         )
+        startup = time.perf_counter()
         app = create_app(root)
         auth = app.state.auth
         auth.create_owner("deliveryfixture", "disposable delivery fixture password")
@@ -53,6 +54,10 @@ def measure(size):
             base_url="https://private.ts.net",
             headers={"Authorization": "Bearer " + token},
         ) as client:
+            startup_seconds = time.perf_counter() - startup
+            assert (
+                startup_seconds < 30
+            ), f"Metadata startup exceeded 30 seconds: {startup_seconds:.2f}"
             result = client.get("/api/library", headers={"Accept-Encoding": "gzip"})
             assert result.status_code == 200, result.text
             assert result.json()["stats"]["tracks"] == size
@@ -68,6 +73,7 @@ def measure(size):
             peak = peak if sys.platform == "darwin" else peak * 1024
             return {
                 "tracks": size,
+                "startup_seconds": round(startup_seconds, 3),
                 "albums": len(result.json()["albums"]),
                 "json_bytes": len(result.content),
                 "gzip_bytes": len(gzip.compress(result.content)),
