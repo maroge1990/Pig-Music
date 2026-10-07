@@ -204,6 +204,16 @@
   aspect-ratio: 1;
   height: auto;
 }
+.full-album-grid strong,
+.full-album-grid strong + span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.full-album-grid strong + span {
+  margin-top: 4px;
+  color: var(--secondary);
+  font-size: 0.875rem;
+}
 .saved-artist-heading {
   display: flex;
   gap: 20px;

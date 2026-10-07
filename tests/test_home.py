@@ -20,6 +20,7 @@ def test_popular_weekly_feed_validates_ids_and_caches(tmp_path):
             "artists": {
                 "artists": [
                     {"artist_mbid": ARTIST, "artist_name": "Artist"},
+                    {"artist_mbid": ARTIST, "artist_name": "Duplicate provider entry"},
                     {"artist_mbid": "bad", "artist_name": "Bad"},
                 ]
             },

@@ -91,6 +91,7 @@ class HomeDiscovery:
             if not isinstance(data, dict) or not isinstance(data.get(field, []), list):
                 result["unavailable"] = True
                 continue
+            seen = set()
             for item in data.get(field, [])[:12]:
                 if not isinstance(item, dict):
                     continue
@@ -103,8 +104,14 @@ class HomeDiscovery:
                         (self.identity(i) for i in artists if self.identity(i)), None
                     )
                 )
-                if not item_id or not artist_id or not item.get(name):
+                if (
+                    not item_id
+                    or not artist_id
+                    or not item.get(name)
+                    or item_id in seen
+                ):
                     continue
+                seen.add(item_id)
                 result[kind].append(
                     {
                         "id": item_id,

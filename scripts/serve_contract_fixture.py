@@ -3,6 +3,7 @@
 import json
 import os
 import tempfile
+import wave
 from pathlib import Path
 import uvicorn
 from server.store import Store
@@ -16,6 +17,12 @@ def main():
     with tempfile.TemporaryDirectory(prefix="pig-swift-contract-") as temporary:
         root = Path(temporary)
         os.environ["PIG_MUSIC_LIBRARY"] = str(root)
+        for i in range(3):
+            with wave.open(str(root / f"song-{i}.wav"), "wb") as audio:
+                audio.setnchannels(1)
+                audio.setsampwidth(2)
+                audio.setframerate(8000)
+                audio.writeframes(b"\0\0" * 8000 * 120)
         (root / "library-snapshot.json").write_text(
             json.dumps(
                 {
@@ -28,7 +35,7 @@ def main():
                             "album": "Fixture Album",
                             "duration": 120,
                             "available": True,
-                            "relative_path": f"song-{i}.mp3",
+                            "relative_path": f"song-{i}.wav",
                         }
                         for i in range(3)
                     ]

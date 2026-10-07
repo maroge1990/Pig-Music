@@ -27,8 +27,17 @@ export function PlaylistPicker({
     bottom?: number;
   }>({ left: 8, top: 8 });
   useEffect(() => {
-    if (creating) dialog.current?.showModal();
+    if (creating) {
+      dialog.current?.showModal();
+      dialog.current
+        ?.querySelector<HTMLInputElement>('input[name="name"]')
+        ?.focus();
+    }
   }, [creating]);
+  useEffect(() => {
+    if (popup.current?.matches(":popover-open"))
+      popup.current.querySelector<HTMLButtonElement>("button")?.focus();
+  }, [items]);
   async function select(id: string) {
     setBusy(true);
     setError("");
@@ -56,8 +65,6 @@ export function PlaylistPicker({
     popup.current?.showPopover();
     try {
       setItems(await load());
-      if (popup.current?.matches(":popover-open"))
-        popup.current.querySelector<HTMLButtonElement>("button")?.focus();
     } catch {
       setError("Playlists unavailable. Try again.");
     }
@@ -103,7 +110,6 @@ export function PlaylistPicker({
         <dialog
           ref={dialog}
           className="new-playlist-dialog"
-          onCancel={() => setCreating(false)}
           onClose={() => {
             setCreating(false);
             trigger.current?.focus();
