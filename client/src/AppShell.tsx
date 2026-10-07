@@ -48,6 +48,27 @@ export function AppShell() {
   const nav = useFixedHeight("--mobile-nav-height", !!user);
 
   useEffect(() => {
+    // "System" appearance follows the device live, not only at page load.
+    const media = matchMedia("(prefers-color-scheme: dark)");
+    const follow = () => {
+      let chosen: string | null = null;
+      try {
+        chosen = localStorage.getItem("pig-music-appearance");
+      } catch {
+        /* storage unavailable: follow the device */
+      }
+      if (chosen === "light" || chosen === "dark") return;
+      const theme = media.matches ? "dark" : "light";
+      document.documentElement.dataset.theme = theme;
+      document
+        .querySelector('meta[name="theme-color"]')
+        ?.setAttribute("content", theme === "dark" ? "#15111A" : "#FBF8FA");
+    };
+    media.addEventListener("change", follow);
+    return () => media.removeEventListener("change", follow);
+  }, []);
+
+  useEffect(() => {
     const changed = () => {
       setRoute(parseRoute());
       window.scrollTo(0, 0);

@@ -24,9 +24,6 @@
   align-items: center;
   min-height: 40px;
 }
-.quality-options {
-  gap: var(--space-16);
-}
 .album-quality > div {
   margin-top: var(--space-16);
 }
@@ -35,12 +32,7 @@
   gap: var(--space-16);
   margin: var(--space-24) 0;
 }
-.round-action,
-.track-play {
-  min-width: 40px;
-  min-height: 40px;
-}
-.song-menu {
+.round-action {
   min-width: 40px;
   min-height: 40px;
 }
@@ -66,10 +58,10 @@
     flex: 1;
   }
   .player-song strong {
-    font-size: 0.875rem;
+    font-size: var(--type-subhead);
   }
   .player-song span {
-    font-size: 0.75rem;
+    font-size: var(--type-caption);
   }
   .system-panel .release-actions {
     align-items: stretch;
@@ -212,7 +204,7 @@
 .full-album-grid strong + span {
   margin-top: 4px;
   color: var(--secondary);
-  font-size: 0.875rem;
+  font-size: var(--type-subhead);
 }
 .saved-artist-heading {
   display: flex;
@@ -225,13 +217,6 @@
   height: 88px;
   flex: 0 0 88px;
   border-radius: 50%;
-}
-.playlist-track-row {
-  grid-template-columns: 40px 44px minmax(0, 1fr) 40px 24px;
-}
-.playlist-track-row > .cover {
-  width: 44px;
-  height: 44px;
 }
 @media (max-width: 800px) {
   .music-player {

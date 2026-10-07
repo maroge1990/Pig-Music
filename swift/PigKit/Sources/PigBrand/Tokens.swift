@@ -45,3 +45,13 @@ public enum PigBrand {
         scheme == .dark ? Color(red: 0.93725490, green: 0.47843137, blue: 0.68235294) : Color(red: 0.69019608, green: 0.13725490, blue: 0.33725490)
     }
 }
+
+public enum PigType {
+    public static let caption: Font = .caption
+    public static let footnote: Font = .footnote
+    public static let subhead: Font = .subheadline
+    public static let body: Font = .body
+    public static let headline: Font = .title3
+    public static let title: Font = .title
+    public static let display: Font = .largeTitle
+}

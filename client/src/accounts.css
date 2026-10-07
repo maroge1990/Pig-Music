@@ -316,7 +316,7 @@
     justify-content: center;
     gap: 0.125rem;
     padding: var(--space-4);
-    font-size: 0.75rem;
+    font-size: var(--type-caption);
   }
   #root:has(.personal-app) .music-player {
     bottom: var(--mobile-nav-height, 4rem);
@@ -344,7 +344,7 @@
   justify-content: flex-start;
   gap: var(--space-8);
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--type-body);
   font-weight: 650;
 }
 .owner-tools-body {
@@ -373,7 +373,7 @@
   border-top: 1px solid var(--border);
 }
 .owner-label {
-  font-size: 0.75rem;
+  font-size: var(--type-caption);
   font-weight: 650;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -421,4 +421,14 @@
   --pig-r: 10rem;
   align-content: center;
   text-align: center;
+}
+/* Personal and admin pages use the shared type roles, not browser defaults. */
+.personal-app h1 {
+  font-size: var(--type-display);
+}
+.personal-app h2 {
+  font-size: var(--type-headline);
+}
+.personal-app h3 {
+  font-size: var(--type-body);
 }

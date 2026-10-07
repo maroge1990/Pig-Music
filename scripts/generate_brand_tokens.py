@@ -12,6 +12,19 @@ def kebab(value):
     return re.sub(r"([A-Z])", r"-\1", value).lower()
 
 
+# One type scale for web and Apple clients. Web sizes are rem so browser text
+# settings apply; Swift uses the matching Dynamic Type style.
+TYPE_ROLES = [
+    ("caption", 12, "caption"),
+    ("footnote", 13, "footnote"),
+    ("subhead", 15, "subheadline"),
+    ("body", 16, "body"),
+    ("headline", 20, "title3"),
+    ("title", 28, "title"),
+    ("display", 36, "largeTitle"),
+]
+
+
 def outputs():
     tokens = json.loads((ROOT / "docs/pig-family-brand-tokens.json").read_text())
     css = [f"/* Generated from Pig family {tokens['version']}; do not edit. */"]
@@ -33,7 +46,7 @@ def outputs():
     css += ["  --radius-hero: 1.375rem;", "  --radius-capsule: 999px;"]
     for size in tokens["spacing"]:
         css += [f"  --space-{size}: {size / 16:g}rem;"]
-    for name, size in [("caption", 12), ("body", 16), ("title", 24), ("heading", 32)]:
+    for name, size, _ in TYPE_ROLES:
         css += [f"  --type-{name}: {size / 16:g}rem;"]
     for key, value in tokens["media"].items():
         if isinstance(value, str) and value.startswith("#"):
@@ -92,6 +105,9 @@ def outputs():
             f"        scheme == .dark ? Color({rgb[1]}) : Color({rgb[0]})",
             "    }",
         ]
+    swift += ["}", "", "public enum PigType {"]
+    for name, _, style in TYPE_ROLES:
+        swift += [f"    public static let {name}: Font = .{style}"]
     swift += ["}"]
     return {
         ROOT / "client/src/tokens.css": "\n".join(css) + "\n",

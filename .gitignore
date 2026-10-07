@@ -12,3 +12,4 @@ swift/**/.build/
 swift/**/DerivedData/
 swift/**/xcuserdata/
 swift/build/
+.DS_Store

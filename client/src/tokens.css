@@ -48,9 +48,12 @@
   --space-32: 2rem;
   --space-48: 3rem;
   --type-caption: 0.75rem;
+  --type-footnote: 0.8125rem;
+  --type-subhead: 0.9375rem;
   --type-body: 1rem;
-  --type-title: 1.5rem;
-  --type-heading: 2rem;
+  --type-headline: 1.25rem;
+  --type-title: 1.75rem;
+  --type-display: 2.25rem;
   --media-canvas: #000000;
   --media-text: #ffffff;
   --media-solid-panel: #15111a;

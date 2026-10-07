@@ -35,7 +35,7 @@ export function QueueView({
     <>
       <div className="page-heading queue-heading">
         <div>
-          <h1>Download queue</h1>
+          <h2>Download queue</h2>
           <p>
             {queue?.downloads_enabled
               ? "Downloads go directly to your SMB library."

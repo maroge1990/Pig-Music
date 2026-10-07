@@ -97,13 +97,13 @@
     padding: 240px 22px var(--space-16);
   }
   .has-background .artist-hero h1 {
-    font-size: 2.625rem;
+    font-size: var(--type-display);
   }
   .popular-albums {
     gap: var(--space-12);
   }
   .popular-albums .card-name {
-    font-size: 0.75rem;
+    font-size: var(--type-caption);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -132,7 +132,7 @@
   white-space: nowrap;
 }
 .popular-pager > span {
-  font-size: 0.75rem;
+  font-size: var(--type-caption);
   color: var(--secondary);
   margin-right: var(--space-8);
 }
@@ -171,7 +171,7 @@
     will-change: opacity;
   }
   .popular-pager > span {
-    font-size: 0.75rem;
+    font-size: var(--type-caption);
     margin-right: 2px;
   }
   .popular-pager .icon-button {
@@ -179,7 +179,7 @@
     height: 32px;
   }
   .artist-popular .section-title h2 {
-    font-size: 1.125rem;
+    font-size: var(--type-headline);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -205,10 +205,6 @@
 .music-text-link:hover {
   text-decoration: underline;
 }
-.is-favourite {
-  color: var(--text-accent);
-  background: var(--selected-fill);
-}
 .popular-song {
   flex-wrap: wrap;
 }
@@ -219,9 +215,6 @@
   .popular-song > .cover {
     flex-basis: 32px;
     width: 32px;
-  }
-  .track-row {
-    flex-wrap: wrap;
   }
   .player-extra {
     display: flex;
@@ -248,46 +241,5 @@
   }
   .catalogue-song > div:not(.cover) {
     min-width: 100px;
-  }
-  .track-row .track-name {
-    min-width: 120px;
-  }
-}
-
-.song-menu {
-  position: relative;
-}
-.song-menu summary {
-  list-style: none;
-  cursor: pointer;
-  width: 40px;
-  min-height: 40px;
-  display: grid;
-  place-items: center;
-}
-.song-menu summary::-webkit-details-marker {
-  display: none;
-}
-.song-menu[open] > .text-button {
-  position: absolute;
-  right: 0;
-  top: 40px;
-  z-index: 10;
-  width: 140px;
-  padding: var(--space-12);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-}
-@media (max-width: 600px) {
-  .track-row {
-    flex-wrap: nowrap;
-    gap: 6px;
-  }
-  .track-row .track-name {
-    min-width: 0;
-  }
-  .track-row > .round-action {
-    flex-shrink: 0;
   }
 }

@@ -35,22 +35,6 @@
 .system-panel .download-option input[type="checkbox"] {
   flex-shrink: 0;
 }
-.mobile-nav-icon {
-  position: relative;
-  display: inline-flex;
-}
-.mobile-queue-count {
-  position: absolute;
-  top: -8px;
-  right: -14px;
-  background: var(--accent);
-  color: var(--text);
-  border-radius: var(--radius-control);
-  min-width: 18px;
-  padding: 2px var(--space-4);
-  font-size: 0.75rem;
-  line-height: 14px;
-}
 .queue-heading {
   display: flex;
   align-items: center;

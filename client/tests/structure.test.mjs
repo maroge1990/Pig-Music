@@ -20,3 +20,16 @@ test("only the app shell listens to route changes", () => {
   for (const file of files.filter((f) => f !== "AppShell.tsx"))
     assert.doesNotMatch(read(file), /hashchange/, `${file} reads hashchange`);
 });
+
+test("text sizes come from the shared type roles", () => {
+  // Fluid clamp() display sizes are the only literal exception.
+  for (const file of readdirSync(source).filter((f) => f.endsWith(".css"))) {
+    if (file === "tokens.css") continue;
+    for (const [, value] of read(file).matchAll(/font-size:\s*([^;]+);/g))
+      assert.match(
+        value,
+        /^(var\(--type-[a-z]+\)|clamp\(.*\)|inherit)$/,
+        `${file}: ${value}`,
+      );
+  }
+});

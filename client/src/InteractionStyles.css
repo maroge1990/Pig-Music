@@ -1,20 +1,15 @@
 /* Selection remains separate from keyboard focus. */
-.nav-item,
 .tab-list button,
-.mobile-nav > button,
 .small-button,
 .migration-track {
   position: relative;
 }
-.nav-item.active,
 .tab-list button.active,
-.mobile-nav > button.active,
 .selected-button,
 .migration-track.chosen {
   background: var(--selected-fill);
   color: var(--text-accent);
 }
-.nav-item.active:before,
 .migration-track.chosen:before {
   content: "";
   position: absolute;
@@ -26,7 +21,6 @@
   background: var(--accent);
 }
 .tab-list button.active:after,
-.mobile-nav > button.active:after,
 .selected-button:after {
   content: "";
   position: absolute;
@@ -48,9 +42,7 @@
   background: var(--hover);
 }
 .secondary-button,
-.small-button,
-.search-large,
-.sort-control select {
+.small-button {
   border: 1px solid var(--control-border);
 }
 .secondary-button,
@@ -74,62 +66,12 @@
 .migration-track input:disabled {
   opacity: 0.45;
 }
-.mobile-nav > button {
-  border-radius: var(--radius-compact);
-}
 .preview-pill {
   border-color: var(--accent);
 }
 .review-tracks > div > svg {
   color: var(--text-accent);
 }
-.sort-control select {
-  border-radius: var(--radius-compact);
-  padding: var(--space-4) 6px;
-}
-.breadcrumb-brand {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-}
-.mobile-brand-mark {
-  display: none;
-}
-@media (max-width: 600px) {
-  .mobile-brand-mark {
-    display: block;
-    position: relative;
-    width: 24px;
-    height: 24px;
-  }
-  .mobile-brand-mark img {
-    position: absolute;
-    width: 100%;
-    height: auto;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    object-fit: contain;
-  }
-}
-
-.appearance-control {
-  display: flex;
-  align-items: center;
-  gap: var(--space-16);
-  flex-wrap: wrap;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-control);
-  padding: var(--space-24);
-  margin-bottom: var(--space-24);
-  font-size: 0.75rem;
-}
-.appearance-control > span {
-  color: var(--secondary);
-  font-size: 0.75rem;
-}
-.appearance-control select,
 .conflict-row select {
   background: var(--raised);
   color: var(--text);
@@ -149,26 +91,11 @@
   gap: var(--space-12);
   flex-wrap: wrap;
   margin-top: var(--space-12);
-  font-size: 0.75rem;
+  font-size: var(--type-caption);
   color: var(--secondary);
 }
 .conflict-row select {
   max-width: 100%;
-}
-@media (max-width: 600px) {
-  .mobile-nav {
-    padding-left: var(--space-8);
-    padding-right: var(--space-8);
-  }
-  .mobile-nav > button {
-    padding-left: 10px;
-    padding-right: 10px;
-    min-width: 60px;
-  }
-  .appearance-control {
-    gap: var(--space-12);
-    padding: var(--space-16);
-  }
 }
 
 .download-panel {
@@ -178,7 +105,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-12);
-  font-size: 0.75rem;
+  font-size: var(--type-caption);
   margin: 18px 0;
   flex-wrap: wrap;
 }
@@ -210,7 +137,7 @@
 }
 .catalogue-heading p {
   color: var(--secondary);
-  font-size: 0.75rem;
+  font-size: var(--type-caption);
   line-height: 1.8;
   margin-top: 14px;
 }
@@ -223,14 +150,11 @@
     width: 80px;
   }
   .catalogue-heading h1 {
-    font-size: 1.75rem;
+    font-size: var(--type-title);
   }
   .catalogue-heading .eyebrow {
     margin-bottom: var(--space-12);
   }
-}
-.has-player .main-content {
-  padding-bottom: 180px;
 }
 .has-player .migration-footer {
   bottom: 122px;
@@ -276,15 +200,15 @@
   white-space: nowrap;
 }
 .player-song strong {
-  font-size: 0.8125rem;
+  font-size: var(--type-footnote);
 }
 .player-song span {
-  font-size: 0.75rem;
+  font-size: var(--type-caption);
   color: var(--secondary);
   margin-top: 5px;
 }
 .player-song small {
-  font-size: 0.75rem;
+  font-size: var(--type-caption);
   color: var(--text-accent);
   margin-top: var(--space-4);
 }
@@ -307,7 +231,7 @@
   display: flex;
   gap: 10px;
   align-items: center;
-  font-size: 0.75rem;
+  font-size: var(--type-caption);
   color: var(--secondary);
   margin-top: var(--space-8);
 }
@@ -323,20 +247,11 @@
 }
 .player-error {
   grid-column: 1/-1;
-  font-size: 0.75rem;
+  font-size: var(--type-caption);
   line-height: 1.5;
 }
 .player-error {
   color: var(--danger);
-}
-.track-play {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  color: var(--text-accent);
-  border: 1px solid var(--border);
-  border-radius: 50%;
 }
 .provider-key {
   background: var(--raised);
@@ -400,9 +315,6 @@
     grid-row: 1;
     gap: 2px;
   }
-  .has-player .main-content {
-    padding-bottom: 290px;
-  }
   .has-player .migration-footer {
     bottom: calc(210px + env(safe-area-inset-bottom, 0px));
   }
@@ -413,77 +325,6 @@
     height: 32px;
     width: 32px;
   }
-}
-.header-search {
-  position: relative;
-  width: 290px;
-  margin-left: auto;
-}
-.header-search-input {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: var(--surface);
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-compact);
-  padding: 10px var(--space-12);
-  color: var(--secondary);
-}
-.header-search-input input {
-  background: none;
-  border: 0;
-  outline: none;
-  color: var(--text);
-  min-width: 0;
-  width: 100%;
-  font-size: 0.75rem;
-}
-.header-search-dropdown {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
-  width: 420px;
-  max-width: calc(100vw - 32px);
-  max-height: 70vh;
-  overflow: auto;
-  background: var(--surface);
-  border: 1px solid var(--control-border);
-  border-radius: var(--radius-control);
-  box-shadow: 0 12px 40px var(--shadow-dropdown);
-  padding: var(--space-12);
-  z-index: 60;
-}
-.header-search-dropdown .result-row {
-  padding: 10px 6px;
-  width: 100%;
-  text-align: left;
-}
-.header-search-dropdown .cover {
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-}
-.search-divider {
-  border-top: 1px solid var(--border);
-  padding: 18px var(--space-4) 10px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--secondary);
-}
-.search-divider:first-child {
-  border-top: 0;
-}
-.search-empty {
-  font-size: 0.75rem;
-  color: var(--secondary);
-  padding: 10px var(--space-4);
-}
-.discovery-results {
-  margin-top: 18px;
-}
-.discovery-results .result-row {
-  width: 100%;
-  text-align: left;
 }
 .round-action {
   border: 1px solid var(--control-border);
@@ -512,7 +353,7 @@
   color: var(--secondary);
   width: 24px;
   flex-shrink: 0;
-  font-size: 0.75rem;
+  font-size: var(--type-caption);
 }
 .catalogue-song > div {
   min-width: 0;
@@ -530,7 +371,7 @@
   align-items: center;
   gap: var(--space-12);
   flex-wrap: wrap;
-  font-size: 0.75rem;
+  font-size: var(--type-caption);
   color: var(--secondary);
 }
 .release-actions select,
@@ -545,11 +386,6 @@
 .edition-switch {
   margin: var(--space-24) 0;
 }
-.artist-discography {
-  margin-top: 34px;
-  border-top: 1px solid var(--control-border);
-  padding-top: var(--space-12);
-}
 .discography-tabs {
   margin-bottom: 18px;
   flex-wrap: wrap;
@@ -558,14 +394,14 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 0.75rem;
+  font-size: var(--type-caption);
 }
 .album-quality {
   margin: 18px 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-compact);
   padding: var(--space-16);
-  font-size: 0.75rem;
+  font-size: var(--type-caption);
 }
 .album-quality summary {
   cursor: pointer;
@@ -591,47 +427,19 @@
   border: 1px solid var(--control-border);
 }
 @media (max-width: 600px) {
-  .header-search {
-    width: 130px;
-    margin-left: auto;
-  }
-  .header-search-input {
-    padding: var(--space-8);
-    gap: 6px;
-  }
-  .header-search-input input {
-    font-size: 0.75rem;
-  }
-  .header-search-dropdown {
-    position: fixed;
-    left: 12px;
-    right: 12px;
-    top: 65px;
-    width: auto;
-    max-height: 65vh;
-  }
-  .topbar {
-    gap: var(--space-8);
-    padding-left: var(--space-12);
-    padding-right: var(--space-12);
-  }
-  .breadcrumb > svg,
-  .breadcrumb > strong {
-    display: none;
-  }
   .catalogue-song {
     padding: 14px 0;
     gap: var(--space-8);
   }
   .catalogue-song .song-number {
     width: 16px;
-    font-size: 0.75rem;
+    font-size: var(--type-caption);
   }
   .catalogue-song strong {
-    font-size: 0.75rem;
+    font-size: var(--type-caption);
   }
   .catalogue-song span {
-    font-size: 0.75rem;
+    font-size: var(--type-caption);
   }
   .round-action {
     width: 32px;
@@ -646,10 +454,7 @@
     padding: var(--space-12);
   }
   .discography-saved {
-    font-size: 0.75rem;
-  }
-  .artist-discography .result-row {
-    padding: 14px 0;
+    font-size: var(--type-caption);
   }
 }
 [hidden] {

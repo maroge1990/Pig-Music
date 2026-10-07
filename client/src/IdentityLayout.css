@@ -1,20 +1,5 @@
-/* Approved product exports have their own optical placement; preserve proportions. */
-.brand .brand-lockup {
-  width: 100%;
-  height: auto;
-  object-fit: contain;
-}
 .brand {
   min-height: 44px;
-}
-.brand-light {
-  display: none;
-}
-:root[data-theme="light"] .brand-light {
-  display: block;
-}
-:root[data-theme="light"] .brand-dark {
-  display: none;
 }
 .empty-state .empty-pig {
   width: 96px;
@@ -53,34 +38,7 @@ select:focus-visible {
 .nav-count {
   line-height: 1.4;
 }
-.nav-item svg,
-.connection-dot {
-  flex-shrink: 0;
-}
-.sidebar {
-  overflow-y: auto;
-}
 @media (max-width: 600px) {
-  .mobile-nav > button {
-    min-width: 0;
-    padding-inline: var(--space-4);
-  }
-  .mobile-nav {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(5rem, 100%), 1fr));
-    gap: var(--space-4);
-  }
-  .main-content,
-  .has-player .main-content {
-    padding-bottom: calc(
-      var(--mobile-nav-height, 4rem) + var(--player-height, 0px) + 2rem
-    );
-  }
-  .topbar {
-    height: auto;
-    min-height: 63px;
-    padding-block: var(--space-8);
-  }
   .music-player {
     bottom: var(--mobile-nav-height, 4rem);
   }
