@@ -11,6 +11,16 @@ This package follows the remaining audit priorities after the deployed A01–A03
 
 Validation: 147 backend tests passed without the former warning. After route extraction, 13 focused artwork/brand tests passed. Three frontend tests, strict TypeScript/production build, formatting and generated-token drift checks passed. A disposable 50,000-track browser fixture verified 100 rendered cards, complete labels at 200% text, keyboard page advancement and non-overlapping measured player/navigation at 375×812. Physical devices, real VoiceOver, home-screen installation, cellular/Tailscale and the Sideloadly Watch spike remain outstanding. The owner reports the spike is not installed.
 
-No audio files, tags, household accounts or live settings are changed by implementation. Release candidate publication and exact-image Unraid acceptance are tracked separately; the previously deployed image remains brand-https-20261007-v1 until that succeeds.
+No audio files, tags, household accounts or live settings are changed by implementation. Release publication and exact-image Unraid acceptance are recorded below.
 
 References: [Starlette TestClient](https://starlette.dev/testclient/), [HTTPX2 2.13.1](https://pypi.org/project/httpx2/2.13.1/), verified 7 October 2026 against the installed Starlette source and package dependency resolution.
+
+## Live release acceptance
+
+Delivered as **audit-followup-20261007-v1**. Immutable image: `ghcr.io/maroge1990/pig-music@sha256:17f42b85b47f4404988f849c26005a66a2c3051b85671c821dffcb3f01e7a439`; source revision `1f21118b0448f7dce0cedb694a3067da132fd7ab`. [Publishing run](https://github.com/maroge1990/Pig-Music/actions/runs/37537969728) passed. The exact image passed **147 tests** on GitHub and Unraid. Unraid artwork peak RSS: **97.03 MB / 317.72 MB** at 10k/50k; first migration/refresh **37.740 / 193.499 s**, warm refresh **0.508 / 3.543 s**. HTTP 50k fixture: **223,760 gzip bytes**, conditional median **1.853 ms**, p95 **2.416 ms**, cumulative peak **367.72 MB**; all scale runs were limited to 1 GB.
+
+Stopped-state migration retained **1,395 tracks** and existing links/durable rows. Live API acceptance retained **98 albums**, **27 queue items**, storage availability and original enabled downloads. Metadata returned200, conditional304 and immutable headers; 128px WebP and manifest succeeded. Private TLS validated without bypass and health reports https:true with the correct public origin. Serve10000 and8443 remain intact, without a443 Serve route or public Funnel exposure. The proxy-refresh helper completed its first live release successfully.
+
+Container protections remain **1 GB**, **99:100**, read-only root, original NAS/appdata mounts and private addressing. Rollback container: `pig-music-preview-before-audit-followup-20261007-v1`. Matching backup: `/mnt/user/appdata/pig-music-preview/backups/pre-audit-followup-20261007-v1`; source release inputs: `/mnt/user/appdata/pig-music-preview/releases/audit-followup-20261007-v1`. Later handover-only commits do not change the running image revision.
+
+The final post-release read-only music/hash verification is running; retain its result before marking physical data acceptance complete.

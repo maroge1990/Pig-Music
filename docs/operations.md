@@ -53,7 +53,7 @@ The default topology is recorded in the blueprint. `--host`, `--key` and `--url`
 
 Historical tools `package_unraid_preview.py` (private initial bootstrap), `unraid_preview_smoke.py` (real provider acquisition probe) and `export_library_snapshot.py` (retired Music Grabber snapshot extraction) are retained for migration history. They are not required for normal delivery or fresh-library ingestion.
 
-Each live release uses a unique Compose project name (`pig-music-<version>`). A renamed container retains its old Compose service labels; reusing that project would let Compose delete the rollback container during recreation. Keep external network names/static LAN address unchanged. The unique-project behaviour was verified with isolated stopped containers. The currently running v3 was deployed before this tooling correction and uses the earlier project name; the next unique project preserves it correctly.
+Each live release uses a unique Compose project name (`pig-music-<version>`). A renamed container retains its old Compose service labels; reusing that project would let Compose delete the rollback container during recreation. Keep external network names/static LAN address unchanged. The unique-project behaviour was verified with isolated stopped containers. The current release uses the unique project `pig-music-audit-followup-20261007-v1`; its stopped predecessor and matching backup are retained.
 
 ## Rollback and partial failures
 
