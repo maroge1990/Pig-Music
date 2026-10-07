@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ..library import normalise
-from ..playlists import Playlists
+from ..playlists import Playlists, PlaylistConflict
 from ..user_library import track_dto
 
 
@@ -34,6 +34,12 @@ class Membership(BaseModel):
 
 class PlaylistName(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+
+
+class PlaylistEdit(BaseModel):
+    revision: int = Field(ge=0)
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    order: list[int] | None = Field(default=None, max_length=10000)
 
 
 class Favourite(BaseModel):
@@ -71,6 +77,7 @@ def playlist_dto(value):
                         "status",
                         "match_kind",
                         "saved_id",
+                        "household_available",
                     )
                 },
                 "saved_track": (
@@ -82,7 +89,15 @@ def playlist_dto(value):
     }
 
 
-def personal_router(store):
+class ArtistRequest(BaseModel):
+    kinds: list[Literal["album", "single", "ep"]] = Field(
+        default=["album"], min_length=1, max_length=3
+    )
+    monitor: bool = False
+    request: bool = False
+
+
+def personal_router(store, artist_jobs):
     router = APIRouter(prefix="/api/v1", tags=["personal-library"])
     users = store.user_libraries
 
@@ -152,6 +167,24 @@ def personal_router(store):
         ]
         return {**found, "albums": albums}
 
+    @router.get("/artists/{artist_id}/acquisition")
+    async def artist_acquisition(artist_id: str, request: Request):
+        return await run(artist_jobs.scoped(identity(request)).state, artist_id)
+
+    @router.put("/artists/{artist_id}/acquisition")
+    async def configure_artist(artist_id: str, body: ArtistRequest, request: Request):
+        return await run(
+            artist_jobs.scoped(identity(request)).configure,
+            artist_id,
+            body.kinds,
+            body.monitor,
+            body.request,
+        )
+
+    @router.delete("/artists/{artist_id}/acquisition")
+    async def cancel_artist(artist_id: str, request: Request):
+        return await run(artist_jobs.scoped(identity(request)).cancel, artist_id)
+
     @router.get("/search")
     async def search(request: Request, q: str = ""):
         query = normalise(q[:150])
@@ -205,6 +238,38 @@ def personal_router(store):
             )
         except ValueError:
             raise HTTPException(404, "Playlist not found")
+
+    async def edit_playlist(request, playlist_id, revision, **changes):
+        try:
+            value = await asyncio.to_thread(
+                Playlists(store, identity(request)).edit,
+                playlist_id,
+                revision,
+                **changes,
+            )
+            return value if changes.get("delete") else playlist_dto(value)
+        except LookupError:
+            raise HTTPException(404, "Playlist not found")
+        except PlaylistConflict as exc:
+            raise HTTPException(409, str(exc))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+
+    @router.patch("/playlists/{playlist_id}")
+    async def edit(playlist_id: str, body: PlaylistEdit, request: Request):
+        return await edit_playlist(
+            request, playlist_id, body.revision, name=body.name, order=body.order
+        )
+
+    @router.delete("/playlists/{playlist_id}/songs/{position}")
+    async def remove_song(
+        playlist_id: str, position: int, revision: int, request: Request
+    ):
+        return await edit_playlist(request, playlist_id, revision, remove=position)
+
+    @router.delete("/playlists/{playlist_id}")
+    async def delete(playlist_id: str, revision: int, request: Request):
+        return await edit_playlist(request, playlist_id, revision, delete=True)
 
     @router.post("/favourites")
     async def favourite(body: Favourite, request: Request):

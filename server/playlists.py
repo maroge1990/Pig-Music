@@ -6,6 +6,10 @@ from .library import identifier
 from .library import normalise
 
 
+class PlaylistConflict(ValueError):
+    pass
+
+
 class Playlists:
     def __init__(self, store, user_id=None):
         self.store = store
@@ -50,6 +54,9 @@ class Playlists:
         for position, track in enumerate(playlist["tracks"]):
             result = index.match(track)
             match = result.track
+            household_match = (
+                self.store.index.match(track) if self.user_id and not match else None
+            )
             entries.append(
                 {
                     **track,
@@ -59,11 +66,17 @@ class Playlists:
                     "match_kind": result.kind,
                     "saved_id": match["id"] if match else None,
                     "saved_track": match,
+                    "household_available": bool(
+                        self.user_id
+                        and not match
+                        and self.store.index.match(track).track
+                    ),
                 }
             )
         sync = self.store.read_document("plex-playlist:" + playlist_id)
         return {
             **playlist,
+            "revision": playlist.get("revision", 0),
             "entries": entries,
             "track_count": len(entries),
             "available_count": sum(e["status"] == "downloaded" for e in entries),
@@ -179,6 +192,7 @@ class Playlists:
             key = self.membership(track)
             if not any(self.same_song(t, track) for t in payload["tracks"]):
                 payload["tracks"].append(track)
+            payload["revision"] = payload.get("revision", 0) + 1
             conn.execute(
                 "UPDATE playlists SET payload=? WHERE id=?",
                 (json.dumps(payload), playlist_id),
@@ -188,6 +202,53 @@ class Playlists:
 
                 bump(conn, self.owner())
         return self.detail(playlist_id)
+
+    def edit(
+        self, playlist_id, revision, *, name=None, order=None, remove=None, delete=False
+    ):
+        """Apply an ownership-checked edit atomically, rejecting stale positions."""
+        clause, params = self.clause()
+        with self.store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT payload FROM playlists WHERE id=?" + clause,
+                (playlist_id, *params),
+            ).fetchone()
+            if not row:
+                raise LookupError("Playlist not found.")
+            payload = json.loads(row[0])
+            if payload.get("revision", 0) != revision:
+                raise PlaylistConflict("Playlist changed. Refresh before editing.")
+            if payload.get("favourites"):
+                raise ValueError("Use the favourites control to change favourites.")
+            if name is not None:
+                name = name.strip()
+                if not name or len(name) > 100:
+                    raise ValueError("Choose a playlist name up to 100 characters.")
+                payload["name"] = name
+            if order is not None:
+                if sorted(order) != list(range(len(payload["tracks"]))):
+                    raise ValueError(
+                        "Order must contain every current position exactly once."
+                    )
+                payload["tracks"] = [payload["tracks"][i] for i in order]
+            if remove is not None:
+                if not 0 <= remove < len(payload["tracks"]):
+                    raise ValueError("Song position is outside this playlist.")
+                payload["tracks"].pop(remove)
+            payload["revision"] = revision + 1
+            if delete:
+                conn.execute("DELETE FROM playlists WHERE id=?", (playlist_id,))
+            else:
+                conn.execute(
+                    "UPDATE playlists SET payload=? WHERE id=?",
+                    (json.dumps(payload), playlist_id),
+                )
+            from .user_library import bump
+
+            if self.owner():
+                bump(conn, self.owner())
+        return {"deleted": True} if delete else self.detail(playlist_id)
 
     def favourite(self, track, value=None):
         owner_id = self.owner()
@@ -218,6 +279,7 @@ class Playlists:
             ]
             if value:
                 payload["tracks"].append(track)
+            payload["revision"] = payload.get("revision", 0) + 1
             conn.execute(
                 "INSERT INTO playlists(id,payload,owner_id) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
                 (identity, json.dumps(payload), owner_id),

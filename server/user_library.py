@@ -96,6 +96,16 @@ def initialise_owner(store):
                 conn.execute(
                     "UPDATE queue SET payload=? WHERE id=?", (json.dumps(value), key)
                 )
+        for key, raw in conn.execute(
+            "SELECT name,payload FROM documents WHERE name LIKE 'artist-job:%'"
+        ).fetchall():
+            if key.count(":") == 1:
+                artist_id = key.split(":")[1]
+                value = {**json.loads(raw), "id": artist_id, "user_id": identity}
+                conn.execute(
+                    "INSERT OR IGNORE INTO documents VALUES (?,?)",
+                    ("artist-job:" + identity + ":" + artist_id, json.dumps(value)),
+                )
         bump(conn, identity)
         conn.execute(
             "INSERT INTO documents VALUES ('household-membership-initialised',?)",
@@ -180,6 +190,9 @@ class UserLibrary:
                             "compilation_only": not bool(owned),
                             "cover_album_id": representative,
                             "cover_url": by_album[representative].get("cover_url"),
+                            "fallback_cover_url": by_album[representative].get(
+                                "cover_url"
+                            ),
                         }
                     )
             revision = hashlib.sha256(json.dumps(signature).encode()).hexdigest()
@@ -279,8 +292,16 @@ class UserLibrary:
             conn.execute("BEGIN IMMEDIATE")
             for playlist in source.get("playlists", []):
                 identity = identifier("user-playlist", user_id, playlist["id"])
+                previous = conn.execute(
+                    "SELECT payload FROM playlists WHERE id=? AND owner_id=?",
+                    (identity, user_id),
+                ).fetchone()
+                revision = (
+                    json.loads(previous[0]).get("revision", 0) + 1 if previous else 0
+                )
                 payload = {
                     **playlist,
+                    "revision": revision,
                     "id": identity,
                     "tracks": [by_track[i] for i in playlist["track_ids"]],
                     "imported_at": source["imported_at"],

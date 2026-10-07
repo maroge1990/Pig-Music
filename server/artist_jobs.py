@@ -17,10 +17,39 @@ from .releases import release_query
 
 
 class ArtistJobs:
-    def __init__(self, store, catalogue):
+    def __init__(self, store, catalogue, user_id=None, root=None):
         self.store, self.catalogue = store, catalogue
-        self.stopping = asyncio.Event()
-        self.lock = threading.RLock()
+        self.user_id = user_id
+        self.stopping = root.stopping if root else asyncio.Event()
+        self.lock = root.lock if root else threading.RLock()
+
+    def owner(self):
+        if self.user_id:
+            return self.user_id
+        with self.store.connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM users WHERE role='owner' ORDER BY created_at LIMIT 1"
+            ).fetchone()
+        return row[0] if row else None
+
+    def key(self, identity):
+        owner = self.owner()
+        return "artist-job:" + (owner + ":" if owner else "") + mbid(identity)
+
+    def scoped(self, user_id):
+        return ArtistJobs(self.store, self.catalogue, user_id, self)
+
+    def active(self):
+        owner = self.owner()
+        if not owner:
+            return True
+        with self.store.connect() as conn:
+            return (
+                conn.execute(
+                    "SELECT 1 FROM users WHERE id=? AND disabled=0", (owner,)
+                ).fetchone()
+                is not None
+            )
 
     def save(self, key, value):
         with self.lock, self.store.connect() as conn:
@@ -30,7 +59,7 @@ class ArtistJobs:
             )
 
     def state(self, identity):
-        return self.store.read_document("artist-job:" + mbid(identity)) or {
+        return self.store.read_document(self.key(identity)) or {
             "status": "idle",
             "monitor": False,
             "kinds": ["album"],
@@ -44,7 +73,9 @@ class ArtistJobs:
             state = self.state(identity)
             if state.get("status") in {"queued", "running"} and request:
                 raise ValueError("This artist already has a request running.")
-            state.update(id=identity, kinds=kinds, monitor=monitor)
+            state.update(
+                id=identity, user_id=self.owner(), kinds=kinds, monitor=monitor
+            )
             if request:
                 state.update(
                     status="queued",
@@ -53,21 +84,22 @@ class ArtistJobs:
                     error=None,
                     generation=uuid.uuid4().hex,
                 )
-            self.save("artist-job:" + identity, state)
+            self.save(self.key(identity), state)
             return state
 
     def cancel(self, identity):
         with self.lock:
             state = self.state(identity)
             state.update(status="cancelled", monitor=False, generation=uuid.uuid4().hex)
-            self.save("artist-job:" + identity, state)
+            self.save(self.key(identity), state)
             return state
 
     def current(self, identity, generation):
         state = self.state(identity)
         return (
             state
-            if state.get("status") in {"queued", "running"}
+            if self.active()
+            and state.get("status") in {"queued", "running"}
             and state.get("generation") == generation
             else None
         )
@@ -78,17 +110,17 @@ class ArtistJobs:
             if state is None:
                 return None
             state.update(changes)
-            self.save("artist-job:" + identity, state)
+            self.save(self.key(identity), state)
             return state
 
     async def acquire(self, client, identity, state):
         with self.lock:
             current = self.state(identity)
-            if current.get("status") not in {"queued", "running"}:
+            if not self.active() or current.get("status") not in {"queued", "running"}:
                 return
             generation = current.get("generation") or uuid.uuid4().hex
             current.update(generation=generation, status="running", error=None)
-            self.save("artist-job:" + identity, current)
+            self.save(self.key(identity), current)
             state["generation"] = generation
             state = current
         groups = []
@@ -134,7 +166,7 @@ class ArtistJobs:
                 current = self.current(identity, generation)
                 if current is None:
                     return
-                result = self.store.submit_catalogue(tracks)
+                result = self.store.submit_catalogue(tracks, user_id=self.owner())
                 self.progress(
                     identity,
                     generation,
@@ -146,6 +178,9 @@ class ArtistJobs:
     async def run(self, client):
         background_metadata.set(True)
         while not self.stopping.is_set():
+            from .user_library import initialise_owner
+
+            initialise_owner(self.store)
             with self.store.connect() as conn:
                 rows = [
                     (key, json.loads(value))
@@ -156,18 +191,28 @@ class ArtistJobs:
             for key, state in rows:
                 if self.stopping.is_set():
                     return
-                identity = key.split(":", 1)[1]
+                parts = key.split(":")
+                if len(parts) == 2:
+                    if self.owner():
+                        continue  # Legacy rows are retained, but migrated owner jobs run instead.
+                    jobs, identity = self, parts[1]
+                elif len(parts) == 3:
+                    jobs, identity = self.scoped(parts[1]), parts[2]
+                    if not jobs.active():
+                        continue
+                else:
+                    continue
                 if (
                     state.get("monitor")
                     and time.time() - state.get("checked_at", 0) > 86400
                     and state.get("status") not in {"queued", "running"}
                 ):
-                    state = self.configure(identity, state["kinds"], True, request=True)
+                    state = jobs.configure(identity, state["kinds"], True, request=True)
                 if state.get("status") in {"queued", "running"}:
                     try:
-                        await self.acquire(client, identity, state)
+                        await jobs.acquire(client, identity, state)
                     except Exception:
-                        self.progress(
+                        jobs.progress(
                             identity,
                             state.get("generation"),
                             status="failed",

@@ -118,6 +118,32 @@ class Security:
             if not self.auth.store.user_libraries.contains(person["id"], track_id):
                 raise HTTPException(404, "Track not found")
             scoped = True
+        if person["role"] != "owner" and request.url.path.startswith(
+            ("/api/artwork/", "/api/library-artwork/")
+        ):
+            from urllib.parse import urlsplit
+
+            projection = await asyncio.to_thread(
+                self.auth.store.user_libraries.projection, person["id"]
+            )
+            path = request.url.path.removesuffix("/metadata")
+            if path.startswith("/api/library-artwork/"):
+                kind, item_id = request.path_params.get(
+                    "kind"
+                ), request.path_params.get("item_id")
+                allowed = kind in {"artists", "albums"} and any(
+                    item["id"] == item_id for item in projection[kind]
+                )
+            else:
+                allowed = any(
+                    urlsplit(item.get(field) or "").path == path
+                    for kind in ("artists", "albums", "tracks")
+                    for item in projection[kind]
+                    for field in ("cover_url", "fallback_cover_url")
+                )
+            if not allowed:
+                raise HTTPException(404, "Artwork not found")
+            scoped = True
         if (
             person["role"] != "owner"
             and not scoped

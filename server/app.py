@@ -197,7 +197,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     app.state.auth = auth
     app.state.security = security
     app.include_router(auth_router(auth))
-    app.include_router(personal_router(store))
+    app.include_router(personal_router(store, artist_jobs))
     install_validation_redaction(app)
     app.state.store = store
     app.state.enrichment = enrichment
@@ -622,7 +622,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         return await artwork.artist(app.state.http, item)
 
     @app.get("/api/library-artwork/{kind}/{item_id}")
-    async def library_artwork(kind: str, item_id: str, w: int = 0):
+    async def library_artwork(kind: str, item_id: str, request: Request, w: int = 0):
         if kind not in {"albums", "artists"}:
             raise HTTPException(404, "Artwork not found.")
         item = (store.albums_by_id if kind == "albums" else store.artists_by_id).get(
@@ -630,6 +630,18 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         )
         if item is None:
             raise HTTPException(404, "Library item not found.")
+        person = getattr(request.state, "user", None)
+        if person and person["role"] != "owner":
+            item = next(
+                (
+                    i
+                    for i in store.user_libraries.projection(person["id"])[kind]
+                    if i["id"] == item_id
+                ),
+                None,
+            )
+            if item is None:
+                raise HTTPException(404, "Library item not found.")
         target = artwork.target(item) if kind == "albums" else None
         if kind == "artists":
             identity = store.read_document("library-artist:" + item_id)

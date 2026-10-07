@@ -29,11 +29,64 @@ def rows(database):
         }
 
 
+def verify_owner_attribution(store, before, owner_id):
+    """Validate the deliberate account cutover on a disposable copy only."""
+    after = rows(store.directory / "pig-music.sqlite3")
+    tracks = {t["id"] for a in store.library["albums"] for t in a["tracks"]}
+    assert {r[1] for r in after["library_members"] if r[0] == owner_id} == tracks
+    assert all(
+        r[0] == owner_id and r[3] == "migration" for r in after["library_members"]
+    )
+    previous_playlists = {r[0]: r for r in before["playlists"]}
+    for row in after["playlists"]:
+        key, raw, attributed = row
+        original_key = "pig-favourites" if key == "pig-favourites:" + owner_id else key
+        previous = previous_playlists.pop(original_key)
+        expected = json.loads(previous[1])
+        if original_key == "pig-favourites":
+            expected["id"] = key
+        assert json.loads(raw) == expected and attributed == owner_id
+    assert not previous_playlists
+    previous_queue = {r[0]: r for r in before["queue"]}
+    for row in after["queue"]:
+        previous = previous_queue.pop(row[0])
+        expected = json.loads(previous[1])
+        expected.setdefault("requested_by", [owner_id])
+        assert json.loads(row[1]) == expected and row[2:] == previous[2:]
+    assert not previous_queue
+    documents = dict(after["documents"])
+    for key, raw in before["documents"]:
+        assert documents[key] == raw
+        if key.startswith("artist-job:") and key.count(":") == 1:
+            artist_id = key.split(":")[1]
+            assert json.loads(
+                documents["artist-job:" + owner_id + ":" + artist_id]
+            ) == {**json.loads(raw), "id": artist_id, "user_id": owner_id}
+    for table in (
+        "selections",
+        "migration_decisions",
+        "managed_files",
+        "play_events",
+        "user_preferences",
+    ):
+        if table in before:
+            assert before[table] == after[table]
+    from server.user_library import initialise_owner
+
+    initialise_owner(store)
+    assert rows(store.directory / "pig-music.sqlite3") == after, "Attribution repeated"
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--destination", type=Path, required=True)
     parser.add_argument("--expected", type=Path, required=True)
+    parser.add_argument(
+        "--bootstrap-owner-fixture",
+        action="store_true",
+        help="Also validate owner attribution on the disposable destination",
+    )
     args = parser.parse_args()
     if args.destination.exists():
         raise ValueError("Migration fixture must be a new disposable directory")
@@ -127,6 +180,15 @@ def main():
         ), "Unexpected playlist ownership"
         after["playlists"] = [row[:2] for row in after["playlists"]]
     assert before == after, "Existing durable preferences, queue or membership changed"
+    if args.bootstrap_owner_fixture:
+        from server.auth import Auth
+
+        attribution_before = rows(database)
+        owner = Auth(store).create_owner(
+            "migrationfixture", "disposable migration fixture password"
+        )
+        verify_owner_attribution(store, attribution_before, owner)
+        print("Disposable owner attribution verified; source backup unchanged")
     print(
         "Stopped-state migration verified:",
         expected["tracks"],

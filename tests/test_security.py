@@ -87,7 +87,14 @@ def test_member_cannot_see_unscoped_legacy_routes(tmp_path, monkeypatch):
                 continue
             if path in personal_paths:
                 continue
-            if path.startswith(("/api/v1/playback/", "/api/playback/files/")):
+            if path.startswith(
+                (
+                    "/api/v1/playback/",
+                    "/api/playback/files/",
+                    "/api/artwork/",
+                    "/api/library-artwork/",
+                )
+            ):
                 assert client.request(method, path, json={}).status_code == 404
                 continue
             if (method, path) in PUBLIC or path.startswith(
