@@ -20,6 +20,10 @@ Two-account native sync benchmark: 10k tracks each, 181.11 MiB peak RSS and 1.03
 
 Browser fixture evidence is saved in the chat workspace `outputs/household-audit-20261007`. Synthetic credentials and music are used. Checks cover owner/member separation, phone layout, themes, personal favourites, sign-out and session replacement. Real-device accessibility and cellular acceptance remain outstanding.
 
+## Current first-run release path
+
+The subsequent first-run WebUI implementation replaces the CLI-only prerequisite described in the historical checkpoint below. See [first-run follow-up](unraid-home-feedback-delivery.md#first-run-webui-follow-up): verify the latest image on Unraid, preserve fresh live state and rollback, deploy the locked account release, then let the owner complete the private HTTPS setup form using the installation code from container logs. The old isolated helper stays as recovery material; its password command is optional.
+
 ## Release and user gates
 
 Keep the verified live audit release running until this candidate has passed registry/Unraid checks and the administrator has created the real owner account through an interactive terminal. Do not request or put a password in chat, a command argument, environment variable or a log. The account CLI supports:

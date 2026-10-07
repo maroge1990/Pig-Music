@@ -49,6 +49,7 @@ def schema():
                 "/api/v1/auth/login",
                 "/api/v1/auth/device",
                 "/api/v1/setup",
+                "/api/v1/setup/owner",
             }:
                 operation["security"] = [{"deviceBearer": []}]
             for status in (

@@ -86,6 +86,27 @@ class Auth:
                 is not None
             )
 
+    def has_owner(self):
+        # Disabling an owner must never reopen first-run registration.
+        with self.store.connect() as conn:
+            return (
+                conn.execute("SELECT 1 FROM users WHERE role='owner'").fetchone()
+                is not None
+            )
+
+    def claim_owner(self, code, expected, name, password, display_name, ip):
+        if self.has_owner():
+            raise AuthError("owner_already_exists", 409)
+        if self.locked("first-owner", ip):
+            raise AuthError("rate_limited", 429)
+        if not hmac.compare_digest(digest(code), digest(expected)):
+            self.failure("first-owner", ip, "owner_setup_failed")
+            raise AuthError("invalid_installation_code", 403)
+        if not display_name.strip():
+            raise AuthError("invalid_display_name", 422)
+        self.create_owner(name, password, display_name)
+        return self.login(name, password, "web", "Browser", "web", ip)
+
     def create_owner(self, name, password, display_name=None):
         name = username(name)
         validate_password(password, name)

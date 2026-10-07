@@ -248,3 +248,14 @@
 .sign-in-card h1 {
   overflow-wrap: anywhere;
 }
+
+.first-run-card > p {
+  margin: 0.75rem 0 1rem;
+}
+.first-run-card details p {
+  margin-top: 0.5rem;
+}
+.first-run-card summary {
+  cursor: pointer;
+  color: var(--accent);
+}

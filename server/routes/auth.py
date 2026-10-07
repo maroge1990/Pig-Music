@@ -30,6 +30,12 @@ class Activation(BaseModel):
     password: SecretStr = Field(min_length=12, max_length=256)
 
 
+class OwnerSetup(Credentials):
+    code: SecretStr = Field(min_length=16, max_length=64)
+    display_name: str = Field(min_length=1, max_length=128)
+    password: SecretStr = Field(min_length=12, max_length=256)
+
+
 class Disabled(BaseModel):
     disabled: bool
 
@@ -55,7 +61,7 @@ def set_cookie(response, token):
     )
 
 
-def auth_router(auth: Auth):
+def auth_router(auth: Auth, security=None):
     router = APIRouter(prefix="/api/v1", tags=["accounts"])
     workers = asyncio.Semaphore(2)
 
@@ -99,6 +105,28 @@ def auth_router(auth: Auth):
         if result[0]["role"] != "owner":
             raise HTTPException(403, "owner_required")
         return result
+
+    @router.get("/setup/owner", dependencies=[Depends(require_https)])
+    async def owner_setup_status():
+        return {"setup_required": not await run(auth.has_owner)}
+
+    @router.post("/setup/owner", dependencies=[Depends(require_https)])
+    async def create_first_owner(
+        body: OwnerSetup, request: Request, response: Response
+    ):
+        if security is None:
+            raise HTTPException(503, "setup_unavailable")
+        result = await run(
+            auth.claim_owner,
+            body.code.get_secret_value(),
+            security.installation_code(),
+            body.username,
+            body.password.get_secret_value(),
+            body.display_name.strip(),
+            request.client.host,
+        )
+        set_cookie(response, result["token"])
+        return {"user": result["user"]}
 
     @router.post("/auth/login", dependencies=[Depends(require_https)])
     async def login(body: Credentials, request: Request, response: Response):

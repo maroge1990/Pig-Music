@@ -10,7 +10,7 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/maroge1990/Pig-Music/issues</Support>
   <Project>https://github.com/maroge1990/Pig-Music</Project>
-  <Overview>Pig Music: your music library, playlists and downloads. Uses the existing NAS music share and appdata. Private HTTPS remains available through the existing Tailscale service. The verified live release is pinned while household account setup is pending. Advanced parameters preserve both network addresses.</Overview>
+  <Overview>Pig Music: your music library, playlists and downloads. Uses the existing NAS music share and appdata. Private HTTPS remains available through the existing Tailscale service. The verified live release is pinned until account-release acceptance. On the account release, first open shows administrator setup; retrieve its one-time installation code from PigMusic Logs and choose your password in the private HTTPS WebUI. Advanced parameters preserve both network addresses.</Overview>
   <Category>MediaApp:Music MediaServer:Music</Category>
   <WebUI>https://passyflix.tail6d1471.ts.net:10000/</WebUI>
   <TemplateURL />

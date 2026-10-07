@@ -21,6 +21,8 @@ PUBLIC = frozenset(
         ("POST", "/api/v1/auth/login"),
         ("POST", "/api/v1/auth/device"),
         ("POST", "/api/v1/setup"),
+        ("GET", "/api/v1/setup/owner"),
+        ("POST", "/api/v1/setup/owner"),
     }
 )
 PERSONAL_ACCOUNT_PREFIXES = ("/api/v1/me", "/api/v1/auth/logout")
@@ -61,12 +63,23 @@ class Security:
         self.legacy_test = legacy_test
         self.secret = secret_file(auth.store.directory)
 
+    def installation_code(self):
+        # Domain-separated proof of access to this installation, not a session.
+        return hmac.new(
+            self.secret, b"pig-music:first-owner:v1", hashlib.sha256
+        ).hexdigest()[:32]
+
     async def current_user(self, request: Request):
         if not request.url.path.startswith("/api/"):
             return None
         if self.legacy_test:
             return None
         if request.url.path == "/api/health" and request.method in {"GET", "HEAD"}:
+            return None
+        if (request.method, request.url.path) in {
+            ("GET", "/api/v1/setup/owner"),
+            ("POST", "/api/v1/setup/owner"),
+        }:
             return None
         if not await asyncio.to_thread(self.auth.ready):
             raise HTTPException(503, "setup_required")

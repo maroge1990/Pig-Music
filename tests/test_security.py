@@ -46,6 +46,8 @@ def test_every_api_route_is_anonymous_denied_and_bootstrap_closed(
             )
             if path == "/api/health":
                 assert response.status_code in {200, 405}
+            elif path == "/api/v1/setup/owner":
+                assert response.status_code == (200 if method == "GET" else 403)
             else:
                 assert response.status_code == 503, (method, path, response.text)
     owner = app.state.auth.create_owner("mark", PASSWORD)

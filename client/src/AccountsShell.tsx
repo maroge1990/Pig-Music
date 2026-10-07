@@ -4,6 +4,7 @@ import { PersonalLibrary } from "./PersonalLibrary";
 import { AccountSettings } from "./AccountSettings";
 import "./accounts.css";
 import { Home } from "./Home";
+import { FirstRun } from "./FirstRun";
 
 export type Person = {
   id: string;
@@ -16,6 +17,7 @@ export function AccountsShell({ legacyTools }: { legacyTools: ReactNode }) {
   const [user, setUser] = useState<Person | null>(null);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
+  const [firstRun, setFirstRun] = useState(false);
   const [error, setError] = useState("");
   const [page, setPage] = useState(
     location.hash.startsWith("#/library") ||
@@ -38,12 +40,21 @@ export function AccountsShell({ legacyTools }: { legacyTools: ReactNode }) {
   const [setup, setSetup] = useState(location.hash.startsWith("#/setup"));
   async function refresh() {
     try {
+      const state = await api<{ setup_required: boolean }>("/v1/setup/owner");
+      setFirstRun(state.setup_required);
+      if (state.setup_required) {
+        setUser(null);
+        setError("");
+        return;
+      }
       setUser(await api<Person>("/v1/me"));
       setError("");
     } catch (e) {
       setUser(null);
       if ((e as ApiError).code === "setup_required")
         setError("The administrator needs to finish the first account setup.");
+      else if ((e as ApiError).code !== "authentication_required")
+        setError((e as Error).message);
     } finally {
       setReady(true);
     }
@@ -68,6 +79,16 @@ export function AccountsShell({ legacyTools }: { legacyTools: ReactNode }) {
         <p role="status">Loading your account…</p>
       </main>
     );
+  if (!user)
+    if (firstRun)
+      return (
+        <FirstRun
+          complete={() => {
+            setFirstRun(false);
+            void refresh();
+          }}
+        />
+      );
   if (!user)
     return (
       <main className="account-shell">

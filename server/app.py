@@ -120,6 +120,17 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     @asynccontextmanager
     async def lifespan(app):
         nonlocal scan_task
+        if not security.legacy_test and not await asyncio.to_thread(auth.has_owner):
+            # Intentional one-time operator handover; never log submitted passwords.
+            print(
+                "Pig Music first-run setup: open the private HTTPS WebUI, then enter this installation code:",
+                flush=True,
+            )
+            print(security.installation_code(), flush=True)
+            print(
+                "This code stops working once the administrator account is created. Keep it private.",
+                flush=True,
+            )
         async with httpx.AsyncClient(
             timeout=12,
             headers={
@@ -191,7 +202,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     )
     app.state.auth = auth
     app.state.security = security
-    app.include_router(auth_router(auth))
+    app.include_router(auth_router(auth, security))
     app.include_router(household_router(store))
     from .routes.native import native_router
 

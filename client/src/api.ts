@@ -56,6 +56,14 @@ export class ApiError extends Error {
 }
 const accountErrors: Record<string, string> = {
   invalid_credentials: "The username or password is incorrect.",
+  invalid_installation_code:
+    "The installation code is incorrect. Copy it from PigMusic’s Unraid logs.",
+  owner_already_exists:
+    "An administrator account already exists. Reload Pig Music to sign in.",
+  invalid_username:
+    "Use 2–64 letters, numbers, dots, underscores or hyphens for your username.",
+  password_not_accepted:
+    "Choose a password of 12–256 characters that is not a common password or your username.",
   authentication_required: "Please sign in to continue.",
   setup_required: "The administrator needs to finish the first account setup.",
   https_required: "Open Pig Music using its private HTTPS address.",
