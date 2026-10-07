@@ -39,7 +39,7 @@ export function QueueView({
           <p>
             {queue?.downloads_enabled
               ? "Downloads go directly to your SMB library."
-              : "Downloads are paused. Enable them in System settings."}
+              : "Downloads are paused. Enable them in Download settings below."}
           </p>
         </div>
         <button

@@ -1,4 +1,4 @@
-import { apiFetch as fetch, cachedLibrary } from "./api";
+import { apiFetch, cachedLibrary } from "./api";
 import { discoverUrl } from "./navigation";
 export function MusicLink({
   artist,
@@ -41,7 +41,7 @@ export function MusicLink({
       location.hash = `/library/artist/${matches[0].id}`;
       return;
     }
-    const results = await fetch(
+    const results = await apiFetch(
       "/api/catalogue/artists?q=" + encodeURIComponent(artist),
     ).then((r) => r.json());
     const exact = results.artists.filter(

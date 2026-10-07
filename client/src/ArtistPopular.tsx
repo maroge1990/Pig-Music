@@ -1,5 +1,5 @@
 import { SongControls, isPending } from "./SongControls";
-import { apiFetch as fetch } from "./api";
+import { apiFetch } from "./api";
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Cover, catalogueCover } from "./Cover";
@@ -42,9 +42,12 @@ export function ArtistPopular({
   const [tracks, setTracks] = useState<Record<string, Track>>({});
   const [working, setWorking] = useState<Record<string, boolean>>({});
   async function resolve(song: Song, signal?: AbortSignal) {
-    const response = await fetch(`/api/catalogue/releases/${song.release_id}`, {
-      signal,
-    });
+    const response = await apiFetch(
+      `/api/catalogue/releases/${song.release_id}`,
+      {
+        signal,
+      },
+    );
     const body = await response.json();
     if (!response.ok)
       throw new Error(
@@ -73,7 +76,7 @@ export function ArtistPopular({
         return;
       }
       if (track.status === "downloaded" || pending(track)) return;
-      const response = await fetch(
+      const response = await apiFetch(
         `/api/catalogue/releases/${song.release_id}/request`,
         {
           method: "POST",
@@ -113,7 +116,7 @@ export function ArtistPopular({
     setAlbumPage(0);
     void (async () => {
       try {
-        const response = await fetch(
+        const response = await apiFetch(
           `/api/${personal ? "v1/" : ""}catalogue/artists/${id}/popularity`,
           { signal: controller.signal },
         );

@@ -1,4 +1,4 @@
-import { apiFetch as fetch } from "./api";
+import { apiFetch } from "./api";
 import { useEffect, useState } from "react";
 type Settings = {
   portraits: boolean;
@@ -14,7 +14,7 @@ export function MediaSettings() {
   const [message, setMessage] = useState("");
   useEffect(() => {
     let active = true;
-    void fetch("/api/settings/media")
+    void apiFetch("/api/settings/media")
       .then((r) => {
         if (!r.ok) throw new Error("Media settings unavailable.");
         return r.json();
@@ -34,7 +34,7 @@ export function MediaSettings() {
     setBusy(true);
     setMessage("");
     try {
-      const response = await fetch("/api/settings/media", {
+      const response = await apiFetch("/api/settings/media", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

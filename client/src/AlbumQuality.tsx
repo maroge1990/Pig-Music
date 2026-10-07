@@ -1,4 +1,4 @@
-import { apiFetch as fetch } from "./api";
+import { apiFetch } from "./api";
 import { useEffect, useState } from "react";
 export function AlbumQuality({
   id,
@@ -18,7 +18,7 @@ export function AlbumQuality({
   const path = `/api/${kind === "album" ? "albums" : "artists"}/${id}/quality`;
   useEffect(() => {
     const controller = new AbortController();
-    void fetch(path, { signal: controller.signal })
+    void apiFetch(path, { signal: controller.signal })
       .then((r) => r.json())
       .then((data) => {
         if (!controller.signal.aborted) {
@@ -33,7 +33,7 @@ export function AlbumQuality({
     setBusy(true);
     setError("");
     try {
-      const response = await fetch(path, {
+      const response = await apiFetch(path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profile: profile || null }),
@@ -45,7 +45,7 @@ export function AlbumQuality({
             ? data.detail
             : "Quality preference unavailable.",
         );
-      const updated = await fetch(path).then((r) => r.json());
+      const updated = await apiFetch(path).then((r) => r.json());
       setEffective(updated.effective_profile);
       notify(
         `${data.created} replacements queued${data.downloads_enabled ? "" : " · downloads paused"}. Existing music stays until replacement succeeds.`,

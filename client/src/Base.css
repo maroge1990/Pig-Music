@@ -1,4 +1,5 @@
 @import "./tokens.css";
+@import "./brand/pig-radiance.css";
 
 :root {
   font-family:
@@ -9,6 +10,7 @@
     sans-serif;
   color: var(--text);
   background: var(--canvas);
+  --pig-canvas: var(--canvas);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;

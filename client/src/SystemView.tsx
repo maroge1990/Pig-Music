@@ -1,8 +1,6 @@
 import { lazy, Suspense } from "react";
-import type { Dispatch, SetStateAction } from "react";
 import { HardDrive, CircleCheck, ShieldCheck } from "lucide-react";
 import type { Library } from "./types";
-import { MediaSettings } from "./MediaSettings";
 import { QualitySettings } from "./QualitySettings";
 import { LibraryScan } from "./LibraryScan";
 import { ToolBoundary } from "./ToolBoundary";
@@ -12,8 +10,6 @@ const Organisation = lazy(() =>
 const RemovedMusic = lazy(() =>
   import("./RemovedMusic").then((m) => ({ default: m.RemovedMusic })),
 );
-export type Appearance = "system" | "light" | "dark";
-
 export type DownloadSettings = {
   enabled: boolean;
   profile: string;
@@ -24,50 +20,29 @@ export type DownloadSettings = {
   recheck_hours: number;
 };
 
-type Props = {
-  appearance: Appearance;
-  setAppearance: Dispatch<SetStateAction<Appearance>>;
-  library: Library | null;
-  downloadSettings: DownloadSettings | null;
-  setDownloadSettings: Dispatch<SetStateAction<DownloadSettings | null>>;
-  soulseekHealth: { configured: boolean; connected: boolean } | null;
-  busy: boolean;
-  saveDownloads: () => void;
-  setToast: (message: string) => void;
-  refresh: () => void;
-};
-export function SystemView({
-  appearance,
-  setAppearance,
+type Health = { configured: boolean; connected: boolean } | null;
+
+export function SystemStatus({
   library,
   downloadSettings,
-  setDownloadSettings,
   soulseekHealth,
-  busy,
-  saveDownloads,
-  setToast,
-  refresh,
-}: Props) {
+}: {
+  library: Library | null;
+  downloadSettings: DownloadSettings | null;
+  soulseekHealth: Health;
+}) {
   return (
     <>
-      <div className="page-heading">
-        <h1>Settings</h1>
-      </div>
-      <div className="appearance-control">
-        <label htmlFor="appearance">Appearance</label>
-        <select
-          id="appearance"
-          value={appearance}
-          onChange={(e) => setAppearance(e.target.value as Appearance)}
-        >
-          <option value="system">System default</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-        </select>
-        <span>
-          Saved on this device. System default follows your device appearance.
-        </span>
-      </div>
+      <p className="status-text">
+        Soulseek engine:{" "}
+        {soulseekHealth
+          ? soulseekHealth.connected
+            ? "Connected"
+            : soulseekHealth.configured
+              ? "Unavailable"
+              : "Not configured"
+          : "Checking connection…"}
+      </p>
       <div className="system-grid">
         <section className="system-panel">
           <HardDrive />
@@ -114,90 +89,114 @@ export function SystemView({
           </p>
         </section>
       </div>
-      {downloadSettings && (
-        <section className="system-panel download-panel">
-          <h2>Download settings</h2>
-          <p className="status-text">
-            Soulseek engine:{" "}
-            {soulseekHealth
-              ? soulseekHealth.connected
-                ? "Connected"
-                : soulseekHealth.configured
-                  ? "Unavailable"
-                  : "Not configured"
-              : "Checking connection…"}
-          </p>
-          <p>
-            Files download directly to SMB and publish into your existing artist
-            and album folders. Quality is checked on the actual file; quality
-            changes always download a new source file and never convert existing
-            files.
-          </p>
-          <label className="download-option">
-            <input
-              type="checkbox"
-              checked={downloadSettings.enabled}
-              onChange={(e) =>
-                setDownloadSettings({
-                  ...downloadSettings,
-                  enabled: e.target.checked,
-                })
-              }
-            />
-            Enable downloads
-          </label>
-          <label className="download-option">
-            Quality
-            <select
-              aria-label="Download quality"
-              value={downloadSettings.profile}
-              onChange={(e) =>
-                setDownloadSettings({
-                  ...downloadSettings,
-                  profile: e.target.value,
-                })
-              }
-            >
-              <option value="mp3_320">MP3 320 kbps</option>
-              <option value="mp3_128">MP3 128 kbps</option>
-              <option value="aac_256">AAC 256 kbps or better</option>
-              <option value="lossless">FLAC lossless (Soulseek)</option>
-            </select>
-          </label>
-          {["soulseek", "freemp3cloud", "zvu4no", "jiosaavn"].map((source) => (
-            <label className="download-option" key={source}>
-              <input
-                type="checkbox"
-                checked={downloadSettings.sources.includes(source)}
-                onChange={(e) =>
-                  setDownloadSettings({
-                    ...downloadSettings,
-                    sources: e.target.checked
-                      ? [...downloadSettings.sources, source]
-                      : downloadSettings.sources.filter((s) => s !== source),
-                  })
-                }
-              />
-              {source}
-            </label>
-          ))}
-          <QualitySettings
-            value={downloadSettings}
-            onChange={(value) =>
-              setDownloadSettings({ ...downloadSettings, ...value })
+    </>
+  );
+}
+
+export function DownloadSettingsPanel({
+  downloadSettings,
+  setDownloadSettings,
+  busy,
+  save,
+  soulseekHealth,
+}: {
+  soulseekHealth: Health;
+  downloadSettings: DownloadSettings;
+  setDownloadSettings: (value: DownloadSettings) => void;
+  busy: boolean;
+  save: () => void;
+}) {
+  return (
+    <section className="system-panel download-panel">
+      <h2>Download settings</h2>
+      <p className="status-text">
+        Soulseek engine:{" "}
+        {soulseekHealth
+          ? soulseekHealth.connected
+            ? "Connected"
+            : soulseekHealth.configured
+              ? "Unavailable"
+              : "Not configured"
+          : "Checking connection…"}
+      </p>
+      <p>
+        Files download directly to SMB and publish into your existing artist and
+        album folders. Quality is checked on the actual file; quality changes
+        always download a new source file and never convert existing files.
+      </p>
+      <label className="download-option">
+        <input
+          type="checkbox"
+          checked={downloadSettings.enabled}
+          onChange={(e) =>
+            setDownloadSettings({
+              ...downloadSettings,
+              enabled: e.target.checked,
+            })
+          }
+        />
+        Enable downloads
+      </label>
+      <label className="download-option">
+        Quality
+        <select
+          aria-label="Download quality"
+          value={downloadSettings.profile}
+          onChange={(e) =>
+            setDownloadSettings({
+              ...downloadSettings,
+              profile: e.target.value,
+            })
+          }
+        >
+          <option value="mp3_320">MP3 320 kbps</option>
+          <option value="mp3_128">MP3 128 kbps</option>
+          <option value="aac_256">AAC 256 kbps or better</option>
+          <option value="lossless">FLAC lossless (Soulseek)</option>
+        </select>
+      </label>
+      {["soulseek", "freemp3cloud", "zvu4no", "jiosaavn"].map((source) => (
+        <label className="download-option" key={source}>
+          <input
+            type="checkbox"
+            checked={downloadSettings.sources.includes(source)}
+            onChange={(e) =>
+              setDownloadSettings({
+                ...downloadSettings,
+                sources: e.target.checked
+                  ? [...downloadSettings.sources, source]
+                  : downloadSettings.sources.filter((s) => s !== source),
+              })
             }
           />
-          <button
-            className="primary-button"
-            disabled={busy}
-            onClick={saveDownloads}
-          >
-            Save download settings
-          </button>
-        </section>
-      )}
+          {source}
+        </label>
+      ))}
+      <QualitySettings
+        value={downloadSettings}
+        onChange={(value) =>
+          setDownloadSettings({ ...downloadSettings, ...value })
+        }
+      />
+      <button className="primary-button" disabled={busy} onClick={save}>
+        Save download settings
+      </button>
+    </section>
+  );
+}
+
+export function ServerLibraryTools({
+  library,
+  refresh,
+  setToast,
+}: {
+  library: Library | null;
+  refresh: () => void;
+  setToast: (message: string) => void;
+}) {
+  return (
+    <>
       <LibraryScan refresh={refresh} />
-      <MediaSettings />
       <ToolBoundary>
         <Suspense fallback={<p>Loading library tools…</p>}>
           <RemovedMusic notify={setToast} />

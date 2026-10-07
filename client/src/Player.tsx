@@ -1,4 +1,4 @@
-import { apiFetch as fetch } from "./api";
+import { apiFetch } from "./api";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -63,7 +63,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     playEvent.current = null;
     if (event && event.seconds >= 1) {
       const { last: _last, ...body } = event;
-      void fetch("/api/v1/play-events", {
+      void apiFetch("/api/v1/play-events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -121,7 +121,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setDuration(track.duration);
     try {
       const saved = path.startsWith("saved/");
-      const response = await fetch(
+      const response = await apiFetch(
         saved
           ? "/api/v1/playback/" + path.slice(6) + "/url"
           : "/api/playback/" + path,

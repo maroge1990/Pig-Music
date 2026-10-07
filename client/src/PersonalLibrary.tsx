@@ -19,9 +19,17 @@ import { PersonalQuality } from "./PersonalQuality";
 import { CatalogueExplorer } from "./CatalogueExplorer";
 import { Cover } from "./Cover";
 import { CollectionPages } from "./CollectionPages";
+import { LibrarySongs } from "./LibrarySongs";
 import { usePlayer } from "./Player";
 import type { Album, Artist, Library, Track } from "./types";
-import type { Person } from "./AccountsShell";
+import type { Person } from "./AppShell";
+import { go, type Route } from "./routes";
+import { RemoveFromServer } from "./Recovery";
+import {
+  OwnerAlbumTools,
+  OwnerArtistTools,
+  OwnerLibraryLinks,
+} from "./OwnerTools";
 
 type Entry = Track & {
   entry_id: string;
@@ -54,7 +62,26 @@ const clean = (t: Track) => ({
   track_number: t.track_number,
   disc_number: t.disc_number,
 });
-export function PersonalLibrary({ user }: { user: Person }) {
+const libraryTabs = [
+  "artists",
+  "albums",
+  "songs",
+  "playlists",
+  "favourites",
+  "requests",
+] as const;
+type LibraryTab = (typeof libraryTabs)[number];
+const tabLabel = (id: string) => id[0].toUpperCase() + id.slice(1);
+
+export function PersonalLibrary({
+  user,
+  route,
+}: {
+  user: Person;
+  route: Route;
+}) {
+  const owner = user.role === "owner";
+  const searching = route.section === "search";
   const [catalogue, setCatalogue] = useState<{
     id: string;
     name: string;
@@ -63,7 +90,7 @@ export function PersonalLibrary({ user }: { user: Person }) {
   } | null>(null);
   const [favourites, setFavourites] = useState<Set<string>>(new Set());
   const [library, setLibrary] = useState<Library | null>(null);
-  const [tab, setTab] = useState("artists");
+  const [tab, setTab] = useState<LibraryTab>("artists");
   const [detail, setDetail] = useState<{
     title: string;
     artist?: Artist;
@@ -137,30 +164,27 @@ export function PersonalLibrary({ user }: { user: Person }) {
       window.removeEventListener("music-library-changed", changed);
     };
   }, []);
+  const [kind, id] = route.parts;
+  const routeKey = `${route.section}/${route.parts.join("/")}?${route.params}`;
   useEffect(() => {
-    const route = () => {
-      const [path, query] = location.hash.replace(/^#\/?/, "").split("?");
-      const [page, kind, id] = path.split("/");
-      if (page === "search" && kind === "artist" && id) {
-        const params = new URLSearchParams(query);
-        setCatalogue({
-          id,
-          name: params.get("name") || "Artist",
-          release: params.get("release") || undefined,
-          group: params.get("group") || undefined,
-        });
-        return;
-      }
-      setCatalogue(null);
-      if (!kind) setDetail(null);
-      if (kind === "album" && id) void openAlbum({ id } as Album);
-      else if (kind === "artist" && id) void openArtist({ id } as Artist);
-      else if (kind === "playlist" && id) void openPlaylist(id);
-    };
-    route();
-    window.addEventListener("hashchange", route);
-    return () => window.removeEventListener("hashchange", route);
-  }, []);
+    if (searching && kind === "artist" && id) {
+      setCatalogue({
+        id,
+        name: route.params.get("name") || "Artist",
+        release: route.params.get("release") || undefined,
+        group: route.params.get("group") || undefined,
+      });
+      return;
+    }
+    setCatalogue(null);
+    if (searching) return;
+    if (libraryTabs.includes(kind as LibraryTab)) setTab(kind as LibraryTab);
+    if (kind === "album" && id) void openAlbum({ id } as Album);
+    else if (kind === "artist" && id) void openArtist({ id } as Artist);
+    else if (kind === "playlist" && id) void openPlaylist(id);
+    else setDetail(null);
+  }, [routeKey]);
+  const backToLibrary = () => go("/library/" + tab);
   useEffect(() => {
     if (removal) dialog.current?.showModal();
   }, [removal]);
@@ -410,6 +434,16 @@ export function PersonalLibrary({ user }: { user: Person }) {
                       </button>
                     </>
                   )}
+                  {owner && saved && !playlist && (
+                    <div className="owner-menu-items">
+                      <span className="owner-label">Admin</span>
+                      <RemoveFromServer
+                        kind="tracks"
+                        id={t.id}
+                        title={t.title}
+                      />
+                    </div>
+                  )}
                 </details>
               </article>
             );
@@ -424,9 +458,7 @@ export function PersonalLibrary({ user }: { user: Person }) {
         <CatalogueBrowser
           key={catalogue.id + (catalogue.release || "")}
           artist={catalogue}
-          close={() => {
-            location.hash = "/library";
-          }}
+          close={() => go("/search")}
           notify={setNotice}
           initialRelease={catalogue.release}
           initialGroup={catalogue.group}
@@ -445,14 +477,18 @@ export function PersonalLibrary({ user }: { user: Person }) {
     );
   return (
     <main className="personal-main">
-      {detail?.artist ? (
+      {searching ? (
+        <h1>Search</h1>
+      ) : detail?.artist ? (
         <SavedArtistHeading artist={detail.artist} personal />
       ) : (
         <h1>{detail?.title || "Your library"}</h1>
       )}
-      <p>
-        {user.display_name} · {library.stats.tracks} songs
-      </p>
+      {!searching && !detail && (
+        <p>
+          {user.display_name} · {library.stats.tracks} songs
+        </p>
+      )}
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
       {undo && (
@@ -465,7 +501,7 @@ export function PersonalLibrary({ user }: { user: Person }) {
                   method: "POST",
                 });
                 setUndo(null);
-                setDetail(null);
+                backToLibrary();
               }, "Restored")
             }
           >
@@ -473,9 +509,54 @@ export function PersonalLibrary({ user }: { user: Person }) {
           </button>
         </p>
       )}
-      {detail ? (
+      {searching ? (
         <>
-          <button className="text-button" onClick={() => setDetail(null)}>
+          <form
+            className="search-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const q = new FormData(e.currentTarget).get("q");
+              void api<{ tracks: Track[]; household_tracks: Track[] }>(
+                "/v1/search?q=" + encodeURIComponent(String(q)),
+              )
+                .then(setSearch)
+                .catch((e) => setError(e.message));
+            }}
+          >
+            <label>
+              Search music on the server
+              <input name="q" type="search" required maxLength={150} />
+            </label>
+            <button type="submit">Search</button>
+          </form>
+          {search && (
+            <>
+              <h2>In your library</h2>
+              {songs(search.tracks)}
+              {search.household_tracks.length > 0 && (
+                <h2>Available in the household</h2>
+              )}
+              {search.household_tracks.map((t) => (
+                <article className="personal-track" key={t.id}>
+                  <div>
+                    <strong>{t.title}</strong>
+                    <p>{t.artist} · On server</p>
+                  </div>
+                  <button
+                    onClick={() => void add(t)}
+                    aria-label={`Add ${t.title} to your library`}
+                  >
+                    <CirclePlus size={20} /> Add to my library
+                  </button>
+                </article>
+              ))}
+            </>
+          )}
+          <CatalogueExplorer />
+        </>
+      ) : detail ? (
+        <>
+          <button className="text-button" onClick={backToLibrary}>
             <ArrowLeft size={18} /> Back to library
           </button>
           {detail.playlist && (
@@ -505,7 +586,8 @@ export function PersonalLibrary({ user }: { user: Person }) {
             <PersonalQuality key={detail.quality.itemId} {...detail.quality} />
           )}
           {detail.playlist && !detail.playlist.favourites && (
-            <div>
+            <details className="playlist-options">
+              <summary>Playlist options</summary>
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -544,18 +626,18 @@ export function PersonalLibrary({ user }: { user: Person }) {
                         `/v1/playlists/${detail.playlist!.id}?revision=${detail.playlist!.revision}`,
                         { method: "DELETE" },
                       );
-                      setDetail(null);
+                      backToLibrary();
                     }, "Playlist deleted");
                 }}
               >
                 Delete playlist
               </button>
-            </div>
+            </details>
           )}
           {detail.albums && (
             <div className="personal-grid">
               {detail.albums.map((a) => (
-                <button key={a.id} onClick={() => void openAlbum(a)}>
+                <button key={a.id} onClick={() => go("/library/album/" + a.id)}>
                   <Cover title={a.title} src={a.cover_url} />
                   <h3>{a.title}</h3>
                 </button>
@@ -563,29 +645,24 @@ export function PersonalLibrary({ user }: { user: Person }) {
             </div>
           )}
           {detail.tracks && songs(detail.tracks, detail.playlist)}
+          {owner && detail.quality?.scope === "album" && (
+            <OwnerAlbumTools id={detail.quality.itemId} title={detail.title} />
+          )}
+          {owner && detail.quality?.scope === "artist" && (
+            <OwnerArtistTools id={detail.quality.itemId} title={detail.title} />
+          )}
         </>
       ) : (
         <>
           <nav className="personal-tabs" aria-label="Library collections">
-            {[
-              "artists",
-              "albums",
-              "playlists",
-              "favourites",
-              "search",
-              "requests",
-              "import",
-            ].map((id) => (
-              <button
+            {libraryTabs.map((id) => (
+              <a
                 key={id}
-                aria-pressed={tab === id}
-                onClick={() => {
-                  setTab(id);
-                  setSearch(null);
-                }}
+                href={"#/library/" + id}
+                aria-current={tab === id ? "page" : undefined}
               >
-                {id[0].toUpperCase() + id.slice(1)}
-              </button>
+                {tabLabel(id)}
+              </a>
             ))}
           </nav>
           {(tab === "artists" || tab === "albums") && (
@@ -602,9 +679,9 @@ export function PersonalLibrary({ user }: { user: Person }) {
                       <button
                         key={item.id}
                         onClick={() =>
-                          artist
-                            ? void openArtist(item as Artist)
-                            : void openAlbum(item as Album)
+                          go(
+                            `/library/${artist ? "artist" : "album"}/${item.id}`,
+                          )
                         }
                       >
                         <Cover
@@ -623,7 +700,7 @@ export function PersonalLibrary({ user }: { user: Person }) {
                         </h3>
                         <p>
                           {artist
-                            ? (item as Artist).album_count + " albums"
+                            ? `${(item as Artist).album_count} album${(item as Artist).album_count === 1 ? "" : "s"}`
                             : (item as Album).track_count + " songs"}
                         </p>
                       </button>
@@ -665,86 +742,45 @@ export function PersonalLibrary({ user }: { user: Person }) {
                 )
                 .map((p) => (
                   <p key={p.id}>
-                    <button onClick={() => void openPlaylist(p.id)}>
+                    <button onClick={() => go("/library/playlist/" + p.id)}>
                       {p.name}
                     </button>
                   </p>
                 ))}
-            </>
-          )}
-          {tab === "search" && (
-            <>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const q = new FormData(e.currentTarget).get("q");
-                  void api<{ tracks: Track[]; household_tracks: Track[] }>(
-                    "/v1/search?q=" + encodeURIComponent(String(q)),
-                  )
-                    .then(setSearch)
-                    .catch((e) => setError(e.message));
-                }}
-              >
-                <label>
-                  Search music on the server
-                  <input name="q" type="search" required maxLength={150} />
-                </label>
-                <button type="submit">Search</button>
-              </form>
-              {search && (
-                <>
-                  <h2>In your library</h2>
-                  {songs(search.tracks)}
-                  <h2>Available in the household</h2>
-                  {search.household_tracks.map((t) => (
-                    <article className="personal-track" key={t.id}>
-                      <div>
-                        <strong>{t.title}</strong>
-                        <p>{t.artist} · On server</p>
-                      </div>
-                      <button
-                        onClick={() => void add(t)}
-                        aria-label={`Add ${t.title} to your library`}
-                      >
-                        <CirclePlus size={20} /> Add to my library
-                      </button>
-                    </article>
-                  ))}
-                </>
+              {tab === "playlists" && (
+                <section className="account-section">
+                  <h2>Import your playlists</h2>
+                  <p>
+                    Choose an Apple Music XML export. This saves your playlists
+                    without requesting downloads.
+                  </p>
+                  <label>
+                    Apple Music XML
+                    <input
+                      type="file"
+                      accept=".xml"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file)
+                          void action(
+                            () =>
+                              api("/v1/imports/apple", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/xml" },
+                                body: file,
+                              }),
+                            "Your playlists were imported",
+                          );
+                      }}
+                    />
+                  </label>
+                </section>
               )}
             </>
           )}
-          {tab === "search" && <CatalogueExplorer />}
+          {tab === "songs" && <LibrarySongs render={(t) => songs(t)} />}
           {tab === "requests" && <PersonalRequests />}
-          {tab === "import" && (
-            <section className="account-section">
-              <h2>Import your playlists</h2>
-              <p>
-                Choose an Apple Music XML export. This saves your playlists
-                without requesting downloads.
-              </p>
-              <label>
-                Apple Music XML
-                <input
-                  type="file"
-                  accept=".xml"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file)
-                      void action(
-                        () =>
-                          api("/v1/imports/apple", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/xml" },
-                            body: file,
-                          }),
-                        "Your playlists were imported",
-                      );
-                  }}
-                />
-              </label>
-            </section>
-          )}
+          {owner && <OwnerLibraryLinks />}
         </>
       )}
       {removal && (

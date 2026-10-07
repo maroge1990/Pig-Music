@@ -1,4 +1,4 @@
-import { apiFetch as fetch } from "./api";
+import { apiFetch } from "./api";
 import { useEffect, useState } from "react";
 export function RemovedMusic({ notify }: { notify: (s: string) => void }) {
   const [items, setItems] = useState<
@@ -6,7 +6,7 @@ export function RemovedMusic({ notify }: { notify: (s: string) => void }) {
   >([]);
   const [busy, setBusy] = useState(false);
   const refresh = () =>
-    fetch("/api/library/trash")
+    apiFetch("/api/library/trash")
       .then((r) => r.json())
       .then(setItems);
   useEffect(() => {
@@ -15,7 +15,7 @@ export function RemovedMusic({ notify }: { notify: (s: string) => void }) {
   async function restore(id: string) {
     setBusy(true);
     try {
-      const r = await fetch("/api/library/trash/" + id + "/restore", {
+      const r = await apiFetch("/api/library/trash/" + id + "/restore", {
         method: "POST",
       });
       if (!r.ok) throw new Error("Restore stopped. Check the library folder.");

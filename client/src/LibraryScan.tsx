@@ -1,4 +1,4 @@
-import { apiFetch as fetch } from "./api";
+import { apiFetch } from "./api";
 import { useEffect, useState } from "react";
 type Scan = {
   status?: string;
@@ -14,7 +14,7 @@ export function LibraryScan({ refresh }: { refresh: () => void }) {
     let active = true;
     let previous = "";
     const update = () =>
-      fetch("/api/library/scan")
+      apiFetch("/api/library/scan")
         .then((r) => r.json())
         .then((v) => {
           if (!active) return;
@@ -38,7 +38,7 @@ export function LibraryScan({ refresh }: { refresh: () => void }) {
   async function start() {
     setError("");
     try {
-      const r = await fetch("/api/library/scan", { method: "POST" });
+      const r = await apiFetch("/api/library/scan", { method: "POST" });
       const value = await r.json();
       if (!r.ok) throw new Error(value.detail || "Scan unavailable.");
       setScan(value);

@@ -1,5 +1,5 @@
 import { SongControls, isPending } from "./SongControls";
-import { apiFetch as fetch } from "./api";
+import { apiFetch } from "./api";
 import { useEffect, useState } from "react";
 import {
   ArrowLeft,
@@ -77,7 +77,7 @@ export function CatalogueBrowser({
 }) {
   const player = usePlayer();
   async function request<T>(path: string, options?: RequestInit): Promise<T> {
-    const response = await fetch(
+    const response = await apiFetch(
       `/api/${personal ? "v1/" : ""}catalogue/` + path,
       options,
     );
@@ -273,7 +273,7 @@ export function CatalogueBrowser({
     if (personal) {
       const chosen = release.tracks.filter((t) => !trackId || t.id === trackId);
       try {
-        const response = await fetch("/api/v1/requests", {
+        const response = await apiFetch("/api/v1/requests", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ tracks: chosen }),

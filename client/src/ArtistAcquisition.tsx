@@ -1,4 +1,4 @@
-import { apiFetch as fetch } from "./api";
+import { apiFetch } from "./api";
 import { useEffect, useRef, useState } from "react";
 export function ArtistAcquisition({
   id,
@@ -20,7 +20,7 @@ export function ArtistAcquisition({
   useEffect(() => {
     let active = true;
     const update = () =>
-      fetch(`/api/catalogue/artists/${id}/acquisition`)
+      apiFetch(`/api/catalogue/artists/${id}/acquisition`)
         .then((r) => r.json())
         .then((d) => {
           if (active)
@@ -52,7 +52,7 @@ export function ArtistAcquisition({
   async function save(request = false) {
     setBusy(true);
     try {
-      const r = await fetch(`/api/catalogue/artists/${id}/acquisition`, {
+      const r = await apiFetch(`/api/catalogue/artists/${id}/acquisition`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

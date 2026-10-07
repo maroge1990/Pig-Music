@@ -1,5 +1,5 @@
 import { PlaylistPicker } from "./PlaylistPicker";
-import { apiFetch as fetch } from "./api";
+import { apiFetch } from "./api";
 import { useEffect, useState } from "react";
 import { subscribeSong, updateFavourite } from "./membership";
 import { Star } from "lucide-react";
@@ -11,7 +11,7 @@ export type SongReference = {
   track_id?: string;
 };
 async function call(path: string, body: unknown) {
-  const r = await fetch("/api/" + path, {
+  const r = await apiFetch("/api/" + path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -60,7 +60,7 @@ export function SongActions({
         <PlaylistPicker
           title={title}
           load={async () => {
-            const r = await fetch("/api/playlists");
+            const r = await apiFetch("/api/playlists");
             if (!r.ok) throw new Error("Playlists unavailable");
             return (await r.json()).filter(
               (p: { favourites?: boolean }) => !p.favourites,

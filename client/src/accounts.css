@@ -76,11 +76,42 @@
 .personal-header img {
   width: 2.5rem;
 }
-.personal-header nav {
+.personal-header .app-nav {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
+  gap: var(--space-4);
   margin-left: auto;
+}
+.app-nav a,
+.personal-tabs a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-height: 2.75rem;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-compact);
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+}
+@media (hover: hover) {
+  .app-nav a:hover,
+  .personal-tabs a:hover {
+    background: var(--hover);
+  }
+}
+.app-nav a[aria-current="page"],
+.personal-tabs a[aria-current="page"] {
+  background: var(--selected-fill);
+  color: var(--text-accent);
+}
+.personal-tabs a {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.personal-tabs a[aria-current="page"] {
+  border-color: var(--accent);
 }
 .personal-app button {
   min-height: 2.75rem;
@@ -206,7 +237,7 @@
 .personal-track > .cover {
   flex: 0 0 3rem;
 }
-#root:has(.personal-app):not(:has(.sidebar)) .music-player {
+#root:has(.personal-app) .music-player {
   left: 0;
   bottom: 0;
 }
@@ -258,4 +289,136 @@
 .first-run-card summary {
   cursor: pointer;
   color: var(--accent);
+}
+
+/* Phones: the same sections as a bottom tab bar; the player sits above it. */
+@media (max-width: 600px) {
+  .personal-header {
+    flex-wrap: nowrap;
+  }
+  .personal-header .app-nav {
+    position: fixed;
+    z-index: 20;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    margin: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(3.5rem, 1fr));
+    gap: 0;
+    padding: var(--space-4) var(--space-4)
+      calc(var(--space-4) + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .app-nav a {
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.125rem;
+    padding: var(--space-4);
+    font-size: 0.75rem;
+  }
+  #root:has(.personal-app) .music-player {
+    bottom: var(--mobile-nav-height, 4rem);
+  }
+  .personal-main {
+    padding-bottom: calc(
+      var(--mobile-nav-height, 4rem) + var(--player-height, 0px) + 2rem
+    );
+  }
+}
+
+/* Administrator additions: always after the member content, visibly labelled. */
+.owner-tools,
+.owner-links {
+  margin-top: var(--space-32);
+  padding: var(--space-16);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.owner-tools summary,
+.owner-links h2 {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-8);
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+}
+.owner-tools-body {
+  display: grid;
+  gap: var(--space-16);
+  margin-top: var(--space-16);
+}
+.owner-tools-body label {
+  display: grid;
+  gap: var(--space-8);
+}
+.owner-links p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8) var(--space-24);
+  margin: var(--space-12) 0 0;
+}
+.owner-links a {
+  color: var(--text-accent);
+}
+.owner-menu-items {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-8);
+  padding-top: var(--space-8);
+  border-top: 1px solid var(--border);
+}
+.owner-label {
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-accent);
+}
+.danger-text-button {
+  border: 0;
+  background: none;
+  color: var(--danger);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.playlist-options {
+  margin-block: var(--space-16);
+}
+.playlist-options summary {
+  justify-content: flex-start;
+  font-weight: 600;
+}
+.admin-main h1 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+.personal-tabs .nav-count {
+  margin-left: var(--space-4);
+}
+.search-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-8);
+  margin-bottom: var(--space-16);
+}
+.search-form label {
+  display: grid;
+  flex: 1 1 16rem;
+  gap: var(--space-8);
+}
+/* Approved 1.5 splash: the halo breathes behind the pig while loading only. */
+.app-splash {
+  --pig-x: 50%;
+  --pig-y: calc(50% - 1.5rem);
+  --pig-r: 10rem;
+  align-content: center;
+  text-align: center;
 }
