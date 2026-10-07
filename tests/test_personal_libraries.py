@@ -410,3 +410,19 @@ def test_library_validators_are_bound_to_the_person(tmp_path, monkeypatch):
         response = client.get("/api/v1/library", headers={"If-None-Match": owner_etag})
         assert response.status_code == 200
         assert response.json()["stats"]["tracks"] == 1
+
+
+def test_recently_added_skips_bootstrap_attribution(tmp_path, monkeypatch):
+    app, owner, member, token, track = household(tmp_path, monkeypatch)
+    store = app.state.store
+    store.user_libraries.projection(owner)
+    assert store.user_libraries.recently_added(owner)["albums"] == []
+    store.user_libraries.add(member, [track["id"]])
+    with TestClient(
+        app,
+        base_url="https://private.ts.net",
+        headers={"Authorization": "Bearer " + token},
+    ) as client:
+        recent = client.get("/api/v1/home/recent").json()
+    assert [a["title"] for a in recent["albums"]] == ["Studio"]
+    assert "tracks" not in recent["albums"][0]

@@ -307,6 +307,35 @@ class UserLibrary:
                 ),
             }
 
+    def recently_added(self, user_id, limit=12):
+        """Albums most recently added to a person's library.
+
+        One-off bootstrap attribution ('migration') is not "recent" music.
+        """
+        projection = self.projection(user_id)
+        album_for = {
+            track["id"]: album
+            for album in projection["albums"]
+            for track in album["tracks"]
+        }
+        with self.store.connect() as conn:
+            rows = conn.execute(
+                "SELECT track_id FROM library_members WHERE user_id=? "
+                "AND source != 'migration' ORDER BY added_at DESC LIMIT 2000",
+                (user_id,),
+            ).fetchall()
+        albums, seen = [], set()
+        for (track_id,) in rows:
+            album = album_for.get(track_id)
+            if album and album["id"] not in seen:
+                seen.add(album["id"])
+                albums.append(
+                    {k: v for k, v in album.items() if k not in {"tracks", "cover_key"}}
+                )
+                if len(albums) == limit:
+                    break
+        return {"albums": albums, "revision": projection["revision"]}
+
     def summary(self, user_id):
         projection = self.projection(user_id)
         from .playlists import Playlists

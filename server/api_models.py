@@ -193,6 +193,11 @@ class RequestList(BaseModel):
     items: list[RequestDTO]
 
 
+class RecentAlbums(BaseModel):
+    albums: list[AlbumDTO]
+    revision: str
+
+
 class HomeItemDTO(BaseModel):
     id: str
     name: str

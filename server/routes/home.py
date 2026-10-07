@@ -3,7 +3,7 @@
 import asyncio
 from fastapi import APIRouter, Request
 from ..home import HomeDiscovery
-from ..api_models import HomeFeedDTO
+from ..api_models import HomeFeedDTO, RecentAlbums
 
 
 def home_router(store, catalogue):
@@ -13,6 +13,12 @@ def home_router(store, catalogue):
     @router.get("/api/v1/home/popular", response_model=HomeFeedDTO)
     async def popular(request: Request):
         return await home.popular(request.app.state.http)
+
+    @router.get("/api/v1/home/recent", response_model=RecentAlbums)
+    async def recent(request: Request):
+        return await asyncio.to_thread(
+            store.user_libraries.recently_added, request.state.user["id"]
+        )
 
     @router.get("/api/v1/home/recommended", response_model=HomeFeedDTO)
     async def recommended(request: Request):

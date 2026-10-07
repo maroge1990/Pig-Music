@@ -95,11 +95,52 @@ function HomeSection({ kind }: { kind: "popular" | "recommended" }) {
     </section>
   );
 }
+type RecentAlbum = {
+  id: string;
+  title: string;
+  artist: string;
+  cover_url?: string | null;
+};
+
+/** Music this person added lately; hidden until there is some. */
+function RecentlyAdded() {
+  const [albums, setAlbums] = useState<RecentAlbum[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    void api<{ albums: RecentAlbum[] }>("/v1/home/recent", {
+      signal: controller.signal,
+    })
+      .then((d) => setAlbums(d.albums))
+      .catch(() => {});
+    return () => controller.abort();
+  }, []);
+  if (!albums.length) return null;
+  return (
+    <section className="home-section">
+      <h2>Recently added</h2>
+      <div className="home-grid">
+        {albums.map((album) => (
+          <a
+            className="album-card"
+            key={album.id}
+            href={"#/library/album/" + album.id}
+          >
+            <Cover title={album.title} src={album.cover_url} />
+            <strong>{album.title}</strong>
+            <p>{album.artist}</p>
+          </a>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function Home() {
   return (
     <main className="personal-main home-page">
       <h1>Home</h1>
       <p>Find your next favourite.</p>
+      <RecentlyAdded />
       <HomeSection kind="popular" />
       <HomeSection kind="recommended" />
     </main>
