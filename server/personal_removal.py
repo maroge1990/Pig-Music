@@ -105,7 +105,9 @@ class PersonalRemoval:
                 for t in a["tracks"]
             )
         physical_paths = [str(root / record["original"]) for record, root in prepared]
-        if len(set(physical_paths)) != len(physical_paths):
+        if len(set(physical_paths)) != len(physical_paths) or any(
+            record["shared"] for record, _ in prepared
+        ):
             raise ValueError(
                 "Multiple song identities share a file. Ask the administrator to review them before removal."
             )

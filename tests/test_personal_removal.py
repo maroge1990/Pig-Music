@@ -264,6 +264,8 @@ def test_duplicate_physical_aliases_require_review_before_mutation(
     store.user_libraries.add(owner, ["alias"])
     with pytest.raises(ValueError, match="share a file"):
         remove(removal, owner, ["saved", "alias"])
+    with pytest.raises(ValueError, match="share a file"):
+        remove(removal, owner, ["saved"])
     assert path.exists() and store.user_libraries.contains(owner, "saved")
     assert store.user_libraries.contains(owner, "alias")
     assert removal.recovery.list() == []
