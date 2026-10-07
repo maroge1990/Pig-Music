@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <Container version="2">
   <Name>PigMusic</Name>
-  <Repository>ghcr.io/maroge1990/pig-music:sha-1f21118b0448f7dce0cedb694a3067da132fd7ab</Repository>
+  <Repository>ghcr.io/maroge1990/pig-music:sha-131e464fedd428e61f73ce241d3cc55bffec2ab1</Repository>
   <Registry>https://github.com/maroge1990/Pig-Music/pkgs/container/pig-music</Registry>
   <Network>pig-music-preview</Network>
   <MyIP />
@@ -10,7 +10,7 @@
   <Privileged>false</Privileged>
   <Support>https://github.com/maroge1990/Pig-Music/issues</Support>
   <Project>https://github.com/maroge1990/Pig-Music</Project>
-  <Overview>Pig Music: your music library, playlists and downloads. Uses the existing NAS music share and appdata. Private HTTPS remains available through the existing Tailscale service. The verified live release is pinned until account-release acceptance. On the account release, first open shows administrator setup; retrieve its one-time installation code from PigMusic Logs and choose your password in the private HTTPS WebUI. Advanced parameters preserve both network addresses.</Overview>
+  <Overview>Pig Music: your music library, playlists and downloads. Uses the existing NAS music share and appdata. Private HTTPS remains available through the existing Tailscale service. The live account release is pinned to its verified source commit. On the account release, first open shows administrator setup; retrieve its one-time installation code from PigMusic Logs and choose your password in the private HTTPS WebUI. Advanced parameters preserve both network addresses.</Overview>
   <Category>MediaApp:Music MediaServer:Music</Category>
   <WebUI>https://passyflix.tail6d1471.ts.net:10000/</WebUI>
   <TemplateURL />
