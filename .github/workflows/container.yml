@@ -47,7 +47,8 @@ jobs:
           docker run --rm --network none --memory=1g --user 99:100 \
             --tmpfs /tmp:rw,uid=99,gid=100 --tmpfs /data:rw,uid=99,gid=100 \
             -e PYTHONDONTWRITEBYTECODE=1 -e PIG_MUSIC_PRELOAD=false -e PIG_MUSIC_EMBEDDED_ENGINE=false \
-            -v "$GITHUB_WORKSPACE/tests:/tests:ro" --entrypoint python \
+            -v "$GITHUB_WORKSPACE/tests:/tests:ro" \
+            -v "$GITHUB_WORKSPACE:/source:ro" -e PIG_MUSIC_SOURCE=/source --entrypoint python \
             pig-music:candidate -m pytest /tests -q -p no:cacheprovider --basetemp=/tmp/pig-tests
       - name: Artwork scale gate under 1 GB
         run: |

@@ -178,7 +178,8 @@ def main():
         ],
         check=True,
     )
-    remote("cd " + shlex.quote(stage) + "; tar -xzf source.tar.gz; chmod -R a+rX tests")
+    # Tests read source-level files (client, docs, scripts) via /source.
+    remote("cd " + shlex.quote(stage) + "; tar -xzf source.tar.gz; chmod -R a+rX .")
     if args.image:
         remote("docker pull " + shlex.quote(image))
         # Match the supplied source/tests to the image, without inspecting secrets.
@@ -208,7 +209,9 @@ def main():
     remote(
         "docker run --rm --network none --memory=1g --user 99:100 --tmpfs /tmp:rw,uid=99,gid=100 --tmpfs /data:rw,uid=99,gid=100 -e PYTHONDONTWRITEBYTECODE=1 -e PIG_MUSIC_PRELOAD=false -e PIG_MUSIC_EMBEDDED_ENGINE=false -v "
         + shlex.quote(stage + "/tests:/tests:ro")
-        + " --entrypoint python "
+        + " -v "
+        + shlex.quote(stage + ":/source:ro")
+        + " -e PIG_MUSIC_SOURCE=/source --entrypoint python "
         + shlex.quote(image)
         + " -m pytest /tests -q -p no:cacheprovider --basetemp=/tmp/pig-tests"
     )

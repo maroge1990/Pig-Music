@@ -8,9 +8,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from server.security import api_routes
+from source import SOURCE
 from test_security import PASSWORD, protected
 
-CLIENT = Path(__file__).resolve().parents[1] / "client/src"
+CLIENT = SOURCE / "client/src"
 WRITE = {"X-Pig-Request": "1"}
 
 # API paths in calls such as api("/v1/x/" + id + "/y") or apiFetch(`/api/${a}`).

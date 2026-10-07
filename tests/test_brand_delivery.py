@@ -8,6 +8,7 @@ import sys
 from fastapi.testclient import TestClient
 
 from server.app import ROOT, create_app
+from source import SOURCE
 
 
 def test_brand_outputs_are_current():
@@ -40,11 +41,11 @@ def test_production_identity_routes_are_images_not_html(tmp_path):
 
 
 def test_vendored_radiance_matches_approved_release():
-    provenance = json.loads((ROOT / "docs/brand-asset-provenance.json").read_text())
-    tokens = json.loads((ROOT / "docs/pig-family-brand-tokens.json").read_text())
+    provenance = json.loads((SOURCE / "docs/brand-asset-provenance.json").read_text())
+    tokens = json.loads((SOURCE / "docs/pig-family-brand-tokens.json").read_text())
     assert provenance["version"] == tokens["version"]
     radiance = next(
         a for a in provenance["assets"] if a["path"] == "tokens/pig-radiance.css"
     )
-    vendored = (ROOT / radiance["copiedTo"]).read_bytes()
+    vendored = (SOURCE / radiance["copiedTo"]).read_bytes()
     assert hashlib.sha256(vendored).hexdigest() == radiance["sha256"]

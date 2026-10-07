@@ -18,7 +18,15 @@ $env:PIG_MUSIC_PRELOAD = "false"
 .venv/Scripts/python.exe -m uvicorn server.app:app --host 127.0.0.1 --port 8765
 ```
 
-Fresh appdata starts empty and downloads paused. Use the native Scan library against the explicitly configured music directory, then review any matching or organisation changes. The Import screen starts empty; it does not automatically load the historical Favourites export. `scripts/seed_prototype.py` is an explicit optional import tool and queues nothing. Retired Music Grabber is not required for ingestion.
+On macOS without a system Python 3.14, [uv](https://docs.astral.sh/uv/) provides the matching interpreter. Then run the backend suite:
+
+```sh
+uv venv --python 3.14 .venv
+uv pip install --python .venv/bin/python -r requirements.lock.txt -r requirements-dev.txt
+PIG_MUSIC_PRELOAD=false .venv/bin/python -m pytest tests -q
+```
+
+A fresh install shows the first-run administrator form; use generated test credentials, never real ones, for local browser checks. Fresh appdata starts empty and downloads paused. Use the native Scan library against the explicitly configured music directory, then review any matching or organisation changes. The Import screen starts empty; it does not automatically load the historical Favourites export. `scripts/seed_prototype.py` is an explicit optional import tool and queues nothing. Retired Music Grabber is not required for ingestion.
 
 `compose.yaml` is an isolated local example; `compose.unraid-preview.yaml` describes the current household NAS deployment. Do not assume they mount the same music. `PIG_MUSIC_LIBRARY` selects the scan/playback root; `PIG_MUSIC_DOWNLOAD_ROOT` selects the managed workspace. Direct NAS mode requires the export configuration's `library_id` to match the marker on the expected library.
 
@@ -36,7 +44,34 @@ Keep these under appdata, excluded from source control/bundles and accessible on
 
 Use existing authorised credentials; this document deliberately contains no values. Download/quality preferences, membership and queue state are in SQLite. Back up the entire appdata directory, not just one connection file.
 
-## Candidate and live delivery
+## Current release path (account releases)
+
+PigMusic is managed by Unraid Docker Manager and already runs an account release. Every routine release has two steps:
+
+1. **Verify the exact image on Unraid** without changing the live service. Push `main`, let the registry workflow publish `sha-<revision>`, then run `scripts/deploy_unraid.py --version <unused-name> --image ghcr.io/maroge1990/pig-music@sha256:<digest>` without `--deploy`, saving its output to a log. The image tests also read the staged checkout through `/source` for source-level contract checks.
+2. **Release** with `scripts/deploy_release.py --image <digest> --revision <sha> --version <same-name> --verified-log <log>`. Without `--apply` it is a read-only preflight. It checks:
+   - the exact image and its source labels
+   - Docker Manager ownership, 1 GB, 99:100, read-only root and both fixed addresses
+   - private HTTPS health
+   - that the owner account exists
+   - that no transfers are active
+
+   With `--apply` it:
+   - pauses downloads through the container's own SQLite state, since the HTTP API requires a session
+   - stops the container and backs up appdata, the template and autostart
+   - computes the baseline from the backup using the *old* image
+   - verifies migration on a disposable copy with the *new* image
+   - recreates PigMusic from the reviewed template, keeping `PigMusic-before-<version>`
+   - checks readiness, HTTPS, owner state and container protections
+   - restores the original download setting
+
+   Any failure restores the complete stopped appdata, template, container and networks.
+
+`scripts/deploy_release.py --retention 2` lists backups and rollback/failed containers older than the two newest releases. It always keeps the pre-account baseline (`pre-first-run-20261007-v1`) and legacy manager material. It **never deletes**; remove listed items manually once the owner is satisfied.
+
+`deploy_first_run_unraid.py` was the one-time legacy-to-accounts switch, and `deploy_unraid.py --deploy` is the retired Compose path, which refuses account releases. Both are kept as history only.
+
+## Historical: candidate and live delivery before accounts
 
 Use a unique version suffix. From the repository root:
 
