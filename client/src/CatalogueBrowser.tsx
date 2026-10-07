@@ -13,6 +13,7 @@ import { MusicLink } from "./MusicLink";
 import { mergePage } from "./discography";
 import { ArtistAcquisition } from "./ArtistAcquisition";
 import { OwnerPanel } from "./OwnerTools";
+import { FollowArtist } from "./FollowArtist";
 import { ArtistHero } from "./ArtistHero";
 import { discoverUrl } from "./navigation";
 import type { Discography } from "./discography";
@@ -306,6 +307,7 @@ export function CatalogueBrowser({
           }}
         />
       )}
+      {!group && <FollowArtist id={artist.id} name={artist.name} />}
       {group && (
         <div className="page-heading catalogue-heading">
           {group && (

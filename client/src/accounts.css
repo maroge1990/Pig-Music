@@ -458,3 +458,46 @@ a.album-card {
 main h1[tabindex="-1"]:focus {
   outline: none;
 }
+.search-group {
+  margin-top: var(--space-32);
+}
+.search-group > h2 {
+  margin: 0 0 var(--space-12);
+}
+.discover-list {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.discover-list a {
+  display: grid;
+  gap: 0.125rem;
+  padding: var(--space-12) var(--space-16);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-compact);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+.discover-list a span {
+  font-size: var(--type-footnote);
+  color: var(--secondary);
+}
+.follow-artist {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-12);
+  margin: var(--space-16) 0;
+}
+.follow-artist button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+.follow-artist button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--text-accent);
+}

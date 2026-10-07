@@ -16,7 +16,7 @@ import {
 import { api } from "./api";
 import { PersonalRequests } from "./PersonalRequests";
 import { PersonalQuality } from "./PersonalQuality";
-import { CatalogueExplorer } from "./CatalogueExplorer";
+import { SearchPage } from "./SearchPage";
 import { Cover } from "./Cover";
 import { CollectionPages } from "./CollectionPages";
 import { LibrarySongs } from "./LibrarySongs";
@@ -103,10 +103,6 @@ export function PersonalLibrary({
   const [playlists, setPlaylists] = useState<{ id: string; name: string }[]>(
     [],
   );
-  const [search, setSearch] = useState<{
-    tracks: Track[];
-    household_tracks: Track[];
-  } | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [removal, setRemoval] = useState<{
@@ -259,7 +255,6 @@ export function PersonalLibrary({
         }),
       "Added or requested for your library",
     );
-    setSearch(null);
   }
   async function preview(ids: string[]) {
     try {
@@ -458,7 +453,10 @@ export function PersonalLibrary({
         <CatalogueBrowser
           key={catalogue.id + (catalogue.release || "")}
           artist={catalogue}
-          close={() => go("/search")}
+          close={() =>
+            // Return to the results that opened this artist, query included.
+            history.length > 1 ? history.back() : go("/search")
+          }
           notify={setNotice}
           initialRelease={catalogue.release}
           initialGroup={catalogue.group}
@@ -510,50 +508,12 @@ export function PersonalLibrary({
         </p>
       )}
       {searching ? (
-        <>
-          <form
-            className="search-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const q = new FormData(e.currentTarget).get("q");
-              void api<{ tracks: Track[]; household_tracks: Track[] }>(
-                "/v1/search?q=" + encodeURIComponent(String(q)),
-              )
-                .then(setSearch)
-                .catch((e) => setError(e.message));
-            }}
-          >
-            <label>
-              Search music on the server
-              <input name="q" type="search" required maxLength={150} />
-            </label>
-            <button type="submit">Search</button>
-          </form>
-          {search && (
-            <>
-              <h2>In your library</h2>
-              {songs(search.tracks)}
-              {search.household_tracks.length > 0 && (
-                <h2>Available in the household</h2>
-              )}
-              {search.household_tracks.map((t) => (
-                <article className="personal-track" key={t.id}>
-                  <div>
-                    <strong>{t.title}</strong>
-                    <p>{t.artist} · On server</p>
-                  </div>
-                  <button
-                    onClick={() => void add(t)}
-                    aria-label={`Add ${t.title} to your library`}
-                  >
-                    <CirclePlus size={20} /> Add to my library
-                  </button>
-                </article>
-              ))}
-            </>
-          )}
-          <CatalogueExplorer />
-        </>
+        <SearchPage
+          query={route.params.get("q") || ""}
+          library={library}
+          songs={(tracks) => songs(tracks)}
+          add={add}
+        />
       ) : detail ? (
         <>
           <button className="text-button" onClick={backToLibrary}>
