@@ -289,3 +289,15 @@ A disposable copy of the stopped production backup passed migration and exact fi
   - an Admin at-a-glance overview
 
   Still unpushed and unreleased. `/api/v1/admin` is deferred until native Admin work begins, because the legacy owner handlers live inside `create_app` and return untyped payloads.
+
+### Unified experience release, 7 October 2026
+
+**Delivered:** `unified-20261007-v1`, the first routine release through `scripts/deploy_release.py`.
+- Image `ghcr.io/maroge1990/pig-music@sha256:d02d7b208077b32dd58a31ff53f2e3036e797d9039475c238962dfa3f5bcd4c2`, source `4d27e4804121a709b6d39867e67bc9ddf224ecd2` on `main`.
+- GitHub image checks passed (223 tests).
+- Exact-image Unraid acceptance passed: 223 tests; artwork peak 96.98 / 321.95 MB at 10k/50k; HTTP 165.67 / 381.73 MB; two-person sync at 50k each 380.65 MiB, cold sync 10.0 s; all limited to 1 GB.
+- The release paused downloads, took a stopped backup, verified migration on a disposable copy (baseline computed by the previous image), recreated PigMusic from the reviewed Docker Manager template, verified private HTTPS, owner state and container protections, and restored the original download setting.
+- Backup: `/mnt/user/appdata/pig-music-preview/backups/pre-unified-20261007-v1`. Rollback container: `PigMusic-before-unified-20261007-v1`.
+- `--retention 2` lists 29 older backups and 30 stopped legacy containers; nothing was deleted, pending the owner's decision.
+
+The first preflight caught a quoting error in the release state probe before any live change. It is fixed, and the snippet is now executed against SQLite in tests. Owner live testing is next.
