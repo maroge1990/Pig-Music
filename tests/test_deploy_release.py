@@ -186,3 +186,41 @@ def test_retention_reports_without_deleting():
     assert report["containers"] == ["PigMusic-before-r1"]
     assert "pre-first-run-20261007-v1" in report["kept"]
     assert not any(c.startswith(("rm", "docker rm")) for c in listing.commands)
+
+
+def test_state_snippet_reads_and_pauses_downloads_in_sqlite(tmp_path):
+    """The snippet runs inside the live container; execute it for real."""
+    import sqlite3
+    import subprocess
+    import sys
+
+    database = tmp_path / "pig-music.sqlite3"
+    with sqlite3.connect(database) as conn:
+        conn.execute("CREATE TABLE documents (name TEXT PRIMARY KEY, payload TEXT)")
+        conn.execute("CREATE TABLE queue (id TEXT, status TEXT)")
+        conn.execute(
+            "INSERT INTO documents VALUES ('downloads', ?)", (json.dumps(SETTINGS),)
+        )
+        conn.execute(
+            "INSERT INTO queue VALUES ('a', 'downloading'), ('b', 'completed')"
+        )
+    code = deploy.STATE.replace(deploy.DATABASE, str(database))
+
+    def run(change=""):
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            input=change,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        return json.loads(result.stdout)
+
+    assert run() == {"settings": SETTINGS, "active": 1}
+    paused = {**SETTINGS, "enabled": False}
+    assert run(json.dumps(paused))["settings"] == paused
+    assert run()["settings"] == paused
+
+
+def test_baseline_snippet_compiles():
+    compile(deploy.BASELINE, "baseline", "exec")

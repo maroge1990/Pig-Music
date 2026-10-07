@@ -38,9 +38,10 @@ STATE = (
     "new=json.loads(change) if change else None; "
     "new is not None and c.execute(\"INSERT INTO documents VALUES ('downloads',?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload\",(json.dumps(new),)); "
     "c.commit(); "
-    "active=c.execute('SELECT count(*) FROM queue WHERE status IN "
+    "settings=new if new is not None else settings; "
+    'active=c.execute("SELECT count(*) FROM queue WHERE status IN '
     + str(ACTIVE)
-    + "').fetchone()[0]; "
+    + '").fetchone()[0]; '
     "print(json.dumps({'settings':settings,'active':active}))"
 )
 # Baseline from the stopped backup, computed by the image that wrote it.
