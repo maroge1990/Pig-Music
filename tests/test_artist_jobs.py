@@ -83,3 +83,38 @@ def test_cancellation_during_metadata_cannot_submit_or_overwrite_state(tmp_path)
         assert jobs.state(A)["status"] == "cancelled" and not store.queue()["items"]
 
     asyncio.run(run())
+
+
+def test_following_records_existing_albums_and_acquires_only_new_ones(tmp_path):
+    """'Follow new albums' must not download the back catalogue."""
+    G2 = "55555555-5555-4555-8555-555555555555"
+    groups = [{"id": G}]
+
+    class Growing(Catalogue):
+        async def get(self, client, path, **params):
+            if path == "release-group/":
+                return {"count": len(groups), "release-groups": list(groups)}
+            return await super().get(client, path, **params)
+
+    store = Store(tmp_path)
+    jobs = ArtistJobs(store, Growing())
+    jobs.configure(A, ["album"], True)  # follow, no request
+    # The background loop treats a never-checked followed artist as due.
+    state = jobs.configure(A, ["album"], True, request=True, periodic=True)
+    asyncio.run(jobs.acquire(None, A, state))
+    assert jobs.state(A)["done"] == [G] and not store.queue()["items"]
+    # A release that appears after following is acquired on the next check.
+    groups.append({"id": G2})
+    state = jobs.configure(A, ["album"], True, request=True, periodic=True)
+    asyncio.run(jobs.acquire(None, A, state))
+    assert jobs.state(A)["done"] == [G, G2]
+    assert len(store.queue()["items"]) == 1
+
+
+def test_explicit_request_still_acquires_the_whole_catalogue(tmp_path):
+    store = Store(tmp_path)
+    jobs = ArtistJobs(store, Catalogue())
+    jobs.configure(A, ["album"], True)
+    state = jobs.configure(A, ["album"], True, request=True)
+    asyncio.run(jobs.acquire(None, A, state))
+    assert len(store.queue()["items"]) == 1

@@ -65,7 +65,15 @@ class ArtistJobs:
             "kinds": ["album"],
         }
 
-    def configure(self, identity, kinds, monitor, request=False):
+    def configure(self, identity, kinds, monitor, request=False, periodic=False):
+        """Save artist settings; ``request`` queues an acquisition pass.
+
+        Monitoring means *new* releases: turning it on (or widening its kinds)
+        without a request records the existing catalogue as a baseline instead
+        of downloading it. Periodic monitor checks keep the done list so only
+        release groups first seen later are acquired. An explicit request
+        still acquires the whole catalogue for the chosen kinds.
+        """
         identity = mbid(identity)
         if not kinds or not set(kinds) <= {"album", "single", "ep"}:
             raise ValueError("Choose albums, singles or EPs.")
@@ -73,15 +81,28 @@ class ArtistJobs:
             state = self.state(identity)
             if state.get("status") in {"queued", "running"} and request:
                 raise ValueError("This artist already has a request running.")
+            starting = (
+                monitor
+                and not request
+                and (
+                    not state.get("monitor")
+                    or not set(kinds) <= set(state.get("kinds", []))
+                )
+            )
             state.update(
                 id=identity, user_id=self.owner(), kinds=kinds, monitor=monitor
             )
-            if request:
+            if starting:
+                state["baseline_pending"] = True
+            if request and periodic:
+                state.update(status="queued", error=None, generation=uuid.uuid4().hex)
+            elif request:
                 state.update(
                     status="queued",
                     done=[],
                     created=0,
                     error=None,
+                    baseline_pending=False,
                     generation=uuid.uuid4().hex,
                 )
             self.save(self.key(identity), state)
@@ -147,6 +168,12 @@ class ArtistJobs:
                 return
             if group["id"] in current.get("done", []):
                 continue
+            if current.get("baseline_pending"):
+                # Existing releases at follow time are known, not requested.
+                self.progress(
+                    identity, generation, done=[*current.get("done", []), group["id"]]
+                )
+                continue
             editions = await self.catalogue.get(
                 client,
                 "release/",
@@ -173,7 +200,13 @@ class ArtistJobs:
                     created=current.get("created", 0) + result["created"],
                     done=[*current.get("done", []), group["id"]],
                 )
-        self.progress(identity, generation, status="completed", checked_at=time.time())
+        self.progress(
+            identity,
+            generation,
+            status="completed",
+            checked_at=time.time(),
+            baseline_pending=False,
+        )
 
     async def run(self, client):
         background_metadata.set(True)
@@ -207,7 +240,9 @@ class ArtistJobs:
                     and time.time() - state.get("checked_at", 0) > 86400
                     and state.get("status") not in {"queued", "running"}
                 ):
-                    state = jobs.configure(identity, state["kinds"], True, request=True)
+                    state = jobs.configure(
+                        identity, state["kinds"], True, request=True, periodic=True
+                    )
                 if state.get("status") in {"queued", "running"}:
                     try:
                         await jobs.acquire(client, identity, state)
