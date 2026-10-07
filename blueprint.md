@@ -78,7 +78,9 @@ Order is deliberate. Add new entries with a stable ID, rationale, dependencies a
 | 2 / V01 | Physical iPhone scrolling/player checks and a real off-site Tailscale session | Unverified acceptance work | Owner's device/off-site session; emulator/LAN results are insufficient |
 | 1 / U01 | One experience: Home · Search · Library · Account for everyone, plus Admin for the owner; owner additions always at the bottom of shared views; retire the nested legacy shell | Delivered on `main`, not yet released | [Review and combined roadmap](docs/review-roadmap-20261007.md) §4–6; owner and member browser fixture at desktop and 375 px |
 | 1 / N13 | Per-person library validators (shared-browser 304 leak) | Fixed on `main`, not yet released | Regression test; release before inviting members |
-| 2 / Q02, U03 | Authenticated test fixture with Playwright smoke run; type-scale consolidation; single song-actions component | Planned | Review §5 |
+| 1 / R03 | Routine account release (`deploy_release.py`) with retention reporting | Delivered on `main`; first live use pending | Required to release anything after first-run; see operations |
+| 2 / Q02, U03 | Web-session UI contract tests, full route audit, type scale, single song actions | Delivered on `main` | Remaining: Playwright smoke run |
+| 2 / U01-4 | Owner APIs as `/api/v1/admin` in the OpenAPI contract | Planned | Before a native Admin tab |
 | 3 / H01 | Phase 1b household profiles and two library memberships over shared file assets | Planned; design first | Cleanup stable; agree ownership, sharing/removal semantics, visibility and scan mapping before implementation |
 | 4 / H02 | Per-user favourites/playlists and Plex owner/account export mapping | Planned | H01; validate native Plex users and each library mapping without changing another owner's playlists |
 | 5 / H03 | Overlapping album membership, shared quality policy and disk ownership across household libraries | Planned design question | H01; decide what happens when users request different editions or qualities; do not guess precedence |
@@ -272,3 +274,11 @@ A disposable copy of the stopped production backup passed migration and exact fi
 - **7 October 2026 — first-run release live:** Owner reported checks complete. The exact `131e464` image passed 211 tests and 1 GB Unraid scale gates, fresh stopped-state migration/attribution acceptance and the native Docker Manager switch. Live private HTTPS now offers locked first-run setup, preserving 1,395 tracks and all existing state/protections; backup and stopped rollback are in the release delivery document. Owner creates the administrator in the WebUI using the installation code from PigMusic Logs. This Mac's private hostname does not resolve; use a Tailscale-connected device. Authenticated production acceptance awaits that setup.
 
 - **7 October 2026 — audit verification and unified experience:** Owner asked for both audits to be verified and an independent review, combined into one roadmap, and said the administrator should have the same experience as members plus an Admin section, with any extra options at the bottom of shared sections. Response: `docs/review-roadmap-20261007.md`. Both audits verified; review findings N01 (withdrawn after implementation evidence) to N13. Implementation went straight into `main` after fast-forwarding it to the live M11 source, as the owner directed. Delivered U01, part of U02, Q01, Q04, B03 (Pig family 1.5.1) and the N13 validator fix. 213 backend and 6 frontend tests pass, and the owner/member browser fixture was checked. Next: push `main` (this publishes a GHCR candidate) and release with the existing first-run deployment path once the owner has completed setup. Then Q02/U03.
+- **7 October 2026 — continued build:** Owner asked to keep building. Delivered:
+  - web-session UI contract tests, plus a fix to the route audit, which was missing 80 lazily included routes (N14)
+  - one set of song actions
+  - the seven-role type scale for web and Swift, and a legacy CSS prune
+  - live system appearance, Recently added, album Play/Shuffle and heading focus
+  - `deploy_release.py`, the routine Docker Manager release path; `main` had none after first-run
+
+  221 backend and 7 frontend tests pass. Still unpushed and unreleased. Next: owner approval to push `main`, then exact-image verification and `deploy_release.py` once the owner account exists.

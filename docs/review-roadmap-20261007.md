@@ -93,6 +93,7 @@ Severity: **High** means broken today or a security/data risk; **Med** means not
 | N10 | Low | Personal library has no **Songs** view (Artists, Albums, Playlists, Favourites only), so there's no "shuffle my library" |
 | N11 | Low | The local dev environment can't run the backend (Python 3.9 only). Add a pinned `uv`/`.python-version` bootstrap so local verification matches CI |
 | **N13** | High | *Found during implementation.* **The personal library ETag wasn't bound to the person.** `user_library.projection` hashed library revision, membership revision and settings, so two people with equal membership counters got identical ETags. On a shared browser the second person's revalidation returned 304 and showed the previous person's library. This was reproduced in a fixture (member saw the owner's 12 songs instead of 4), fixed by adding the user to the signature, and covered by a regression test |
+| **N14** | Med | *Found during implementation.* FastAPI 0.142 wraps included routers lazily, so `app.routes` omits them. The startup `audit_routes` guard check and `test_every_api_route_is_anonymous_denied…` covered only 52 of 132 API routes. The routes were still guarded at runtime, but nothing proved it. Fixed with `api_routes()` |
 | N12 | Gate | Owner account creation through the first-run form was still outstanding at the last handover. Physical iPhone/Watch, cellular Tailscale and VoiceOver gates (V01/S00) remain open |
 
 ---
@@ -204,14 +205,23 @@ On `main` (fast-forwarded to the live M11 source first, which delivers R02's "ma
 | Q04 | ✅ | `UserLibrary.artwork_access` indexes allowed artwork once per projection revision; both the guard and the image route use dictionary/set lookups instead of scanning |
 | B03 | ✅ | Pig family 1.5.1: haloed web and Apple icons, tokens, vendored `pig-radiance.css` (hash-verified in provenance and by test), top-left corner bloom on the app canvas, splash halo on the loading screen |
 | N09 | ✅ | Stale M03 comment and `personal_libraries_pending` code replaced (`owner_only`) |
-| Q02 | ◻ Next | Authenticated default test fixture and Playwright smoke run |
-| U03 | ◻ Next | Type-scale consolidation |
-| SongActions vs PersonalSongActions | ◻ Next | `CatalogueBrowser` and `ArtistPopular` still use the legacy song actions |
-| R01, R03, V01/S00 | Owner | Require the owner, devices or Unraid access |
+| Q02 | ✅ Mostly | `api_routes()` expands FastAPI 0.142's lazy included routers. The startup guard audit and the anonymous-denial sweep had silently covered only 52 of 132 API routes (N14). `test_ui_contract.py` checks that all 61 API paths the browser calls exist, and drives the Admin and shared sections through real web sessions for the owner and a member. Remaining: a Playwright browser smoke run, which needs a browser download |
+| U03 | ✅ | Seven roles for web (rem tokens) and Swift (`PigType`, Dynamic Type styles), with a test against literal sizes. 51 legacy-only selectors pruned (CSS 55.6 KB to 49.0 KB). Personal and admin headings use the roles. "System" appearance follows the device live again |
+| SongActions vs PersonalSongActions | ✅ | Legacy `SongActions`, `SongControls` and `membership.ts` removed with the dead non-personal catalogue mode. Owner artist monitoring is an Admin panel at the bottom of discovered artists. Favourite probes no longer clear the read cache |
+| R03 | ✅ | `scripts/deploy_release.py`: routine Docker Manager account release (preflight, quiesce via SQLite, stopped backup, old-image baseline, new-image migration check, recreate, verify, full rollback). `--retention N` reports and never deletes. Tested against a fake host. Image tests read source files through `/source` in CI and on Unraid |
+| F-4 / U02 | ✅ | "Recently added" Home shelf (`/api/v1/home/recent`, excluding bootstrap attribution); album Play/Shuffle; heading focus on navigation; Home spacing |
+| Q06 | ✅ | uv bootstrap documented; `.python-version` pins 3.14 |
+| U01 step 4 | ◻ Next | Owner APIs under `/api/v1/admin` in the OpenAPI contract, ahead of a native Admin tab |
+| R01, V01/S00 | Owner | Require the owner, devices or Unraid access |
 
-Verification: 213 backend tests (Python 3.14, local), 6 frontend tests, strict build, Prettier and Black checks. Browser fixture with synthetic music and generated credentials, owner and member, desktop and 375 px:
+Verification (first pass): 213 backend tests (Python 3.14, local), 6 frontend tests, strict build, Prettier and Black checks. Browser fixture with synthetic music and generated credentials, owner and member, desktop and 375 px:
 - navigation and the Admin sections
 - album, song and library owner extras appear only for the owner, at the bottom
 - the member sees no Admin, and `#/admin` falls back to Home
 - download and media settings saves succeed through the real security guard
 - a shared-browser account switch now shows the correct library
+
+Second pass: 221 backend tests, 7 frontend tests, strict build, Black, Prettier, brand and OpenAPI drift checks, and a Swift `PigBrand` build. Browser fixture re-checked:
+- owner and member in light and dark, at desktop and 375 px
+- Admin pages after the CSS prune
+- the Songs tab, album Play (audio actually played through a signed URL) and Recently added
