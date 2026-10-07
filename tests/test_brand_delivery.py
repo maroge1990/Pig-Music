@@ -1,5 +1,6 @@
 """Approved identity delivery and source-of-truth drift gates."""
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -36,3 +37,14 @@ def test_production_identity_routes_are_images_not_html(tmp_path):
         assert manifest.headers["cache-control"] == "no-cache"
         assert client.get("/brand/missing.png").status_code == 404
         assert client.get("/brand/%2e%2e/index.html").status_code == 404
+
+
+def test_vendored_radiance_matches_approved_release():
+    provenance = json.loads((ROOT / "docs/brand-asset-provenance.json").read_text())
+    tokens = json.loads((ROOT / "docs/pig-family-brand-tokens.json").read_text())
+    assert provenance["version"] == tokens["version"]
+    radiance = next(
+        a for a in provenance["assets"] if a["path"] == "tokens/pig-radiance.css"
+    )
+    vendored = (ROOT / radiance["copiedTo"]).read_bytes()
+    assert hashlib.sha256(vendored).hexdigest() == radiance["sha256"]

@@ -1,6 +1,6 @@
 {
-  "status": "approved-original-nose-artwork-optical-lockups-2026-10-07",
-  "version": "1.4.0",
+  "status": "final-1.5-six-products-halo-2026-10-07",
+  "version": "1.5.1",
   "date": "2026-10-07",
   "logo": {
     "pink": "#F6B7D4",
@@ -94,19 +94,74 @@
     "focus": "separate outer ring"
   },
   "radiatingLight": {
-    "status": "approved-excluding-rays",
+    "status": "final-2026-10-07",
     "colours": [
       "#EF7AAE",
       "#F6B7D4"
     ],
-    "directions": [
-      "soft halo",
-      "bloom"
-    ],
-    "motion": "static",
-    "constraints": "Decorative identity contexts only; behind opaque form surfaces; never encode focus or selection.",
-    "default": "soft halo",
-    "excluded": "rays"
+    "halo": {
+      "use": "Default. App icons, icon backgrounds, welcome, Top Shelf and splash surfaces; centred on the pig optical centre.",
+      "strength": {
+        "light": [
+          0.7,
+          0.18
+        ],
+        "dark": [
+          0.16,
+          0.42
+        ]
+      },
+      "splashBoost": {
+        "light": 1.45,
+        "dark": 1.0
+      }
+    },
+    "bloom": {
+      "use": "Splash motion peak only.",
+      "strength": {
+        "light": [
+          0.55,
+          0.3
+        ],
+        "dark": [
+          0.18,
+          0.46
+        ]
+      }
+    },
+    "splashMotion": {
+      "cycleSeconds": 8,
+      "easing": "ease-in-out",
+      "haloOpacity": [
+        1,
+        0.25
+      ],
+      "bloomOpacity": [
+        0,
+        1
+      ],
+      "bloomScale": [
+        0.9,
+        1.12
+      ],
+      "reducedMotion": "static halo, no animation",
+      "scope": "splash and launch surfaces only, while already visible; never adds delay"
+    },
+    "cornerBloom": {
+      "use": "In-app canvas backgrounds: a quiet rose bloom from the top leading corner only (top left in left-to-right layouts), in both appearances. Opaque cards, bars and controls sit above it.",
+      "colour": "#EF7AAE",
+      "peakOpacity": {
+        "light": 0.16,
+        "dark": 0.13
+      },
+      "radius": "0.62 of the canvas diagonal",
+      "minimumTextContrast": {
+        "light": 5.39,
+        "dark": 5.91
+      }
+    },
+    "constraints": "Decorative only: never behind forms or reading content, never a focus, selection or progress signal. Honour reduced motion (static halo) and reduced transparency (solid canvas).",
+    "excluded": "Rays, removed from the system on 7 October 2026."
   },
   "family": "Pig family of apps",
   "products": {
@@ -125,6 +180,14 @@
     "pig-reader": {
       "name": "PigReader",
       "scope": "Ebooks."
+    },
+    "pig-domain": {
+      "name": "PigDomain",
+      "scope": "Household chore management."
+    },
+    "pig-board": {
+      "name": "PigBoard",
+      "scope": "Household dashboard."
     }
   },
   "identity": {
@@ -132,7 +195,8 @@
     "options": "Earlier badge, frame and crop studies are historical; the refined fused set is the base identity.",
     "naming": "Pig + a short descriptive noun for new products. PigTV is a retained legacy spelling.",
     "font": "ArialRoundedMTBold; distribute outlined wordmarks, not the font.",
-    "approval": "User approved the outlined four-icon original-nose preview as final on 6 October 2026. Use the exact approved raster source; no redraws. Optical lockup and icon placement approved 7 October 2026."
+    "approval": "User approved the outlined four-icon original-nose preview as final on 6 October 2026. Use the exact approved raster source; no redraws. Optical lockup and icon placement approved 7 October 2026. PigDomain (bucket pig), PigBoard (wall board), halo icons, splash motion and top-left corner bloom approved as final 7 October 2026.",
+    "nose": "Every pig uses the canonical nose (sources/approved/pig-nose.svg, traced from the approved PigTV artwork). Translate only; never resize, redraw or restyle it."
   },
   "spacing": [
     4,

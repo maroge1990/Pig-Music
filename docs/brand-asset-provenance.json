@@ -1,12 +1,19 @@
 {
-  "version": "1.4.0",
+  "version": "1.5.1",
   "source": "https://github.com/maroge1990/Pig-Branding",
   "assets": [
     {
       "path": "tokens/brand-tokens.json",
-      "bytes": 5335,
-      "sha256": "1e8bd4e847e1763f12326647a2d46e4290b2a21a9081328491a582710018ce8e",
+      "bytes": 7254,
+      "sha256": "3676aefa37a63906fc356e5b6a890ce3956a266a11d85ca227deb4bf23b2e0b9",
       "status": "production"
+    },
+    {
+      "path": "tokens/pig-radiance.css",
+      "status": "production",
+      "copiedTo": "client/src/brand/pig-radiance.css",
+      "bytes": 3498,
+      "sha256": "dc837c535c4f06a2663d953988505dd567bebd6b17a14324ea729afa75e0798c"
     },
     {
       "path": "assets/products/pig-music/mark.png",
@@ -47,8 +54,8 @@
     },
     {
       "path": "assets/products/pig-music/icons/web-light-32.png",
-      "bytes": 1460,
-      "sha256": "93b1e586f17bb9cdb31375f5ded1006f66360b7090a781a01d1d8a07fb932464",
+      "bytes": 1885,
+      "sha256": "18651e1f3b6114c9f081c2c5a66ac4bbf93577bd5cca2fa81cd11a0362fa7073",
       "status": "production",
       "width": 32,
       "height": 32,
@@ -56,8 +63,8 @@
     },
     {
       "path": "assets/products/pig-music/icons/web-dark-32.png",
-      "bytes": 1401,
-      "sha256": "743abacd84dbe3b0e40f1b1ddd3d4c0be55f83440ca8dd9e76f3995126afe6bf",
+      "bytes": 1806,
+      "sha256": "bf7f9b4f78f9f128d487acbcc6192adda98c78822d0ba4f9436c65c03f0f5f33",
       "status": "production",
       "width": 32,
       "height": 32,
@@ -65,8 +72,8 @@
     },
     {
       "path": "assets/products/pig-music/icons/web-light-180.png",
-      "bytes": 20316,
-      "sha256": "5ee20c0e605f579cfca27734eaff3abed4252653622506993a41fbc7bf641a50",
+      "bytes": 30352,
+      "sha256": "d0125328a2bc43fff3e6259da5e9d0cecf2713b81d1097a633941b8c577c5a9c",
       "status": "production",
       "width": 180,
       "height": 180,
@@ -74,8 +81,8 @@
     },
     {
       "path": "assets/products/pig-music/icons/web-light-192.png",
-      "bytes": 22633,
-      "sha256": "6d0bcada20c5299238e40b8706a6a6099c5efd02c8434737323459477b7cad86",
+      "bytes": 34032,
+      "sha256": "0ad5b18f5413ae9866e2b92a1381c1c8dc95e3e35b66676e4057ec8d78a3aa5b",
       "status": "production",
       "width": 192,
       "height": 192,
@@ -83,8 +90,8 @@
     },
     {
       "path": "assets/products/pig-music/icons/web-light-512.png",
-      "bytes": 106954,
-      "sha256": "3faf396719070f38f1a3d4af2f52be36f1ae957b7cedb48f18b7d12e8d1c1f6b",
+      "bytes": 168877,
+      "sha256": "59105d4c49fb712d267c99fbdc6be7652a744bac887da44f34ff22c4083c77fd",
       "status": "production",
       "width": 512,
       "height": 512,
@@ -98,8 +105,8 @@
     },
     {
       "path": "assets/products/pig-music/Apple/AppIcon.appiconset/light.png",
-      "bytes": 300209,
-      "sha256": "8d8f01a41350e59b55752bcaed09ff73dce43a34a2efbfb739c0cd74955fbf75",
+      "bytes": 456624,
+      "sha256": "a407d15818c3b46d38c022602a4ed718a5dd3c1265d97cf69d08d112a287f289",
       "status": "production",
       "width": 1024,
       "height": 1024,
@@ -107,8 +114,8 @@
     },
     {
       "path": "assets/products/pig-music/Apple/AppIcon.appiconset/dark.png",
-      "bytes": 282780,
-      "sha256": "e16be4761860ac61ac455e9432c8c08ee9c06d5ee5d29597483035c496088379",
+      "bytes": 428148,
+      "sha256": "567273402be16103ea673f35aef5767d68913cf1f7574830b446c1154cb25284",
       "status": "production",
       "width": 1024,
       "height": 1024,
