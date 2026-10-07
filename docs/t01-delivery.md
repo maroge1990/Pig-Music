@@ -4,7 +4,7 @@
 
 Implemented: validated bare HTTPS public origin; Uvicorn trusts forwarded protocol only from explicitly configured individual proxy IPs (127.0.0.1 and existing Docker bridge gateway 172.25.0.1). Wildcards, broad CIDRs and ambiguous hosts are rejected. Health reports actual interpreted HTTPS. Configured HTTPS Origin is accepted for writes while the same-origin LAN route remains available during physical phone transition; unrelated origins still fail. Native clients need the private HTTPS URL.
 
-145 backend tests pass, including configuration rejection, untrusted spoofed forwarded-protocol headers, HTTPS health and existing LAN transition. Source bundle now includes generated Swift branding inputs for container source verification. Production proxy configuration, certificate/network checks, and both-phone LAN/off-site acceptance remain pending.
+145 backend tests pass, including configuration rejection, untrusted spoofed forwarded-protocol headers, HTTPS health and existing LAN transition. Source bundle now includes generated Swift branding inputs for container source verification. Production proxy and Unraid certificate/network checks passed; both-phone LAN/off-site acceptance remains pending.
 
 Operator configuration after release:
 

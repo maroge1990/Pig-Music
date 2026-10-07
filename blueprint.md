@@ -1,6 +1,6 @@
 # Pig Music blueprint and engineering handover
 
-Primary handover document. Updated 6 October 2026 (Australia/Sydney).
+Primary handover document. Updated 7 October 2026 (Australia/Melbourne).
 
 Read this document first. It records the product contract, current implementation, prioritised future work and the decisions behind it. Update it at the end of every meaningful delivery, including verification and any remaining gaps. A plan is not evidence of delivery: distinguish **delivered**, **in progress**, **planned**, **proposed** and **unverified**.
 
@@ -21,7 +21,7 @@ Pig Music is a private household music-library manager with one container, one i
 
 ## Current status and evidence
 
-Phase 1a operates independently on live NAS data. The four old container definitions have been retired; recovery data/images remain. The approved cleanup was delivered as `pig-music:cleanup-20261006-v3` on 6 October 2026. A01 and D01 were delivered on 7 October 2026. The current release is **A02/A03, `audit-20261007-v1`**, delivered later that day as the immutable GHCR image recorded below. The Phase 1a image `pig-music:preview-20261006-phase1a-final-v2` remains retained as historical recovery material; the immediate rollback is recorded with the current release.
+Phase 1a operates independently on live NAS data. The four old container definitions have been retired; recovery data/images remain. The approved cleanup was delivered as `pig-music:cleanup-20261006-v3` on 6 October 2026. A01 and D01 were delivered on 7 October 2026. The current release is **`audit-followup-20261007-v1`**, including A01–A03, approved B01/B02 branding, M00 migrations, private HTTPS and the remaining accessibility/grid/artwork/token audit fixes. Exact-image and live acceptance are recorded in `docs/audit-followup-delivery.md`. The Phase 1a image `pig-music:preview-20261006-phase1a-final-v2` remains retained as historical recovery material; the immediate rollback is recorded with the current release.
 
 Existing delivered capabilities include local/discovered search, artwork, artist discographies, popular songs/albums, saved and experimental remote playback, song/album/artist acquisition, optional artist monitoring, quality replacement/fallback/upgrades, scans, recovery/restore, reviewed organisation, Apple XML import, custom playlists, favourites and a single Plex owner integration.
 
@@ -242,3 +242,7 @@ The main app now has a startup-audited default-deny guard, HTTPS account routes,
 **Delivered:** B01/B02, M00 and T01 as `brand-https-20261007-v1`. Image source revision `6fafc59e2f352139844c810a8929991367c4ab17`; immutable digest `sha256:37b16f9cdad35bf9dbe013fa8293c90a06a22069d3cda6b15c0dfce4af158e43`. Exact-image Unraid tests145, scale gates and stopped-state verification passed. Prior audit release is retained as immediate rollback, with matching backup `pre-brand-https-20261007-v1`.
 
 Private URL: **https://passyflix.tail6d1471.ts.net:10000/**. Port443 remains Unraid administration;8443 remains the existing other service. Proxy uses the existing container bridge; exact gateway trust and public origin were corrected in final runtime configuration. Certificate/HTTP2/HTTPS-health/icons/manifest/Origin checks passed from Unraid. This Mac lacks private hostname resolution; both phones still need LAN/cellular acceptance. No Funnel/public exposure. Account branches are development only and excluded from this release.
+
+## Remaining audit checkpoint — 7 October 2026
+
+The live release is audit-followup-20261007-v1, including approved PigMusic branding, schema migrations and private HTTPS on passyflix.tail6d1471.ts.net:10000. This release adds enlarged-text layout, bounded collection pages, generated protected-media/shadow roles, local artwork metadata and removal of the test-client warning. See docs/audit-followup-delivery.md for exact implementation and outstanding evidence. Accounts/personal libraries remain separate un-deployed development foundations. The physical Watch spike is not installed.

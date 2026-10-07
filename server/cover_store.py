@@ -43,6 +43,7 @@ class CoverStore:
         self.directory.mkdir(parents=True, exist_ok=True)
         # Scanner writes and pruning share this lock for the entire scan.
         self.lock = threading.RLock()
+        self.presentation_cache = {}
 
     def path(self, sha):
         if not isinstance(sha, str) or not HASH.fullmatch(sha):
@@ -76,7 +77,81 @@ class CoverStore:
                     os.replace(temporary, target)
                 finally:
                     Path(temporary).unlink(missing_ok=True)
+        self.metadata(sha)
         return sha
+
+    def presentation(self, sha):
+        """Read only cached metadata; projection refresh never decodes images."""
+        if not self.path(sha):
+            return None
+        cached = self.presentation_cache.get(sha)
+        if cached:
+            return cached
+        target = self.directory / "metadata" / (sha + "-v1.json")
+        try:
+            if (
+                target.parent.is_symlink()
+                or target.is_symlink()
+                or target.stat().st_size > 1024
+            ):
+                return None
+            value = json.loads(target.read_text())
+            if (
+                set(value) != {"version", "sha", "dominant_colour", "width", "height"}
+                or value["sha"] != sha
+                or value["version"] != 1
+                or not re.fullmatch(r"#[0-9a-f]{6}", value["dominant_colour"])
+                or not all(
+                    type(value[k]) is int and 0 < value[k] <= 1024
+                    for k in ("width", "height")
+                )
+            ):
+                return None
+        except (OSError, ValueError, TypeError):
+            return None
+        with self.lock:
+            if len(self.presentation_cache) >= 8192:
+                self.presentation_cache.pop(next(iter(self.presentation_cache)))
+            self.presentation_cache[sha] = value
+        return value
+
+    def metadata(self, sha):
+        """Deterministic dominant swatch from the immutable local JPEG only."""
+        with self.lock:
+            cached = self.presentation(sha)
+            if cached:
+                return cached
+            target = self.path(sha)
+            if not target:
+                return None
+            with Image.open(target) as image:
+                width, height = image.size
+                image = image.convert("RGB")
+                image.thumbnail((32, 32))
+                reduced = image.quantize(colors=8, method=Image.Quantize.MEDIANCUT)
+                count, index = max(
+                    reduced.getcolors(), key=lambda item: (item[0], -item[1])
+                )
+                rgb = reduced.getpalette()[index * 3 : index * 3 + 3]
+            value = {
+                "version": 1,
+                "sha": sha,
+                "dominant_colour": "#" + "".join(f"{v:02x}" for v in rgb),
+                "width": width,
+                "height": height,
+            }
+            directory = self.directory / "metadata"
+            if directory.is_symlink():
+                return None
+            directory.mkdir(exist_ok=True)
+            descriptor, temporary = tempfile.mkstemp(prefix=".metadata-", dir=directory)
+            try:
+                with os.fdopen(descriptor, "w") as stream:
+                    json.dump(value, stream, sort_keys=True)
+                os.replace(temporary, directory / (sha + "-v1.json"))
+            finally:
+                Path(temporary).unlink(missing_ok=True)
+            return self.presentation(sha)
 
     def migrate(self, path):
         """Read legacy covers one at a time; retain the original for rollback.
@@ -206,4 +281,17 @@ class CoverStore:
                         and path.stat().st_mtime < now - WEEK
                     ):
                         path.unlink()
+            metadata = self.directory / "metadata"
+            if metadata.is_dir():
+                for path in metadata.glob("*-v1.json"):
+                    sha = path.name.removesuffix("-v1.json")
+                    if (
+                        HASH.fullmatch(sha)
+                        and sha not in references
+                        and not self.path(sha)
+                        and not path.is_symlink()
+                        and path.stat().st_mtime < now - WEEK
+                    ):
+                        path.unlink()
+                        self.presentation_cache.pop(sha, None)
         return removed

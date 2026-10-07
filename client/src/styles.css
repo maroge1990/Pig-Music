@@ -477,7 +477,7 @@ img {
 .detail-hero > .cover {
   width: 210px;
   flex-shrink: 0;
-  box-shadow: 0 12px 30px #0004;
+  box-shadow: 0 12px 30px var(--shadow-soft);
 }
 .detail-hero h1 {
   font-size: clamp(1.75rem, 3.6vw, 3.25rem);
@@ -1019,7 +1019,7 @@ img {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  box-shadow: 0 10px 30px #0005;
+  box-shadow: 0 10px 30px var(--shadow-card);
   margin-top: 35px;
 }
 .migration-footer > div {
@@ -1125,7 +1125,7 @@ img {
   background: var(--success-fill);
   border: 1px solid var(--success-fill);
   border-radius: var(--radius-compact);
-  box-shadow: 0 6px 25px #0007;
+  box-shadow: 0 6px 25px var(--shadow-floating);
   padding: 14px 19px;
   font-size: 0.75rem;
   max-width: 85vw;
@@ -1134,7 +1134,7 @@ img {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: #000b;
+  background: var(--scrim);
   backdrop-filter: blur(7px);
   z-index: 100;
   display: flex;
@@ -1152,7 +1152,7 @@ img {
   display: flex;
   flex-direction: column;
   padding: 28px;
-  box-shadow: 0 20px 90px #000a;
+  box-shadow: 0 20px 90px var(--shadow-dialog);
 }
 .modal-heading {
   display: flex;
@@ -2184,7 +2184,7 @@ img {
   background: var(--surface);
   border: 1px solid var(--control-border);
   border-radius: var(--radius-control);
-  box-shadow: 0 12px 40px #0003;
+  box-shadow: 0 12px 40px var(--shadow-dropdown);
   padding: var(--space-12);
   z-index: 60;
 }
@@ -2750,13 +2750,13 @@ img {
 
 /* Playback is a protected dark surface in both appearances. */
 .music-player {
-  --surface: #1e1925;
-  --raised: #251e2e;
-  --text: #ffffff;
+  --surface: var(--media-solid-panel);
+  --raised: var(--media-raised);
+  --text: var(--media-text);
   --secondary: var(--media-secondary);
-  --accent: #ef7aae;
-  --text-accent: #ef7aae;
-  --on-accent: #442a19;
+  --accent: var(--media-accent);
+  --text-accent: var(--media-accent);
+  --on-accent: var(--media-on-accent);
   --control-border: var(--media-control-border);
   --border: var(--media-border);
   background: var(--surface);
@@ -2834,12 +2834,6 @@ img {
   }
 }
 
-/* Keep large collections cheap to paint without changing their presentation. */
-.artist-card,
-.album-card {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 240px;
-}
 @media (max-width: 600px) {
   .library-controls {
     flex-wrap: wrap;
@@ -2894,5 +2888,74 @@ select:focus-visible {
   .round-action,
   .icon-button {
     min-width: 44px;
+  }
+}
+
+/* Text enlargement must retain complete labels and usable navigation. */
+.card-name,
+.card-caption {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.section-title {
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+.nav-count {
+  line-height: 1.4;
+}
+.nav-item svg,
+.connection-dot {
+  flex-shrink: 0;
+}
+.sidebar {
+  overflow-y: auto;
+}
+@media (max-width: 600px) {
+  .mobile-nav > button {
+    min-width: 0;
+    padding-inline: var(--space-4);
+  }
+  .mobile-nav {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(5rem, 100%), 1fr));
+    gap: var(--space-4);
+  }
+  .main-content,
+  .has-player .main-content {
+    padding-bottom: calc(
+      var(--mobile-nav-height, 4rem) + var(--player-height, 0px) + 2rem
+    );
+  }
+  .topbar {
+    height: auto;
+    min-height: 63px;
+    padding-block: var(--space-8);
+  }
+  .music-player {
+    bottom: var(--mobile-nav-height, 4rem);
+  }
+}
+
+@media (max-width: 600px) {
+  .migration-footer,
+  .has-player .migration-footer {
+    bottom: calc(var(--mobile-nav-height, 4rem) + var(--player-height, 0px));
+  }
+  .toast,
+  .has-player .toast {
+    bottom: calc(
+      var(--mobile-nav-height, 4rem) + var(--player-height, 0px) + 1rem
+    );
+  }
+  .player-controls {
+    flex-wrap: wrap;
+  }
+  .player-seek {
+    min-width: min(12rem, 100%);
+  }
+  .detail-hero h1,
+  .page-heading h1 {
+    overflow-wrap: anywhere;
   }
 }

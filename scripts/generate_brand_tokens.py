@@ -35,6 +35,31 @@ def outputs():
         css += [f"  --space-{size}: {size / 16:g}rem;"]
     for name, size in [("caption", 12), ("body", 16), ("title", 24), ("heading", 32)]:
         css += [f"  --type-{name}: {size / 16:g}rem;"]
+    for key, value in tokens["media"].items():
+        if isinstance(value, str) and value.startswith("#"):
+            css += [f"  --media-{kebab(key)}: {value.lower()};"]
+    css += [f"  --media-raised: {tokens['dark']['raised'].lower()};"]
+    # Existing shadow/scrim opacities, derived from approved media black.
+    for name, alpha in (
+        ("shadow-soft", 4),
+        ("shadow-card", 5),
+        ("shadow-floating", 7),
+        ("shadow-dialog", 10),
+        ("shadow-dropdown", 3),
+        ("scrim", 11),
+    ):
+        percent = f"{alpha / 15 * 100:.6f}".rstrip("0").rstrip(".")
+        line = f"  --{name}: color-mix(in srgb, var(--media-canvas) {percent}%, transparent);"
+        if len(line) > 80:
+            css += [
+                f"  --{name}: color-mix(",
+                "    in srgb,",
+                f"    var(--media-canvas) {percent}%,",
+                "    transparent",
+                "  );",
+            ]
+        else:
+            css += [line]
     css += [
         "  --selected-fill: color-mix(in srgb, var(--accent) 14%, var(--surface));",
         "  --success-fill: color-mix(in srgb, var(--success) 14%, var(--surface));",

@@ -66,7 +66,7 @@ export function Cover({
       ) : (
         <>
           <span className="placeholder-halo" aria-hidden="true" />
-          <span className="cover-initials">
+          <span className="cover-initials" aria-hidden="true">
             {title
               .split(" ")
               .filter(Boolean)

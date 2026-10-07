@@ -51,6 +51,34 @@
   --type-body: 1rem;
   --type-title: 1.5rem;
   --type-heading: 2rem;
+  --media-canvas: #000000;
+  --media-text: #ffffff;
+  --media-solid-panel: #15111a;
+  --media-accent: #ef7aae;
+  --media-on-accent: #442a19;
+  --media-raised: #251e2e;
+  --shadow-soft: color-mix(
+    in srgb,
+    var(--media-canvas) 26.666667%,
+    transparent
+  );
+  --shadow-card: color-mix(
+    in srgb,
+    var(--media-canvas) 33.333333%,
+    transparent
+  );
+  --shadow-floating: color-mix(
+    in srgb,
+    var(--media-canvas) 46.666667%,
+    transparent
+  );
+  --shadow-dialog: color-mix(
+    in srgb,
+    var(--media-canvas) 66.666667%,
+    transparent
+  );
+  --shadow-dropdown: color-mix(in srgb, var(--media-canvas) 20%, transparent);
+  --scrim: color-mix(in srgb, var(--media-canvas) 73.333333%, transparent);
   --selected-fill: color-mix(in srgb, var(--accent) 14%, var(--surface));
   --success-fill: color-mix(in srgb, var(--success) 14%, var(--surface));
   --warning-fill: color-mix(in srgb, var(--warning) 14%, var(--surface));

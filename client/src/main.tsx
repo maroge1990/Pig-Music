@@ -7,7 +7,6 @@ import { createRoot } from "react-dom/client";
 import {
   ArrowLeft,
   ArrowRight,
-  Check,
   ChevronDown,
   ChevronRight,
   ListMusic,
@@ -34,6 +33,9 @@ import "./styles.css";
 const pigLogo = "/brand/mark.png";
 import { CatalogueBrowser } from "./CatalogueBrowser";
 import { Cover } from "./Cover";
+import { useFixedHeight } from "./useFixedHeight";
+import { AlbumCards, ArtistCards } from "./LibraryCards";
+import { CollectionPages } from "./CollectionPages";
 import { PlayerProvider, usePlayer } from "./Player";
 import { MediaSettings } from "./MediaSettings";
 import { SearchPanel } from "./SearchPanel";
@@ -141,6 +143,7 @@ function PigMark() {
 }
 
 function App() {
+  const mobileNav = useFixedHeight("--mobile-nav-height");
   const player = usePlayer();
   const [menuReset, setMenuReset] = useState(0);
 
@@ -659,25 +662,7 @@ function App() {
   const openArtist = (id: string) => navigate("library", "artist", id);
 
   const albumCards = (albums: Album[]) => (
-    <div className="album-grid">
-      {albums.map((album) => (
-        <button
-          className="album-card"
-          key={album.id}
-          onClick={() => openAlbum(album.id)}
-        >
-          <Cover title={album.title} src={album.cover_url} />
-          <div className="card-name">{album.title}</div>
-
-          <div className="card-caption">{album.artist}</div>
-          <div className="album-meta">
-            {album.year || "Release"}
-            <span>·</span>
-            {plural(album.track_count, "track")}
-          </div>
-        </button>
-      ))}
-    </div>
+    <AlbumCards albums={albums} open={openAlbum} />
   );
 
   const savedTracks = (tracks: Track[]) => (
@@ -1050,39 +1035,32 @@ function App() {
             )}
 
             {libraryTab === "artists" ? (
-              <div className="artist-grid">
-                {sortedArtists.map((artist) => (
-                  <button
-                    className="artist-card"
-                    key={artist.id}
-                    onClick={() => openArtist(artist.id)}
-                    onPointerEnter={() => {
-                      if (!artistCache.current.has(artist.id))
-                        api<Artist>(`/artists/${artist.id}`)
+              <CollectionPages
+                key={`artists:${sort}`}
+                items={sortedArtists}
+                label="Artists"
+              >
+                {(visibleArtists) => (
+                  <ArtistCards
+                    artists={visibleArtists}
+                    open={openArtist}
+                    prefetch={(id) => {
+                      if (!artistCache.current.has(id))
+                        api<Artist>(`/artists/${id}`)
                           .then((a) => artistCache.current.set(a.id, a))
                           .catch(() => {});
                     }}
-                  >
-                    <div className="artist-art-wrap">
-                      <Cover
-                        artist
-                        title={artist.name}
-                        src={artist.cover_url}
-                      />
-                      <span className="card-check">
-                        <Check size={12} />
-                      </span>
-                    </div>
-                    <div className="card-name">{artist.name}</div>
-                    <div className="card-caption">
-                      {plural(artist.album_count, "release")} <span>·</span>{" "}
-                      {plural(artist.track_count, "track")}
-                    </div>
-                  </button>
-                ))}
-              </div>
+                  />
+                )}
+              </CollectionPages>
             ) : (
-              albumCards(sortedAlbums)
+              <CollectionPages
+                key={`${libraryTab}:${sort}`}
+                items={sortedAlbums}
+                label="Releases"
+              >
+                {albumCards}
+              </CollectionPages>
             )}
 
             {!(libraryTab === "artists" ? artists : albums).length && (
@@ -1984,7 +1962,11 @@ function App() {
                     : systemPage())}
         </main>
       </div>
-      <nav className="mobile-nav" aria-label="Mobile navigation">
+      <nav
+        ref={mobileNav}
+        className="mobile-nav"
+        aria-label="Mobile navigation"
+      >
         {navItems.map((item) => (
           <button
             className={route.page === item.page ? "active" : ""}
