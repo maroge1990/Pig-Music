@@ -1,17 +1,3 @@
-/* Playback is a protected dark surface in both appearances. */
-.music-player {
-  --surface: var(--media-solid-panel);
-  --raised: var(--media-raised);
-  --text: var(--media-text);
-  --secondary: var(--media-secondary);
-  --accent: var(--media-accent);
-  --text-accent: var(--media-accent);
-  --on-accent: var(--media-on-accent);
-  --control-border: var(--media-control-border);
-  --border: var(--media-border);
-  background: var(--surface);
-  color: var(--text);
-}
 .system-grid {
   gap: var(--space-24);
 }
@@ -37,32 +23,6 @@
   min-height: 40px;
 }
 @media (max-width: 600px) {
-  .music-player {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-12);
-  }
-  .player-song {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .player-extra {
-    grid-column: 1;
-    grid-row: 2;
-    justify-content: flex-end;
-  }
-  .player-controls {
-    grid-row: 3;
-    gap: var(--space-12);
-  }
-  .player-song > div:last-child {
-    flex: 1;
-  }
-  .player-song strong {
-    font-size: var(--type-subhead);
-  }
-  .player-song span {
-    font-size: var(--type-caption);
-  }
   .system-panel .release-actions {
     align-items: stretch;
   }
@@ -91,41 +51,6 @@
   }
 }
 
-/* One transport/action row, with the seek bar spanning beneath it. */
-.music-player {
-  grid-template-columns: minmax(180px, 1fr) minmax(170px, 1fr) auto;
-  align-items: center;
-  min-height: 108px;
-}
-.player-controls {
-  display: contents;
-}
-.player-buttons {
-  grid-column: 2;
-  grid-row: 1;
-}
-.player-extra {
-  grid-column: 3;
-  grid-row: 1;
-  align-items: center;
-}
-.player-extra > button,
-.player-extra .playlist-picker > button {
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-}
-.player-seek {
-  grid-column: 2 / 4;
-  grid-row: 2;
-  margin: 0;
-}
-.player-song {
-  grid-column: 1;
-  grid-row: 1 / 3;
-}
 .playlist-picker {
   display: inline-flex;
 }
@@ -217,48 +142,4 @@
   height: 88px;
   flex: 0 0 88px;
   border-radius: 50%;
-}
-@media (max-width: 800px) {
-  .music-player {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-  .player-song {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .player-extra {
-    grid-column: 2;
-    grid-row: 1;
-  }
-  .player-buttons {
-    grid-column: 1 / 3;
-    grid-row: 2;
-  }
-  .player-seek {
-    grid-column: 1 / 3;
-    grid-row: 3;
-  }
-}
-@media (max-width: 420px) {
-  .player-song {
-    grid-column: 1 / 3;
-  }
-  .player-extra {
-    grid-column: 2;
-    grid-row: 2;
-  }
-  .player-buttons {
-    grid-column: 1;
-    grid-row: 2;
-    justify-content: flex-start;
-    gap: 8px;
-  }
-  .player-extra {
-    gap: 0;
-  }
-  .player-extra > button,
-  .player-extra .playlist-picker > button {
-    width: 36px;
-    min-width: 36px;
-  }
 }

@@ -40,6 +40,16 @@ class Tracks(BaseModel):
     tracks: list[TrackInput] = Field(min_length=1, max_length=500)
 
 
+class LookupSong(BaseModel):
+    title: str = Field(min_length=1, max_length=500)
+    artist: str = Field(min_length=1, max_length=500)
+    musicbrainz_recording_id: str | None = Field(default=None, max_length=36)
+
+
+class Lookup(BaseModel):
+    songs: list[LookupSong] = Field(min_length=1, max_length=200)
+
+
 class Membership(BaseModel):
     track_ids: list[str] = Field(min_length=1, max_length=500)
 
@@ -252,6 +262,11 @@ def personal_router(store, artist_jobs, recovery):
     @router.get("/search", response_model=SearchResults)
     async def search(request: Request, q: str = ""):
         return await run(users.search, identity(request), q)
+
+    @router.post("/library/lookup")
+    async def lookup(body: Lookup, request: Request):
+        songs = [s.model_dump() for s in body.songs]
+        return {"tracks": await run(users.lookup, identity(request), songs)}
 
     @router.post("/library/membership")
     async def add(body: Membership, request: Request):

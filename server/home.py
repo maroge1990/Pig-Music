@@ -121,6 +121,9 @@ class HomeDiscovery:
                         "release_id": self.identity(
                             item.get("release_mbid") or item.get("caa_release_mbid")
                         ),
+                        "album": (
+                            item.get("release_name", "") if kind == "songs" else ""
+                        ),
                         "kind": kind,
                     }
                 )
@@ -239,6 +242,9 @@ class HomeDiscovery:
                                 "artist": credit(detail.get("artist-credit", [])),
                                 "name": detail["title"],
                                 "release_id": releases[0]["id"] if releases else None,
+                                "album": (
+                                    releases[0].get("title", "") if releases else ""
+                                ),
                                 "reason": reason,
                                 "kind": "songs",
                             }

@@ -34,12 +34,13 @@ from .artist_backgrounds import background_target
 from pydantic import BaseModel, Field
 
 from .library import normalise, identifier
-from .fanart import Fanart
+from .fanart import Fanart, best as best_fanart, download as fanart_download
 from .storage import download_root
 from .store import Store
 from .downloader import Downloader
 from .catalogue import (
     Catalogue,
+    mbid,
     release_tracks,
     background_metadata,
 )
@@ -48,6 +49,7 @@ from .artwork import Artwork
 from .portraits import Portraits
 from .popularity import Popularity
 from .artist_backgrounds import Backgrounds
+from .artist_logos import Logos
 from .media import (
     public_settings,
     track_file,
@@ -77,6 +79,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     portraits = Portraits(store, music_catalogue, artwork, fanart)
     popularity = Popularity(store, music_catalogue)
     backgrounds = Backgrounds(store, artwork, fanart)
+    logos = Logos(store, fanart)
     remote_audio = RemoteAudio()
     scanner = LibraryScanner(store)
     playlists = Playlists(store)
@@ -246,7 +249,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             "camera=(), microphone=(), geolocation=()"
         )
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: https://*.saavncdn.com; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
         )
         if request.url.scheme == "https":
             response.headers["Strict-Transport-Security"] = "max-age=31536000"
@@ -734,10 +737,35 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         key = "catalogue-artwork:" + kind + ":" + item_id
         target = store.cover_dir / (identifier(key) + ".jpg")
         if not target.is_file():
-            enrichment.submit(
-                key, lambda: artwork.catalogue_cover(app.state.http, kind, item_id)
-            )
+            enrichment.submit(key, lambda: catalogue_cover(kind, item_id, target))
         return await image_response(target, w)
+
+    async def catalogue_cover(kind, item_id, target):
+        found = await artwork.catalogue_cover(app.state.http, kind, item_id)
+        if found:
+            return found
+        # Cover Art Archive has nothing: Fanart often has the album cover.
+        config = private_media_settings(store)
+        token = config.get("fanart_key")
+        if not token or not config.get("portraits"):
+            return None
+        try:
+            group_id = item_id
+            if kind == "release":
+                release = await music_catalogue.get(
+                    app.state.http, "release/" + item_id, inc="release-groups"
+                )
+                group_id = mbid(release["release-group"]["id"])
+            images = await fanart.album(app.state.http, group_id, token)
+            cover = best_fanart(images.get("albumcover"))
+            if not cover:
+                return None
+            content = await fanart_download(app.state.http, cover["url"])
+            await asyncio.to_thread(artwork.save, content, target)
+            return target
+        except Exception:
+            # Optional enrichment; the placeholder cover remains.
+            return None
 
     @app.get("/api/artists/{artist_id}")
     def artist(artist_id: str):
@@ -921,6 +949,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             image_response,
             image_config,
             lambda: app.state.http,
+            logos,
         )
     )
     app.include_router(catalogue_routes)
@@ -1014,14 +1043,29 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
 
     class PlaybackRequest(BaseModel):
         release_id: str
-        track_id: str
+        track_id: str | None = Field(None, max_length=64)
+        # Popularity and Home feeds know the recording, not the release track.
+        recording_id: str | None = Field(None, max_length=64)
 
-    @app.post("/api/playback/catalogue")
+    @app.post("/api/playback/catalogue", tags=["personal-library"])
     async def playback_catalogue(body: PlaybackRequest):
+        if not body.track_id and not body.recording_id:
+            raise HTTPException(422, "Choose a song to play.")
         tracks = music_catalogue.presence(
             release_tracks(await release_data(body.release_id))
         )
-        track = next((t for t in tracks if t["id"] == body.track_id), None)
+        track = next(
+            (
+                t
+                for t in tracks
+                if (body.track_id and t["id"] == body.track_id)
+                or (
+                    not body.track_id
+                    and t.get("musicbrainz_recording_id") == body.recording_id
+                )
+            ),
+            None,
+        )
         if track is None:
             raise HTTPException(404, "Song not found in this release.")
         if track.get("saved_id"):
@@ -1063,6 +1107,17 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 return FileResponse(
                     dist / "manifest.webmanifest",
                     media_type="application/manifest+json",
+                    headers={"Cache-Control": "no-cache"},
+                )
+
+        if (dist / "sw.js").is_file():
+
+            @app.get("/sw.js", include_in_schema=False)
+            def service_worker():
+                # Always revalidated so a release replaces the cache rules.
+                return FileResponse(
+                    dist / "sw.js",
+                    media_type="text/javascript",
                     headers={"Cache-Control": "no-cache"},
                 )
 

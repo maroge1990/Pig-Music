@@ -283,3 +283,47 @@ def test_search_includes_compilation_only_artists(tmp_path):
         result = client.get("/api/search", params={"q": "Artist B"}).json()
         assert result["artists"][0]["compilation_only"] is True
         assert result["tracks"][0]["album"] == "Summer"
+
+
+def test_owner_examples_classify_into_their_own_sections():
+    from server.library import classify
+
+    cases = [
+        (
+            "Hamilton (Original Broadway Cast Recording)",
+            "Lin-Manuel Miranda",
+            [],
+            "musical",
+        ),
+        ("Hamilton", "Original Broadway Cast of Hamilton", [], "musical"),
+        (
+            "The Book of Mormon (Original Broadway Cast Recording)",
+            "Trey Parker",
+            [],
+            "musical",
+        ),
+        (
+            "Westworld: Season 1 (Music from the HBO Series)",
+            "Ramin Djawadi",
+            [],
+            "soundtrack",
+        ),
+        ("Westworld: Season 2", "Ramin Djawadi", ["Soundtrack"], "soundtrack"),
+        ("Persona 5 Original Soundtrack", "Shoji Meguro", [], "soundtrack"),
+        ("Persona 5 Royal", "ATLUS Sound Team", ["Game"], "soundtrack"),
+        ("Transformers: The Album", "Various Artists", [], "soundtrack"),
+        ("Transformers (The Score)", "Steve Jablonsky", [], "soundtrack"),
+        ("Transformers", "Steve Jablonsky", ["Score"], "soundtrack"),
+    ]
+    for album, artist, genres, expected in cases:
+        assert classify(album, artist, genres, False) == expected, album
+
+
+def test_ordinary_albums_are_not_mistaken_for_sections():
+    from server.library import classify
+
+    assert classify("The Score", "Fugees", ["Hip-Hop"], False) == "album"
+    assert classify("The Album", "ABBA", ["Pop"], False) == "album"
+    assert classify("Pass the Dutchie", "Musical Youth", ["Reggae"], False) == "album"
+    assert classify("Funeral", "Arcade Fire", ["Indie Rock"], False) == "album"
+    assert classify("Now 50", "Various Artists", ["Pop"], True) == "compilation"

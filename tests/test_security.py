@@ -204,3 +204,68 @@ def test_secret_is_atomic_private_persistent_and_rejects_symlinks(tmp_path):
     (tmp_path / "bad/auth-secret").write_bytes(b"bad")
     with pytest.raises(ValueError):
         secret_file(tmp_path / "bad")
+
+
+def test_audio_policy_allows_only_the_validated_remote_stream_host(
+    tmp_path, monkeypatch
+):
+    app, _ = protected(tmp_path, monkeypatch)
+    with TestClient(app, base_url="https://private.ts.net") as client:
+        policy = client.get("/api/health").headers["content-security-policy"]
+    media = next(p for p in policy.split(";") if p.strip().startswith("media-src"))
+    # Remote listening returns only HTTPS *.saavncdn.com addresses.
+    assert media.split() == ["media-src", "'self'", "blob:", "https://*.saavncdn.com"]
+
+
+def test_members_can_stream_a_catalogue_song_by_its_recording(tmp_path, monkeypatch):
+    from server.catalogue import Catalogue
+    from server.remote import RemoteAudio
+
+    release = "11111111-1111-1111-1111-111111111111"
+    recording = "22222222-2222-2222-2222-222222222222"
+
+    async def catalogue_get(self, client, path, **params):
+        return {
+            "id": release,
+            "title": "Album",
+            "artist-credit": [{"name": "Artist", "joinphrase": ""}],
+            "media": [
+                {
+                    "position": 1,
+                    "tracks": [
+                        {
+                            "id": "track-one",
+                            "position": 1,
+                            "title": "Song",
+                            "recording": {"id": recording, "title": "Song"},
+                        }
+                    ],
+                }
+            ],
+        }
+
+    async def resolve(self, client, track):
+        assert track["musicbrainz_recording_id"] == recording
+        return "https://aac.saavncdn.com/song.mp4"
+
+    monkeypatch.setattr(Catalogue, "get", catalogue_get)
+    monkeypatch.setattr(RemoteAudio, "resolve", resolve)
+    app, owner = protected(tmp_path, monkeypatch)
+    code = app.state.auth.setup_code(owner, "member", "Member")
+    app.state.auth.activate(code["code"], PASSWORD, "fixture")
+    token = app.state.auth.login(
+        "member", PASSWORD, "device", "phone", "ios", "fixture"
+    )["token"]
+    with TestClient(
+        app,
+        base_url="https://private.ts.net",
+        headers={"Authorization": "Bearer " + token, "X-Pig-Request": "1"},
+    ) as client:
+        played = client.post(
+            "/api/playback/catalogue",
+            json={"release_id": release, "recording_id": recording},
+        )
+        assert played.status_code == 200
+        assert played.json()["url"] == "https://aac.saavncdn.com/song.mp4"
+        missing = client.post("/api/playback/catalogue", json={"release_id": release})
+        assert missing.status_code == 422

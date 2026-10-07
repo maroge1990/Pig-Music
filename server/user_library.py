@@ -136,6 +136,7 @@ class UserLibrary:
         self.store = store
         self.cache = OrderedDict()
         self.artwork_cache = {}
+        self.lookup_cache = {}
 
     def artwork_access(self, user_id):
         """Artwork a person may load, indexed once per projection revision."""
@@ -306,6 +307,34 @@ class UserLibrary:
                     )
                 ),
             }
+
+    def lookup(self, user_id, songs):
+        """Which of these songs are already in a person's library.
+
+        A recording ID is decisive; otherwise title and artist must both match.
+        """
+        data = self.projection(user_id)
+        cached = self.lookup_cache.get(user_id)
+        if not cached or cached[0] != data["revision"]:
+            recordings, names = {}, {}
+            for track in data["tracks"]:
+                if track.get("available", True) is False:
+                    continue
+                if track.get("musicbrainz_recording_id"):
+                    recordings.setdefault(track["musicbrainz_recording_id"], track)
+                names.setdefault(
+                    (normalise(track["title"]), normalise(track["artist"])), track
+                )
+            cached = (data["revision"], recordings, names)
+            self.lookup_cache[user_id] = cached
+        _, recordings, names = cached
+        found = []
+        for song in songs:
+            track = recordings.get(song.get("musicbrainz_recording_id") or "") or (
+                names.get((normalise(song["title"]), normalise(song["artist"])))
+            )
+            found.append(track_dto(track) if track else None)
+        return found
 
     def recently_added(self, user_id, limit=12):
         """Albums most recently added to a person's library.

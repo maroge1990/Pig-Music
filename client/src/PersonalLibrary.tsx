@@ -1,31 +1,22 @@
 import { SavedArtistHeading } from "./SavedArtistHeading";
 import { CatalogueBrowser } from "./CatalogueBrowser";
-import { MusicLink } from "./MusicLink";
-import { PlaylistPicker } from "./PlaylistPicker";
 import { Shuffle } from "lucide-react";
 import { shuffled } from "./shuffle";
 import { useEffect, useRef, useState } from "react";
-import {
-  Cloud,
-  CirclePlus,
-  Heart,
-  Play,
-  ArrowLeft,
-  Ellipsis,
-  ListMusic,
-} from "lucide-react";
+import { Play, ArrowLeft, ListMusic } from "lucide-react";
 import { api } from "./api";
-import { PersonalRequests } from "./PersonalRequests";
 import { PersonalQuality } from "./PersonalQuality";
 import { SearchPage } from "./SearchPage";
 import { Cover } from "./Cover";
 import { CollectionPages } from "./CollectionPages";
-import { LibrarySongs } from "./LibrarySongs";
+import { ShuffleLibrary } from "./ShuffleLibrary";
+import { SongRow } from "./SongRow";
+import { fromTrack, type Song } from "./songs";
+import { warmCovers, whenIdle } from "./prefetch";
 import { usePlayer } from "./Player";
 import type { Album, Artist, Library, Track } from "./types";
 import type { Person } from "./AppShell";
 import { go, type Route } from "./routes";
-import { RemoveFromServer } from "./Recovery";
 import {
   OwnerAlbumTools,
   OwnerArtistTools,
@@ -57,26 +48,23 @@ type Preview = {
   keep_count: number;
   items: { track_id: string; delete_file: boolean; kept_for: string[] }[];
 };
-const clean = (t: Track) => ({
-  year: String(t.year || ""),
-  musicbrainz_release_id: t.musicbrainz_release_id,
-  musicbrainz_recording_id: t.musicbrainz_recording_id,
-  title: t.title,
-  artist: t.artist,
-  album: t.album,
-  album_artist: t.album_artist,
-  duration: t.duration,
-  track_number: t.track_number,
-  disc_number: t.disc_number,
-});
 const libraryTabs = [
   "artists",
   "albums",
-  "songs",
+  "musicals",
+  "soundtracks",
+  "compilations",
   "playlists",
   "favourites",
-  "requests",
 ] as const;
+// Each album section shows one category; empty sections stay hidden.
+const sectionCategory = {
+  albums: "album",
+  musicals: "musical",
+  soundtracks: "soundtrack",
+  compilations: "compilation",
+} as const;
+type Section = keyof typeof sectionCategory;
 type LibraryTab = (typeof libraryTabs)[number];
 const tabLabel = (id: string) => id[0].toUpperCase() + id.slice(1);
 
@@ -95,7 +83,6 @@ export function PersonalLibrary({
     release?: string;
     group?: string;
   } | null>(null);
-  const [favourites, setFavourites] = useState<Set<string>>(new Set());
   const [library, setLibrary] = useState<Library | null>(null);
   const [tab, setTab] = useState<LibraryTab>("artists");
   const [detail, setDetail] = useState<{
@@ -127,48 +114,29 @@ export function PersonalLibrary({
     ]);
     setLibrary(summary);
     setPlaylists(list.playlists);
+    // Library artwork is always ready, whichever tab opens next.
+    whenIdle(() =>
+      warmCovers([
+        ...summary.artists
+          .filter((a) => !a.compilation_only)
+          .map((a) => a.cover_url),
+        ...summary.albums.map((a) => a.cover_url),
+      ]),
+    );
     const favouriteList = list.playlists.find((p) =>
       p.id.startsWith("pig-favourites:"),
     );
-    if (favouriteList) {
-      const values = await api<Playlist>("/v1/playlists/" + favouriteList.id);
-      setFavouriteList(values);
-      setFavourites(
-        new Set(values.entries.map((t) => t.saved_track?.id || t.id)),
-      );
-    } else {
-      setFavouriteList(null);
-      setFavourites(new Set());
-    }
+    setFavouriteList(
+      favouriteList
+        ? await api<Playlist>("/v1/playlists/" + favouriteList.id)
+        : null,
+    );
   }
   useEffect(() => {
     void refresh().catch((e) => setError(e.message));
     const changed = () => void refresh().catch((e) => setError(e.message));
     window.addEventListener("music-library-changed", changed);
-    const events = new EventSource("/api/v1/events");
-    events.addEventListener("revision", changed);
-    events.addEventListener("queue", () =>
-      window.dispatchEvent(new Event("music-requests-changed")),
-    );
-    events.addEventListener("revoked", () =>
-      window.dispatchEvent(new Event("music-auth-required")),
-    );
-    let fallback: ReturnType<typeof setInterval> | undefined;
-    events.onerror = () => {
-      fallback ||= setInterval(() => {
-        changed();
-        window.dispatchEvent(new Event("music-requests-changed"));
-      }, 15000);
-    };
-    events.onopen = () => {
-      clearInterval(fallback);
-      fallback = undefined;
-    };
-    return () => {
-      events.close();
-      clearInterval(fallback);
-      window.removeEventListener("music-library-changed", changed);
-    };
+    return () => window.removeEventListener("music-library-changed", changed);
   }, []);
   const [kind, id] = route.parts;
   const routeKey = `${route.section}/${route.parts.join("/")}?${route.params}`;
@@ -183,7 +151,7 @@ export function PersonalLibrary({
       return;
     }
     setCatalogue(null);
-    if (searching) return;
+    if (searching) return setDetail(null);
     if (libraryTabs.includes(kind as LibraryTab)) setTab(kind as LibraryTab);
     if (kind === "album" && id) void openAlbum({ id } as Album);
     else if (kind === "artist" && id) void openArtist({ id } as Artist);
@@ -191,6 +159,12 @@ export function PersonalLibrary({
     else setDetail(null);
   }, [routeKey]);
   const backToLibrary = () => go("/library/" + tab);
+  useEffect(() => {
+    // Keep the chosen collection visible in the sideways tab strip.
+    document
+      .querySelector(".personal-tabs [aria-current]")
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [tab, !!library]);
   useEffect(() => {
     if (removal) dialog.current?.showModal();
   }, [removal]);
@@ -255,17 +229,6 @@ export function PersonalLibrary({
       setError((e as Error).message);
     }
   }
-  async function add(t: Track) {
-    await action(
-      () =>
-        api("/v1/requests", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tracks: [clean(t)] }),
-        }),
-      "Added or requested for your library",
-    );
-  }
   async function preview(ids: string[]) {
     try {
       const data = await api<Preview>("/v1/library/removal-preview", {
@@ -279,181 +242,93 @@ export function PersonalLibrary({
     }
   }
   function songs(tracks: Track[], playlist?: Playlist) {
+    const albumArtist =
+      detail?.quality?.scope === "album" && tracks[0]?.album_artist;
+    const artistName = detail?.artist?.name;
+    const list: Song[] = tracks.map((t, i) => {
+      const entry = playlist?.entries[i];
+      const song = fromTrack(t, detail?.cover, entry?.entry_id || t.id);
+      return playlist && !entry?.saved_track
+        ? { ...song, state: "missing", saved: undefined }
+        : song;
+    });
     return (
-      <CollectionPages key={detail?.title || tab} items={tracks} label="Songs">
-        {(items) =>
-          items.map((t) => {
-            const entry = playlist?.entries[tracks.indexOf(t)];
-            const saved = playlist
-              ? !!entry?.saved_track
-              : t.available !== false;
-            return (
-              <article className="personal-track" key={entry?.entry_id || t.id}>
-                <Cover title={t.title} src={t.cover_url || detail?.cover} />
-                <div>
-                  <strong>{t.title}</strong>
-                  <p>
-                    <MusicLink artist={t.artist} /> ·{" "}
-                    <MusicLink artist={t.artist} album={t.album} />
-                  </p>
-                </div>
-                <button
-                  aria-label={
-                    saved ? `Play ${t.title}` : `Add or request ${t.title}`
+      <CollectionPages key={detail?.title || tab} items={list} label="Songs">
+        {(items) => (
+          <div className="song-list">
+            {items.map((song) => {
+              const i = list.indexOf(song);
+              const t = tracks[i];
+              const entry = playlist?.entries[i];
+              return (
+                <SongRow
+                  key={song.key}
+                  song={song}
+                  queue={list}
+                  index={i}
+                  numbered={!!albumArtist}
+                  onAlbum={!!albumArtist}
+                  onArtist={
+                    !!(albumArtist || artistName) &&
+                    t.artist.toLocaleLowerCase() ===
+                      String(albumArtist || artistName).toLocaleLowerCase()
                   }
-                  onClick={() =>
-                    saved
-                      ? player.playSaved(
-                          t,
-                          playlist
-                            ? playlist.entries.flatMap((e) =>
-                                e.saved_track ? [e.saved_track] : [],
-                              )
-                            : tracks.filter((x) => x.available !== false),
-                        )
-                      : void add(t)
-                  }
-                >
-                  {saved ? <Play size={20} /> : <CirclePlus size={20} />}
-                </button>
-                <span
-                  aria-label={
-                    saved
-                      ? "On the server"
-                      : entry?.household_available
-                        ? "On server. Add to your library"
-                        : "Not in your library"
-                  }
-                >
-                  {saved ? <Cloud size={20} /> : null}
-                </span>
-                <button
-                  aria-label={
-                    favourites.has(t.id)
-                      ? `Remove ${t.title} from favourites`
-                      : `Favourite ${t.title}`
-                  }
-                  onClick={() =>
-                    void action(
-                      () =>
-                        api("/v1/favourites", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            track: clean(t),
-                            favourite: !favourites.has(t.id),
-                          }),
-                        }),
-                      favourites.has(t.id)
-                        ? "Removed from favourites"
-                        : "Added to favourites",
+                  onRemove={playlist ? undefined : () => void preview([t.id])}
+                  menu={
+                    playlist &&
+                    !playlist.favourites &&
+                    entry && (
+                      <>
+                        <button
+                          role="menuitem"
+                          disabled={entry.position === 0}
+                          onClick={() =>
+                            void action(async () => {
+                              await api(`/v1/playlists/${playlist.id}`, {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  revision: playlist.revision,
+                                  order: playlist.entries
+                                    .map((e) => e.position)
+                                    .map((p) =>
+                                      p === entry.position
+                                        ? p - 1
+                                        : p === entry.position - 1
+                                          ? p + 1
+                                          : p,
+                                    ),
+                                }),
+                              });
+                              await openPlaylist(playlist.id);
+                            })
+                          }
+                        >
+                          <span>Move up</span>
+                        </button>
+                        <button
+                          role="menuitem"
+                          className="danger"
+                          onClick={() =>
+                            void action(async () => {
+                              await api(
+                                `/v1/playlists/${playlist.id}/songs/${entry.position}?revision=${playlist.revision}`,
+                                { method: "DELETE" },
+                              );
+                              await openPlaylist(playlist.id);
+                            })
+                          }
+                        >
+                          <span>Remove from playlist</span>
+                        </button>
+                      </>
                     )
                   }
-                >
-                  <Heart
-                    size={18}
-                    fill={favourites.has(t.id) ? "currentColor" : "none"}
-                  />
-                </button>
-                {!playlist && (
-                  <PlaylistPicker
-                    title={t.title}
-                    load={async () =>
-                      (
-                        await api<{
-                          playlists: { id: string; name: string }[];
-                        }>("/v1/playlists")
-                      ).playlists.filter(
-                        (p) => !p.id.startsWith("pig-favourites:"),
-                      )
-                    }
-                    create={(name) =>
-                      api("/v1/playlists", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ name }),
-                      })
-                    }
-                    add={(id) =>
-                      api(`/v1/playlists/${id}/songs`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(clean(t)),
-                      }).then(() =>
-                        window.dispatchEvent(
-                          new Event("music-library-changed"),
-                        ),
-                      )
-                    }
-                  />
-                )}
-                <details>
-                  <summary aria-label={`More options for ${t.title}`}>
-                    <Ellipsis size={20} />
-                  </summary>
-                  {saved && (
-                    <button onClick={() => void preview([t.id])}>
-                      Remove from my library
-                    </button>
-                  )}
-                  {playlist && !playlist.favourites && entry && (
-                    <>
-                      <button
-                        disabled={entry.position === 0}
-                        onClick={() =>
-                          void action(async () => {
-                            await api(`/v1/playlists/${playlist.id}`, {
-                              method: "PATCH",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({
-                                revision: playlist.revision,
-                                order: playlist.entries
-                                  .map((e) => e.position)
-                                  .map((i) =>
-                                    i === entry.position
-                                      ? i - 1
-                                      : i === entry.position - 1
-                                        ? i + 1
-                                        : i,
-                                  ),
-                              }),
-                            });
-                            await openPlaylist(playlist.id);
-                          })
-                        }
-                      >
-                        Move up
-                      </button>
-                      <button
-                        onClick={() =>
-                          void action(async () => {
-                            await api(
-                              `/v1/playlists/${playlist.id}/songs/${entry.position}?revision=${playlist.revision}`,
-                              { method: "DELETE" },
-                            );
-                            await openPlaylist(playlist.id);
-                          })
-                        }
-                      >
-                        Remove from playlist
-                      </button>
-                    </>
-                  )}
-                  {owner && saved && !playlist && (
-                    <div className="owner-menu-items">
-                      <span className="owner-label">Admin</span>
-                      <RemoveFromServer
-                        kind="tracks"
-                        id={t.id}
-                        title={t.title}
-                      />
-                    </div>
-                  )}
-                </details>
-              </article>
-            );
-          })
-        }
+                />
+              );
+            })}
+          </div>
+        )}
       </CollectionPages>
     );
   }
@@ -483,6 +358,12 @@ export function PersonalLibrary({
         </p>
       </main>
     );
+  const counts: Record<string, number> = {
+    musicals: library.stats.musicals,
+    soundtracks: library.stats.soundtracks,
+    compilations: library.stats.compilations,
+  };
+  const visibleTabs = libraryTabs.filter((id) => counts[id] !== 0);
   return (
     <main className="personal-main">
       {searching ? (
@@ -522,7 +403,6 @@ export function PersonalLibrary({
           query={route.params.get("q") || ""}
           library={library}
           songs={(tracks) => songs(tracks)}
-          add={add}
         />
       ) : detail ? (
         <>
@@ -631,58 +511,75 @@ export function PersonalLibrary({
         </>
       ) : (
         <>
-          <nav className="personal-tabs" aria-label="Library collections">
-            {libraryTabs.map((id) => (
-              <a
-                key={id}
-                href={"#/library/" + id}
-                aria-current={tab === id ? "page" : undefined}
-              >
-                {tabLabel(id)}
-              </a>
-            ))}
-          </nav>
-          {(tab === "artists" || tab === "albums") && (
-            <CollectionPages<Artist | Album>
+          <div className="library-toolbar">
+            <nav className="personal-tabs" aria-label="Library collections">
+              {visibleTabs.map((id) => (
+                <a
+                  key={id}
+                  href={"#/library/" + id}
+                  aria-current={tab === id ? "page" : undefined}
+                >
+                  {tabLabel(id)}
+                </a>
+              ))}
+            </nav>
+            <ShuffleLibrary total={library.stats.tracks} />
+          </div>
+          {tab === "artists" && (
+            <CollectionPages<Artist>
               key={tab}
-              items={tab === "artists" ? library.artists : library.albums}
+              items={library.artists.filter((a) => !a.compilation_only)}
+              label="artists"
+            >
+              {(items) => (
+                <div className="personal-grid">
+                  {items.map((artist) => (
+                    <a
+                      key={artist.id}
+                      className="album-card"
+                      href={"#/library/artist/" + artist.id}
+                    >
+                      <Cover
+                        title={artist.name}
+                        src={artist.cover_url}
+                        artist
+                      />
+                      <h3>{artist.name}</h3>
+                      <p>
+                        {artist.album_count} album
+                        {artist.album_count === 1 ? "" : "s"}
+                      </p>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </CollectionPages>
+          )}
+          {tab in sectionCategory && (
+            <CollectionPages<Album>
+              key={tab}
+              items={library.albums.filter(
+                (a) => a.category === sectionCategory[tab as Section],
+              )}
               label={tab}
             >
               {(items) => (
                 <div className="personal-grid">
-                  {items.map((item) => {
-                    const artist = "name" in item;
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() =>
-                          go(
-                            `/library/${artist ? "artist" : "album"}/${item.id}`,
-                          )
-                        }
-                      >
-                        <Cover
-                          title={
-                            artist
-                              ? (item as Artist).name
-                              : (item as Album).title
-                          }
-                          src={item.cover_url}
-                          artist={artist}
-                        />
-                        <h3>
-                          {artist
-                            ? (item as Artist).name
-                            : (item as Album).title}
-                        </h3>
-                        <p>
-                          {artist
-                            ? `${(item as Artist).album_count} album${(item as Artist).album_count === 1 ? "" : "s"}`
-                            : (item as Album).track_count + " songs"}
-                        </p>
-                      </button>
-                    );
-                  })}
+                  {items.map((album) => (
+                    <a
+                      key={album.id}
+                      className="album-card"
+                      href={"#/library/album/" + album.id}
+                    >
+                      <Cover title={album.title} src={album.cover_url} />
+                      <h3>{album.title}</h3>
+                      <p>
+                        {tab === "albums"
+                          ? `${album.track_count} songs`
+                          : album.artist}
+                      </p>
+                    </a>
+                  ))}
                 </div>
               )}
             </CollectionPages>
@@ -779,8 +676,6 @@ export function PersonalLibrary({
               )}
             </>
           )}
-          {tab === "songs" && <LibrarySongs render={(t) => songs(t)} />}
-          {tab === "requests" && <PersonalRequests />}
           {owner && <OwnerLibraryLinks />}
         </>
       )}

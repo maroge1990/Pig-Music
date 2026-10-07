@@ -4,7 +4,8 @@ import json
 import time
 from pathlib import Path
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from ..library import normalise
 from ..releases import release_query
@@ -13,6 +14,7 @@ from ..artwork import quoted
 from ..media import public_settings, save_settings
 from ..portraits import portrait_target
 from ..artist_backgrounds import background_target
+from ..artist_logos import logo_target
 from ..quality import PROFILES
 
 
@@ -28,6 +30,7 @@ def catalogue_router(
     image_response,
     image_config,
     http_client,
+    logos=None,
 ):
     router = APIRouter()
     catalogue_cache = {}
@@ -250,6 +253,50 @@ def catalogue_router(
                 "library-background:" + artist_id, lambda: enrich_background(artist_id)
             )
         return await image_response(target, w, soft)
+
+    def logo_response(target):
+        if not target or not target.is_file():
+            return Response(status_code=404, headers={"Cache-Control": "no-store"})
+        # The file name changes with the Fanart key, so a day's reuse is safe.
+        return FileResponse(
+            target,
+            media_type="image/png",
+            headers={"Cache-Control": "private, max-age=86400"},
+        )
+
+    def logos_enabled():
+        config = public_settings(store)
+        return logos is not None and config["portraits"] and config["fanart_configured"]
+
+    @router.get("/api/catalogue/artists/{artist_id}/logo", tags=["personal-library"])
+    async def catalogue_artist_logo(artist_id: str):
+        artist_id = valid_id(artist_id)
+        if not logos_enabled():
+            raise HTTPException(404, "Artwork unavailable.")
+        target = logo_target(store, artist_id)
+        if not target.is_file():
+            enrichment.submit(
+                "logo:" + target.stem, lambda: logos.get(http_client(), artist_id)
+            )
+        return logo_response(target)
+
+    async def enrich_logo(artist_id):
+        identity = await library_artist_catalogue(artist_id)
+        return await logos.get(http_client(), identity["id"])
+
+    @router.get("/api/artists/{artist_id}/logo")
+    async def artist_logo(artist_id: str):
+        if artist_id not in store.artists_by_id:
+            raise HTTPException(404, "Artist not found.")
+        if not logos_enabled():
+            raise HTTPException(404, "Artwork unavailable.")
+        identity = store.read_document("library-artist:" + artist_id)
+        target = logo_target(store, identity["id"]) if identity else None
+        if not target or not target.is_file():
+            enrichment.submit(
+                "library-logo:" + artist_id, lambda: enrich_logo(artist_id)
+            )
+        return logo_response(target)
 
     async def enrich_catalogue_artist(artist_id, cache_key):
         if public_settings(store)["portraits"]:

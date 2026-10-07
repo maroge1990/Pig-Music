@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
+  ArrowDownToLine,
   House,
   LibraryBig,
   Search,
@@ -15,6 +16,8 @@ import { FirstRun } from "./FirstRun";
 import { SignIn } from "./SignIn";
 import { ToolBoundary } from "./ToolBoundary";
 import { useFixedHeight } from "./useFixedHeight";
+import { PersonalRequests } from "./PersonalRequests";
+import { OwnerContext } from "./person";
 import { parseRoute, type Route, type Section } from "./routes";
 import "./accounts.css";
 
@@ -34,6 +37,7 @@ const sections: { id: Section; label: string; icon: LucideIcon }[] = [
   { id: "home", label: "Home", icon: House },
   { id: "search", label: "Search", icon: Search },
   { id: "library", label: "Library", icon: LibraryBig },
+  { id: "downloads", label: "Downloads", icon: ArrowDownToLine },
   { id: "account", label: "Account", icon: UserRound },
   // Administrator additions always follow everything a member sees.
   { id: "admin", label: "Admin", icon: ShieldCheck },
@@ -46,6 +50,8 @@ export function AppShell() {
   const [error, setError] = useState("");
   const [route, setRoute] = useState<Route>(() => parseRoute());
   const nav = useFixedHeight("--mobile-nav-height", !!user);
+  useCompactNav();
+  useServerEvents(!!user);
 
   useEffect(() => {
     // "System" appearance follows the device live, not only at page load.
@@ -151,62 +157,149 @@ export function AppShell() {
   const owner = user.role === "owner";
   const section = route.section === "admin" && !owner ? "home" : route.section;
   return (
-    <div className="personal-app">
-      <header className="personal-header">
-        <a href="#/home" className="personal-brand">
-          <img src="/brand/mark.png" alt="" />
-          <span className="header-wordmark" role="img" aria-label="Pig Music">
-            <img
-              src="/brand/wordmark-light.svg"
-              className="light-wordmark"
-              alt=""
-            />
-            <img
-              src="/brand/wordmark-dark.svg"
-              className="dark-wordmark"
-              alt=""
-            />
-          </span>
-        </a>
-        <nav ref={nav} className="app-nav" aria-label="Main navigation">
-          {sections
-            .filter((s) => s.id !== "admin" || owner)
-            .map(({ id, label, icon: Icon }) => (
-              <a
-                key={id}
-                href={"#/" + id}
-                aria-current={section === id ? "page" : undefined}
-              >
-                <Icon size={20} aria-hidden="true" />
-                <span>{label}</span>
-              </a>
-            ))}
-        </nav>
-      </header>
-      {error && (
-        <p className="personal-notice" role="alert">
-          {error}
-        </p>
-      )}
-      {section === "home" ? (
-        <Home />
-      ) : section === "search" || section === "library" ? (
-        <PersonalLibrary user={user} route={{ ...route, section }} />
-      ) : section === "account" ? (
-        <AccountSettings user={user} signOut={signOut} />
-      ) : (
-        <ToolBoundary>
-          <Suspense
-            fallback={
-              <main className="personal-main">
-                <p role="status">Loading admin…</p>
-              </main>
-            }
+    <OwnerContext.Provider value={owner}>
+      <div className="personal-app">
+        <header className="personal-header">
+          <a href="#/home" className="personal-brand">
+            <img src="/brand/mark.png" alt="" />
+            <span className="header-wordmark" role="img" aria-label="Pig Music">
+              <img
+                src="/brand/wordmark-light.svg"
+                className="light-wordmark"
+                alt=""
+              />
+              <img
+                src="/brand/wordmark-dark.svg"
+                className="dark-wordmark"
+                alt=""
+              />
+            </span>
+          </a>
+          <a
+            href="#/account"
+            className="header-account"
+            aria-label="Account"
+            aria-current={section === "account" ? "page" : undefined}
           >
-            <AdminTools route={route} />
-          </Suspense>
-        </ToolBoundary>
-      )}
-    </div>
+            {initials(user.display_name || user.username)}
+          </a>
+          <nav ref={nav} className="app-nav" aria-label="Main navigation">
+            {sections
+              .filter((s) => s.id !== "admin" || owner)
+              .map(({ id, label, icon: Icon }) => (
+                <a
+                  key={id}
+                  href={"#/" + id}
+                  className={"nav-" + id}
+                  aria-current={section === id ? "page" : undefined}
+                >
+                  <Icon size={20} aria-hidden="true" />
+                  <span>{label}</span>
+                </a>
+              ))}
+          </nav>
+        </header>
+        {error && (
+          <p className="personal-notice" role="alert">
+            {error}
+          </p>
+        )}
+        {section === "home" ? (
+          <Home />
+        ) : section === "search" || section === "library" ? (
+          <PersonalLibrary user={user} route={{ ...route, section }} />
+        ) : section === "downloads" ? (
+          <main className="personal-main">
+            <h1>Downloads</h1>
+            <p>Music you asked the server to get, newest first.</p>
+            <PersonalRequests />
+          </main>
+        ) : section === "account" ? (
+          <AccountSettings user={user} signOut={signOut} />
+        ) : (
+          <ToolBoundary>
+            <Suspense
+              fallback={
+                <main className="personal-main">
+                  <p role="status">Loading admin…</p>
+                </main>
+              }
+            >
+              <AdminTools route={route} />
+            </Suspense>
+          </ToolBoundary>
+        )}
+      </div>
+    </OwnerContext.Provider>
   );
+}
+
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("");
+
+/** One change feed for every section: library revisions and download
+ * progress, with a slow poll only while the feed is disconnected. */
+function useServerEvents(active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    const changed = () => {
+      window.dispatchEvent(new Event("music-library-changed"));
+      // New artwork also refreshes the library; let missing covers look again.
+      window.dispatchEvent(new Event("music-artwork-retry"));
+    };
+    const requests = () =>
+      window.dispatchEvent(new Event("music-requests-changed"));
+    const events = new EventSource("/api/v1/events");
+    events.addEventListener("revision", changed);
+    events.addEventListener("queue", requests);
+    events.addEventListener("revoked", () =>
+      window.dispatchEvent(new Event("music-auth-required")),
+    );
+    let fallback: ReturnType<typeof setInterval> | undefined;
+    events.onerror = () => {
+      fallback ||= setInterval(() => {
+        changed();
+        requests();
+      }, 15000);
+    };
+    events.onopen = () => {
+      clearInterval(fallback);
+      fallback = undefined;
+    };
+    return () => {
+      events.close();
+      clearInterval(fallback);
+    };
+  }, [active]);
+}
+
+/** Phones: scrolling down folds the tab bar into a compact row beside the
+ * player, as Apple Music does; returning to the top restores it. */
+function useCompactNav() {
+  useEffect(() => {
+    const root = document.documentElement;
+    let frame = 0;
+    let last = window.scrollY;
+    const update = () => {
+      frame = 0;
+      const y = window.scrollY;
+      if (y < 24) root.classList.remove("nav-compact");
+      else if (y > last + 4) root.classList.add("nav-compact");
+      last = y;
+    };
+    const scroll = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    window.addEventListener("scroll", scroll, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", scroll);
+      cancelAnimationFrame(frame);
+      root.classList.remove("nav-compact");
+    };
+  }, []);
 }

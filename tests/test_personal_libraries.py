@@ -426,3 +426,23 @@ def test_recently_added_skips_bootstrap_attribution(tmp_path, monkeypatch):
         recent = client.get("/api/v1/home/recent").json()
     assert [a["title"] for a in recent["albums"]] == ["Studio"]
     assert "tracks" not in recent["albums"][0]
+
+
+def test_lookup_reports_only_songs_in_the_persons_own_library(tmp_path, monkeypatch):
+    app, owner, member, token, track = household(tmp_path, monkeypatch)
+    songs = [
+        {"title": "one", "artist": "ARTIST"},
+        {"title": "Missing", "artist": "Artist"},
+    ]
+    store = app.state.store
+    found = store.user_libraries.lookup(owner, songs)
+    assert found[0]["id"] == "song" and found[1] is None
+    assert "relative_path" not in json.dumps(found)
+    with TestClient(
+        app,
+        base_url="https://private.ts.net",
+        headers={"Authorization": "Bearer " + token, "X-Pig-Request": "1"},
+    ) as client:
+        response = client.post("/api/v1/library/lookup", json={"songs": songs})
+        # The household has the file, but the member has not added it.
+        assert response.json() == {"tracks": [None, None]}

@@ -301,3 +301,38 @@ A disposable copy of the stopped production backup passed migration and exact fi
 - `--retention 2` lists 29 older backups and 30 stopped legacy containers; nothing was deleted, pending the owner's decision.
 
 The first preflight caught a quoting error in the release state probe before any live change. It is fixed, and the snippet is now executed against SQLite in tests. Owner live testing is next.
+
+### Listening experience pass, 8 October 2026
+
+**Owner direction:** Musicals, soundtracks and compilations each get their own Library tab, and Artists shows only standalone artists. Tapping anywhere on a song plays it, whether it is saved or not; unsaved songs stream. The download state sits inline on the right, and a ⋯ menu offers context-aware favourite and go-to actions. Other asks: an edge-to-edge artist photo, an Apple-style tab bar that folds while scrolling, smaller Home songs, Downloads as its own section, pre-cached artwork and pages, more Fanart art, and a fix for the stretched player button.
+
+**Engineering response (delivered on `main`, unreleased):**
+- **Library tabs.** Artists, Albums, Musicals, Soundtracks, Compilations, Playlists and Favourites. Empty sections stay hidden. Artists excludes people who only appear on compilations, soundtracks or musicals. The Songs tab is gone, and Shuffle all moved beside the tabs.
+- **Classification.** `server/library.py` `classify()` now also recognises score, game and cast genres, "Music from…" and "Motion Picture" titles, tie-ins such as "Transformers: The Album", and "Sound Team" album artists. An explicit owner category still wins.
+- **Downloads.** Requests are now a top-level section; `#/library/requests` redirects to it. The change feed moved to `AppShell`, so download progress updates in every section.
+- **One song row.** `SongRow.tsx` and `songs.ts` are used in albums, artist pages, playlists, favourites, search, catalogue releases, Popular and Home. Tapping plays your file when saved and streams otherwise. Songs already on the server are added to your library instantly, then played. The new `POST /api/v1/library/lookup` marks catalogue songs already in this person's library. The ⋯ menu offers Play next, Add to queue, Favourite, Add to playlist, Download, Go to album and Go to artist (the go-to items are hidden on that album's or artist's own page), then Remove, with Admin last.
+- **Player.** The queue mixes saved and streamed songs. It has a compact mini player and a full-screen Now Playing view with an Up next list. The stretched play button was a 32 px button raised to 44 px tall by the coarse-pointer rule; it is now sized on both axes.
+- **Phone navigation.** The tab bar floats. Scrolling down folds it to two circles, the current tab and Search, with the mini player between them. Account moved to a header initials button on phones.
+- **Artist photo.** It starts at the top of the screen with a floating back button, and the existing fade is retained. A Fanart logo (`hdmusiclogo`, else `musiclogo`, English preferred, transparent PNG under `covers/logos/`) replaces the name when available.
+- **Fanart.** Album covers now fall back to Fanart when Cover Art Archive has none. Fanart 404s are cached as empty answers.
+- **Streaming fix.** Unsaved songs could never play in the browser because the CSP's `media-src` blocked the provider's CDN. It now allows only `https://*.saavncdn.com`, which is the host `RemoteAudio` already enforces. Members may stream as well.
+- **Caching.** `client/public/sw.js` keeps artwork cache-first and serves catalogue and Home JSON stale-while-revalidate, within a 500 MB oldest-first budget. Everything is cleared on sign-out or session expiry. `prefetch.ts` warms every Home artist (full detail for the first two), the first three search results (full detail for two) and all library covers. Read-only POSTs no longer flush the read cache. Missing covers retry after 2 s and 6 s instead of waiting up to a minute, and the artist photo no longer re-downloads every minute.
+- **Cleanup.** The old `.music-player` and `.player-*` CSS was removed.
+
+**Verification:**
+- 232 backend tests, 7 client tests, Prettier, Black, the strict TypeScript build and the regenerated OpenAPI contracts all pass.
+- Browser checks used a disposable local library (ffmpeg tone files tagged as the owner's examples, under `.localdata/dev-review`) at phone and desktop sizes, in light and dark.
+  - Categories and tabs.
+  - Tap-to-play.
+  - Mini and full player.
+  - Menus and go-to links.
+  - Folding nav.
+  - Artist photo with logo, using a placeholder Fanart key and generated images.
+  - Real remote streaming after the CSP fix.
+  - Service-worker caching and prefetch.
+
+**Not verified / gaps:**
+- Live-library categorisation of the owner's five examples was not inspected, because reading production data was not permitted. Owner check needed.
+- Real Fanart logos and album-cover fallback with the household key.
+- Physical iPhone PWA behaviour: safe areas, scroll folding, service worker on iOS.
+- Download to *device* (offline audio) does not exist. Rows show only server/library state.

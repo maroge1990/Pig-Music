@@ -47,12 +47,11 @@ export function PersonalRequests() {
   }, [offset]);
   return (
     <section>
-      <h2>Your requests</h2>
       {error && <p role="alert">{error}</p>}
       {page && !page.total && (
         <p className="muted">
-          Songs you request from Search or an artist page appear here until they
-          reach your library.
+          Songs you download from Search or an artist page appear here until
+          they reach your library.
         </p>
       )}
       {page && page.total > 0 && (

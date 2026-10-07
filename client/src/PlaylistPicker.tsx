@@ -7,8 +7,11 @@ export function PlaylistPicker({
   load,
   create,
   add,
+  menuItem = false,
 }: {
   title: string;
+  /** Render the trigger as a row in a song's ⋯ menu. */
+  menuItem?: boolean;
   load: () => Promise<Playlist[]>;
   create: (name: string) => Promise<Playlist>;
   add: (id: string) => Promise<unknown>;
@@ -73,11 +76,13 @@ export function PlaylistPicker({
     <span className="playlist-picker">
       <button
         ref={trigger}
-        className="round-action"
-        aria-label={`Add ${title} to playlist`}
+        className={menuItem ? undefined : "round-action"}
+        role={menuItem ? "menuitem" : undefined}
+        aria-label={menuItem ? undefined : `Add ${title} to playlist`}
         aria-haspopup="dialog"
         onClick={() => void open()}
       >
+        {menuItem && <span>Add to playlist…</span>}
         <ListPlus size={18} />
       </button>
       <div

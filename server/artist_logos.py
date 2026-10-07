@@ -1,0 +1,72 @@
+"""Display-only Fanart artist wordmarks, kept as transparent PNGs."""
+
+import asyncio, hashlib, io, time
+from PIL import Image, ImageOps
+from .library import identifier
+from .catalogue import mbid
+from .media import settings
+from .fanart import Fanart, best, download
+
+
+class Logos:
+    def __init__(self, store, fanart=None):
+        self.store = store
+        self.locks = {}
+        self.slots = asyncio.Semaphore(3)
+        self.fanart = fanart or Fanart(store)
+
+    async def get(self, client, artist_id):
+        config = settings(self.store)
+        token = config.get("fanart_key")
+        if not token or not config["portraits"]:
+            return None
+        artist_id = mbid(artist_id)
+        target = logo_target(self.store, artist_id)
+        if target.exists():
+            return target
+        key = "missing-" + target.stem
+        async with self.locks.setdefault(target.stem, asyncio.Lock()), self.slots:
+            if target.exists():
+                return target
+            if self.store.read_document(key).get("retry_after", 0) > time.time():
+                return None
+            try:
+                data = await self.fanart.get(client, artist_id, token)
+                logo = best(data.get("hdmusiclogo"), english=True) or best(
+                    data.get("musiclogo"), english=True
+                )
+                if not logo:
+                    self.store.write_document(key, {"retry_after": time.time() + 86400})
+                    return None
+                content = await download(client, logo["url"], 3_000_000)
+                await asyncio.to_thread(self.save, content, target)
+                return target
+            except Exception:
+                self.store.write_document(key, {"retry_after": time.time() + 300})
+                return None
+
+    @staticmethod
+    def save(content, target):
+        # Re-encoding strips anything but pixels; transparency is the point.
+        with Image.open(io.BytesIO(content)) as picture:
+            if picture.width * picture.height > 8_000_000:
+                raise ValueError("Artwork too large")
+            picture = ImageOps.exif_transpose(picture).convert("RGBA")
+            picture.thumbnail((800, 310))
+            target.parent.mkdir(exist_ok=True)
+            temporary = target.with_suffix(".tmp")
+            try:
+                picture.save(temporary, "PNG", optimize=True)
+                temporary.replace(target)
+            finally:
+                temporary.unlink(missing_ok=True)
+
+
+def logo_target(store, artist_id):
+    token = settings(store).get("fanart_key", "")
+    key = identifier(
+        "artist-logo",
+        mbid(artist_id),
+        hashlib.sha256(token.encode()).hexdigest()[:12],
+    )
+    return store.cover_dir / "logos" / (key + ".png")

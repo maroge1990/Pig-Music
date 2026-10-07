@@ -2,6 +2,8 @@ import { apiFetch } from "./api";
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Cover, catalogueCover } from "./Cover";
+import { SongRow } from "./SongRow";
+import { withLibrary, type Song as Row } from "./songs";
 type Group = { id: string; title: string; date: string; type: string };
 type Song = {
   id: string;
@@ -22,6 +24,7 @@ export function ArtistPopular({
   const [data, setData] = useState<{ songs: Song[]; albums: Group[] } | null>(
     null,
   );
+  const [rows, setRows] = useState<Row[]>([]);
   const [songPage, setSongPage] = useState(0);
   const [albumPage, setAlbumPage] = useState(0);
   useEffect(() => {
@@ -37,7 +40,22 @@ export function ArtistPopular({
         );
         if (response.ok) {
           const body = await response.json();
-          if (!controller.signal.aborted) setData(body);
+          if (controller.signal.aborted) return;
+          setData(body);
+          const plain: Row[] = body.songs.map((song: Song) => ({
+            key: "popular:" + song.id,
+            title: song.title,
+            artist: song.artist,
+            album: song.album,
+            cover: catalogueCover("release", song.release_id),
+            state: "missing",
+            release_id: song.release_id,
+            recording_id: song.id,
+            artist_id: id,
+          }));
+          setRows(plain);
+          const found = await withLibrary(plain);
+          if (!controller.signal.aborted) setRows(found);
         }
       } catch {
         /* Optional enrichment never blocks discography. */
@@ -83,31 +101,17 @@ export function ArtistPopular({
             <h2>Popular songs</h2>
             {pager("songs", songPage, 5, data.songs.length, setSongPage)}
           </div>
-          {data.songs.slice(songPage * 5, songPage * 5 + 5).map((song) => {
-            return (
-              <div
-                className="result-row catalogue-song popular-song"
-                key={song.id}
-              >
-                <Cover
-                  title={song.album}
-                  src={catalogueCover("release", song.release_id)}
-                />
-                <div>
-                  <strong>{song.title}</strong>
-                  <span>{song.album}</span>
-                </div>
-                <button
-                  className="text-button"
-                  onClick={() => {
-                    location.hash = `/search/artist/${id}?name=${encodeURIComponent(song.artist)}&release=${song.release_id}`;
-                  }}
-                >
-                  View song
-                </button>
-              </div>
-            );
-          })}
+          <div className="song-list">
+            {rows.slice(songPage * 5, songPage * 5 + 5).map((row, i) => (
+              <SongRow
+                key={row.key}
+                song={row}
+                queue={rows}
+                index={songPage * 5 + i}
+                onArtist
+              />
+            ))}
+          </div>
         </>
       )}
       {!songsOnly && !!data.albums.length && (

@@ -1,9 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { CirclePlus } from "lucide-react";
 import { api } from "./api";
 import { Cover } from "./Cover";
 import { discoverUrl } from "./navigation";
 import { go } from "./routes";
+import { SongRow } from "./SongRow";
+import { fromTrack } from "./songs";
+import { warmArtist, whenIdle } from "./prefetch";
 import type { Album, Artist, Library, Track } from "./types";
 
 type CatalogueArtist = { id: string; name: string; description?: string };
@@ -14,12 +16,10 @@ export function SearchPage({
   query,
   library,
   songs,
-  add,
 }: {
   query: string;
   library: Library;
   songs: (tracks: Track[]) => ReactNode;
-  add: (track: Track) => Promise<void>;
 }) {
   const [local, setLocal] = useState<{
     tracks: Track[];
@@ -51,7 +51,13 @@ export function SearchPage({
       "/v1/catalogue/artists?q=" + encodeURIComponent(query),
       { signal },
     )
-      .then((found) => setCatalogue(found.artists))
+      .then((found) => {
+        setCatalogue(found.artists);
+        // The likely next tap: essentials for three, everything for two.
+        whenIdle(() =>
+          found.artists.slice(0, 3).forEach((a, i) => warmArtist(a.id, i < 2)),
+        );
+      })
       .catch(() => {
         if (!signal.aborted) {
           setCatalogue([]);
@@ -142,25 +148,19 @@ export function SearchPage({
             <section className="search-group" aria-labelledby="search-server">
               <h2 id="search-server">On the server</h2>
               <p className="muted">
-                Already downloaded for the household. Adding is instant.
+                Already on the server. Tap to play; adding to your library is
+                instant.
               </p>
-              {local.household.map((t) => (
-                <article className="personal-track" key={t.id}>
-                  <div>
-                    <strong>{t.title}</strong>
-                    <p>
-                      {t.artist} · {t.album}
-                    </p>
-                  </div>
-                  <button
-                    className="secondary-button"
-                    onClick={() => void add(t)}
-                    aria-label={`Add ${t.title} to your library`}
-                  >
-                    <CirclePlus size={18} /> Add to my library
-                  </button>
-                </article>
-              ))}
+              <div className="song-list">
+                {local.household.map((t, i, all) => (
+                  <SongRow
+                    key={t.id}
+                    song={fromTrack(t)}
+                    queue={all.map((x) => fromTrack(x))}
+                    index={i}
+                  />
+                ))}
+              </div>
             </section>
           )}
           <section className="search-group" aria-labelledby="search-discover">

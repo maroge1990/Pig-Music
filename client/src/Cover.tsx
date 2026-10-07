@@ -4,6 +4,17 @@ export function catalogueCover(kind: "release" | "release-group", id: string) {
   return `/api/catalogue/artwork/${kind}/${encodeURIComponent(id)}`;
 }
 
+/** The exact address a cover requests at one width; pre-caching uses it too. */
+export function coverUrl(src: string, width: number, revision = 0) {
+  if (!src.startsWith("/api/")) return src;
+  const url = new URL(src, window.location.origin);
+  url.searchParams.set("w", String(width));
+  url.searchParams.set("v", "1");
+  if (!src.startsWith("/api/artwork/"))
+    url.searchParams.set("r", String(revision));
+  return url.pathname + url.search;
+}
+
 export function Cover({
   title,
   src,
@@ -27,25 +38,33 @@ export function Cover({
     window.addEventListener("music-artwork-changed", changed);
     return () => window.removeEventListener("music-artwork-changed", changed);
   }, []);
+  // The server fetches missing artwork in the background: look again soon,
+  // then fall back to the shared slow retry clock.
+  const [attempts, setAttempts] = useState(0);
   useEffect(() => {
     if (!broken) return;
     const retry = () => {
       setBroken(false);
       setRevision((r) => r + 1);
     };
+    const soon =
+      attempts < 2
+        ? setTimeout(() => {
+            setAttempts((n) => n + 1);
+            retry();
+          }, [2000, 6000][attempts])
+        : undefined;
     window.addEventListener("music-artwork-retry", retry);
-    return () => window.removeEventListener("music-artwork-retry", retry);
+    return () => {
+      clearTimeout(soon);
+      window.removeEventListener("music-artwork-retry", retry);
+    };
   }, [broken]);
-  const image = (width: number) => {
-    if (!src?.startsWith("/api/")) return src || "";
-    const url = new URL(src, window.location.origin);
-    url.searchParams.set("w", String(width));
-    url.searchParams.set("v", "1");
-    if (!src.startsWith("/api/artwork/"))
-      url.searchParams.set("r", String(revision));
-    return url.pathname + url.search;
-  };
-  useEffect(() => setBroken(false), [src]);
+  const image = (width: number) => coverUrl(src || "", width, revision);
+  useEffect(() => {
+    setBroken(false);
+    setAttempts(0);
+  }, [src]);
   return (
     <div className={`cover ${artist ? "artist-cover" : ""} ${className}`}>
       {src && !broken ? (

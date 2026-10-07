@@ -205,6 +205,7 @@ class HomeItemDTO(BaseModel):
     artist_id: str
     kind: Literal["artists", "albums", "songs"]
     release_id: str | None = None
+    album: str = ""
     reason: str | None = None
 
 

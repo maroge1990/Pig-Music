@@ -1,0 +1,181 @@
+import { api, apiFetch, cachedLibrary } from "./api";
+import { discoverUrl } from "./navigation";
+import type { Track } from "./types";
+
+/** Where a song stands for this person. */
+export type SongState = "saved" | "server" | "pending" | "missing";
+
+/** One song row, from any source: your library, the server or the catalogue. */
+export type Song = {
+  key: string;
+  title: string;
+  artist: string;
+  album?: string;
+  album_artist?: string;
+  duration?: number;
+  track_number?: number;
+  disc_number?: number;
+  cover?: string | null;
+  state: SongState;
+  /** A track in this person's library; plays from the server's file. */
+  saved?: Track;
+  /** Household file not yet in this person's library (adding is instant). */
+  server?: Track;
+  /** Catalogue identity; streams without downloading when not saved. */
+  release_id?: string;
+  track_id?: string;
+  recording_id?: string;
+  /** Catalogue artist, so "Go to artist" skips a name search. */
+  artist_id?: string;
+};
+
+export function fromTrack(t: Track, cover?: string | null, key = t.id): Song {
+  const saved =
+    t.available !== false && t.server_state !== "household_available";
+  return {
+    key,
+    title: t.title,
+    artist: t.artist,
+    album: t.album,
+    album_artist: t.album_artist,
+    duration: t.duration,
+    track_number: t.track_number,
+    disc_number: t.disc_number,
+    cover: t.cover_url || cover,
+    state:
+      t.server_state === "household_available"
+        ? "server"
+        : t.server_state === "requested"
+          ? "pending"
+          : saved
+            ? "saved"
+            : "missing",
+    saved: saved ? t : undefined,
+    server: t.server_state === "household_available" ? t : undefined,
+    release_id: t.musicbrainz_release_id,
+    recording_id: t.musicbrainz_recording_id,
+  };
+}
+
+/** The fields the server needs to request, favourite or list a song. */
+export function songBody(s: Song) {
+  const t = s.saved || s.server;
+  return {
+    title: s.title,
+    artist: s.artist,
+    album: s.album || "",
+    album_artist: s.album_artist || t?.album_artist || s.artist,
+    duration: s.duration || 0,
+    track_number: s.track_number || 1,
+    disc_number: s.disc_number || 1,
+    year: String(t?.year || ""),
+    musicbrainz_release_id: s.release_id,
+    musicbrainz_recording_id: s.recording_id,
+  };
+}
+
+export async function requestSong(s: Song) {
+  await api("/v1/requests", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tracks: [songBody(s)] }),
+  });
+  window.dispatchEvent(new Event("music-library-changed"));
+  window.dispatchEvent(new Event("music-requests-changed"));
+}
+
+/** Mark catalogue songs that are already in this person's library. */
+export async function withLibrary(songs: Song[]): Promise<Song[]> {
+  const open = songs.filter((s) => s.state !== "saved");
+  if (!open.length) return songs;
+  const found = await api<{ tracks: (Track | null)[] }>("/v1/library/lookup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      songs: open.slice(0, 200).map((s) => ({
+        title: s.title,
+        artist: s.artist,
+        musicbrainz_recording_id: s.recording_id,
+      })),
+    }),
+  });
+  const saved = new Map(open.map((s, i) => [s.key, found.tracks[i]]));
+  return songs.map((s) => {
+    const track = saved.get(s.key);
+    return track
+      ? {
+          ...s,
+          state: "saved",
+          saved: track,
+          cover: s.cover || track.cover_url,
+        }
+      : s;
+  });
+}
+
+type LibraryIndex = {
+  artists: { id: string; name: string }[];
+  albums: {
+    id: string;
+    title: string;
+    artist: string;
+    musicbrainz_release_id?: string;
+  }[];
+};
+const same = (a: string, b: string) =>
+  a.toLocaleLowerCase() === b.toLocaleLowerCase();
+
+/** Your library's page when you have the artist, otherwise the catalogue. */
+export async function goToArtist(name: string, catalogueId?: string) {
+  const library = await cachedLibrary<LibraryIndex>();
+  const mine = library.artists.filter((a) => same(a.name, name));
+  if (mine.length === 1) {
+    location.hash = `/library/artist/${mine[0].id}`;
+    return;
+  }
+  if (catalogueId) {
+    location.hash = discoverUrl({ id: catalogueId, name });
+    return;
+  }
+  const exact = await catalogueArtist(name);
+  location.hash = exact
+    ? discoverUrl(exact)
+    : "/search?q=" + encodeURIComponent(name);
+}
+
+export async function goToAlbum(
+  album: string,
+  artist: string,
+  releaseId?: string,
+  catalogueArtistId?: string,
+) {
+  const library = await cachedLibrary<LibraryIndex>();
+  const mine = library.albums.filter(
+    (a) =>
+      same(a.title, album) &&
+      same(a.artist, artist) &&
+      (!releaseId ||
+        !a.musicbrainz_release_id ||
+        a.musicbrainz_release_id === releaseId),
+  );
+  if (mine.length === 1) {
+    location.hash = `/library/album/${mine[0].id}`;
+    return;
+  }
+  const exact = catalogueArtistId
+    ? { id: catalogueArtistId, name: artist }
+    : await catalogueArtist(artist);
+  location.hash = exact
+    ? discoverUrl(exact, releaseId)
+    : "/search?q=" + encodeURIComponent(album);
+}
+
+async function catalogueArtist(name: string) {
+  const results = await apiFetch(
+    "/api/v1/catalogue/artists?q=" + encodeURIComponent(name),
+  ).then((r) => r.json());
+  const exact = (results.artists || []).filter((a: { name: string }) =>
+    same(a.name, name),
+  );
+  return exact.length === 1 ? (exact[0] as { id: string; name: string }) : null;
+}

@@ -1,7 +1,13 @@
 /** One hash router for the whole app. Only AppShell listens for changes;
  * views receive the parsed route so nested screens cannot replace each other.
  */
-export type Section = "home" | "search" | "library" | "account" | "admin";
+export type Section =
+  | "home"
+  | "search"
+  | "library"
+  | "downloads"
+  | "account"
+  | "admin";
 
 export type Route = {
   section: Section;
@@ -10,13 +16,21 @@ export type Route = {
   params: URLSearchParams;
 };
 
-const sections: Section[] = ["home", "search", "library", "account", "admin"];
+const sections: Section[] = [
+  "home",
+  "search",
+  "library",
+  "downloads",
+  "account",
+  "admin",
+];
 
 // Addresses from the pre-accounts interface now live in the Admin section.
 const moved: Record<string, string> = {
   queue: "admin/downloads",
   system: "admin/overview",
   migration: "admin/migration",
+  "library/requests": "downloads",
 };
 
 export function parseRoute(hash = location.hash): Route {

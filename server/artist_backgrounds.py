@@ -1,12 +1,11 @@
 """Display-only, bounded Fanart artist backdrops."""
 
 import asyncio, hashlib, io, time
-from urllib.parse import urlsplit
 from PIL import Image, ImageOps
 from .library import identifier
 from .catalogue import mbid
 from .media import settings
-from .fanart import Fanart
+from .fanart import Fanart, best, download
 
 
 class Backgrounds:
@@ -33,33 +32,12 @@ class Backgrounds:
                 return None
             try:
                 data = await self.fanart.get(client, artist_id, token)
-                photos = sorted(
-                    data.get("artistbackground", []),
-                    key=lambda p: int(p.get("likes") or 0),
-                    reverse=True,
-                )
-                if not photos:
+                photo = best(data.get("artistbackground"))
+                if not photo:
                     self.artwork.remember_missing(key, 86400)
                     return None
-                parts = urlsplit(photos[0]["url"])
-                if (
-                    parts.scheme != "https"
-                    or parts.hostname != "assets.fanart.tv"
-                    or parts.port not in (None, 443)
-                    or parts.username
-                    or parts.password
-                ):
-                    raise ValueError("Untrusted artwork")
-                async with client.stream(
-                    "GET", photos[0]["url"], timeout=12, follow_redirects=False
-                ) as response:
-                    response.raise_for_status()
-                    content = bytearray()
-                    async for chunk in response.aiter_bytes():
-                        content.extend(chunk)
-                        if len(content) > 5_000_000:
-                            raise ValueError("Artwork too large")
-                await asyncio.to_thread(self.save, bytes(content), target)
+                content = await download(client, photo["url"])
+                await asyncio.to_thread(self.save, content, target)
                 return target
             except Exception:
                 self.artwork.remember_missing(key, 300)

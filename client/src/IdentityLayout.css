@@ -38,11 +38,6 @@ select:focus-visible {
 .nav-count {
   line-height: 1.4;
 }
-@media (max-width: 600px) {
-  .music-player {
-    bottom: var(--mobile-nav-height, 4rem);
-  }
-}
 
 @media (max-width: 600px) {
   .migration-footer,
@@ -55,12 +50,7 @@ select:focus-visible {
       var(--mobile-nav-height, 4rem) + var(--player-height, 0px) + 1rem
     );
   }
-  .player-controls {
-    flex-wrap: wrap;
-  }
-  .player-seek {
-    min-width: min(12rem, 100%);
-  }
+
   .detail-hero h1,
   .page-heading h1 {
     overflow-wrap: anywhere;

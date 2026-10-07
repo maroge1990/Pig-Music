@@ -216,10 +216,6 @@
     flex-basis: 32px;
     width: 32px;
   }
-  .player-extra {
-    display: flex;
-    gap: var(--space-4);
-  }
 }
 
 .organisation-list {
@@ -233,9 +229,6 @@
 }
 
 @media (max-width: 600px) {
-  .music-player {
-    grid-template-columns: minmax(0, 1fr) 128px;
-  }
   .catalogue-song {
     flex-wrap: wrap;
   }

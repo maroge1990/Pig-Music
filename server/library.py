@@ -30,6 +30,50 @@ def is_compilation(album_artist: str, tracks: list[dict]) -> bool:
     return len(performers) > 1 and any(t.get("compilation") for t in tracks)
 
 
+SOUNDTRACK_TITLE = re.compile(
+    r"\b(soundtracks?|ost|original score|film score|music from|motion picture"
+    r"|video game|game music|original music|inspired by)\b"
+)
+# "Transformers: The Album" or "(The Score)" are tie-ins; "The Score" alone is not.
+TIE_IN = re.compile(r"(?:[:(\[]|\s[-–]\s)\s*(?:the |original )?(?:score|album)\b")
+SOUNDTRACK_GENRE = re.compile(
+    r"\b(soundtracks?|score|video game|game music|vgm|anime)\b"
+)
+MUSICAL_TEXT = re.compile(
+    r"\b(broadway|west end|cast recording|original cast|london cast|cast album"
+    r"|musical theatre|musical theater)\b"
+)
+MUSICAL_TITLE = re.compile(r"\b(the|an?(?: \w+)?) musical\b")
+MUSICAL_GENRE = re.compile(r"\b(musicals?|show tunes|cast recordings?)\b")
+KNOWN_MUSICALS = {
+    "hamilton",
+    "hamilton an american musical",
+    "the book of mormon",
+    "book of mormon",
+}
+
+
+def classify(album: str, album_artist: str, genres: list[str], compilation: bool):
+    """Automatic category; an owner's explicit choice always wins over this."""
+    title = normalise(album)
+    genre = normalise(" ".join(dict.fromkeys(genres)))
+    if (
+        MUSICAL_TEXT.search(title + " " + normalise(album_artist) + " " + genre)
+        or MUSICAL_TITLE.search(title)
+        or MUSICAL_GENRE.search(genre)
+        or title in KNOWN_MUSICALS
+    ):
+        return "musical"
+    if (
+        SOUNDTRACK_TITLE.search(title)
+        or TIE_IN.search((album or "").casefold())
+        or SOUNDTRACK_GENRE.search(genre)
+        or re.search(r"\bsound team\b", normalise(album_artist))
+    ):
+        return "soundtrack"
+    return "compilation" if compilation else "album"
+
+
 def build_library(
     snapshot: dict, categories: dict | None = None, anchors: dict | None = None
 ) -> dict:
@@ -81,41 +125,13 @@ def build_library(
         tracks.sort(key=lambda t: (t["disc_number"], t["track_number"], t["title"]))
         first = tracks[0]
         compilation = is_compilation(first["album_artist"], tracks)
-        soundtrack = bool(
-            re.search(
-                r"\b(soundtrack|ost|original score|music from)\b",
-                normalise(
-                    first["album"] + " " + " ".join(t.get("genre", "") for t in tracks)
-                ),
-            )
+        auto = classify(
+            first["album"],
+            first["album_artist"],
+            [t.get("genre", "") for t in tracks],
+            compilation,
         )
-        cast_text = normalise(
-            first["album"]
-            + " "
-            + first["album_artist"]
-            + " "
-            + " ".join(t.get("genre", "") for t in tracks)
-        )
-        musical = bool(
-            re.search(
-                r"\b(broadway|west end|cast recording|original cast|musical theatre|musical theater)\b",
-                cast_text,
-            )
-        ) or normalise(first["album"]) in {
-            "hamilton",
-            "hamilton an american musical",
-            "the book of mormon",
-            "book of mormon",
-        }
-        category = (categories or {}).get(album_id) or (
-            "musical"
-            if musical
-            else (
-                "soundtrack"
-                if soundtrack
-                else "compilation" if compilation else "album"
-            )
-        )
+        category = (categories or {}).get(album_id) or auto
         compilation = category == "compilation"
         album = {
             "id": album_id,

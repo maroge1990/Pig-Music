@@ -237,10 +237,7 @@
 .personal-track > .cover {
   flex: 0 0 3rem;
 }
-#root:has(.personal-app) .music-player {
-  left: 0;
-  bottom: 0;
-}
+
 .personal-app summary {
   min-height: 2.75rem;
   min-width: 2.75rem;
@@ -318,9 +315,7 @@
     padding: var(--space-4);
     font-size: var(--type-caption);
   }
-  #root:has(.personal-app) .music-player {
-    bottom: var(--mobile-nav-height, 4rem);
-  }
+
   .personal-main {
     padding-bottom: calc(
       var(--mobile-nav-height, 4rem) + var(--player-height, 0px) + 2rem

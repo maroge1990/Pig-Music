@@ -21,6 +21,7 @@ export async function apiFetch(
     if (
       response.ok &&
       method !== "GET" &&
+      !readOnlyPost(path, options) &&
       // A favourite status probe reads state; it must not invalidate reads.
       !(
         path === "/api/v1/favourites" &&
@@ -45,6 +46,17 @@ export async function apiFetch(
       .catch(() => {});
   }
   return (await read).clone();
+}
+
+/** POSTs that only read: starting playback or checking library membership
+ * must not throw away pre-cached pages. */
+function readOnlyPost(path: string, options?: RequestInit) {
+  return (
+    options?.method?.toUpperCase() === "POST" &&
+    (path === "/api/v1/library/lookup" ||
+      path === "/api/playback/catalogue" ||
+      /^\/api\/v1\/playback\/[^/]+\/url$/.test(path))
+  );
 }
 
 export class ApiError extends Error {
@@ -142,6 +154,10 @@ setInterval(() => {
 }, 60000);
 
 export function clearSessionReads() {
+  // Cached artwork and pages belong to the person who just left.
+  globalThis.navigator?.serviceWorker?.controller?.postMessage({
+    type: "clear",
+  });
   reads.clear();
   libraryRead = undefined;
   libraryResponses.clear();

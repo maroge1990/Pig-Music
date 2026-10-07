@@ -6,6 +6,8 @@ import {
   LoaderCircle,
   ArrowDown,
   Check,
+  Play,
+  Shuffle,
 } from "lucide-react";
 import { Cover, catalogueCover } from "./Cover";
 import { ArtistPopular } from "./ArtistPopular";
@@ -17,6 +19,30 @@ import { FollowArtist } from "./FollowArtist";
 import { ArtistHero } from "./ArtistHero";
 import { discoverUrl } from "./navigation";
 import type { Discography } from "./discography";
+import { SongRow } from "./SongRow";
+import { usePlayer } from "./Player";
+import { shuffled } from "./shuffle";
+import { withLibrary, type Song as Row } from "./songs";
+
+function releaseSongs(release: Release, artistId: string): Row[] {
+  const cover = catalogueCover("release", release.id);
+  return release.tracks.map((t) => ({
+    key: release.id + ":" + t.id,
+    title: t.title,
+    artist: t.artist,
+    album: release.title,
+    album_artist: release.artist,
+    duration: t.duration,
+    track_number: t.track_number,
+    disc_number: t.disc_number,
+    cover,
+    state: pending(t) ? "pending" : "missing",
+    release_id: release.id,
+    track_id: t.id,
+    recording_id: t.musicbrainz_recording_id,
+    artist_id: artistId,
+  }));
+}
 
 type Group = {
   id: string;
@@ -47,6 +73,7 @@ type Song = {
   download_status?: string;
   received_bytes?: number;
   total_bytes?: number;
+  musicbrainz_recording_id?: string;
 };
 type Release = {
   id: string;
@@ -127,6 +154,20 @@ export function CatalogueBrowser({
   const [editionTotal, setEditionTotal] = useState(0);
   const [release, setRelease] = useState<Release | null>(null);
   const [choose, setChoose] = useState(false);
+  const player = usePlayer();
+  const [rows, setRows] = useState<Row[]>([]);
+  useEffect(() => {
+    if (!release) return setRows([]);
+    const plain = releaseSongs(release, artist.id);
+    setRows(plain);
+    let active = true;
+    void withLibrary(plain)
+      .then((found) => active && setRows(found))
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [release]);
   const [busy, setBusy] = useState(false);
   const groupBusy = listing.scope !== scope || listing.loading;
   const [error, setError] = useState("");
@@ -262,18 +303,23 @@ export function CatalogueBrowser({
       setBusy(false);
     }
   }
-  async function download(trackId?: string) {
+  async function download() {
     if (!release) return;
-    const chosen = release.tracks.filter((t) => !trackId || t.id === trackId);
     try {
       const response = await apiFetch("/api/v1/requests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tracks: chosen }),
+        body: JSON.stringify({ tracks: release.tracks }),
       });
       if (!response.ok) throw new Error("Could not request music");
-      notify("Added or requested for your library");
+      notify("Downloading to your library");
+      setRows((old) =>
+        old.map((r) =>
+          r.state === "missing" ? { ...r, state: "pending" } : r,
+        ),
+      );
       window.dispatchEvent(new Event("music-library-changed"));
+      window.dispatchEvent(new Event("music-requests-changed"));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -290,12 +336,15 @@ export function CatalogueBrowser({
   }
   return (
     <section aria-label="Artist discography">
-      <button className="back-button" onClick={back} disabled={busy}>
-        <ArrowLeft size={16} />
-        {choose ? "Selected edition" : group ? artist.name : "Search results"}
-      </button>
+      {group && (
+        <button className="back-button" onClick={back} disabled={busy}>
+          <ArrowLeft size={16} />
+          {choose ? "Selected edition" : artist.name}
+        </button>
+      )}
       {!group && (
         <ArtistHero
+          back={{ label: "Back", go: back }}
           discovered
           artist={{
             ...artist,
@@ -390,40 +439,43 @@ export function CatalogueBrowser({
           <div className="release-actions">
             <button
               className="primary-button"
-              disabled={
-                busy ||
-                !release.tracks.some(
-                  (t) => t.status !== "downloaded" && !pending(t),
-                )
-              }
+              disabled={!rows.length}
+              onClick={() => player.play(rows, 0)}
+            >
+              <Play size={16} fill="currentColor" /> Play
+            </button>
+            <button
+              className="secondary-button"
+              disabled={!rows.length}
+              onClick={() => player.play(shuffled(rows), 0)}
+            >
+              <Shuffle size={16} /> Shuffle
+            </button>
+            <button
+              className="secondary-button"
+              disabled={busy || !rows.some((r) => r.state === "missing")}
               onClick={() => download()}
             >
               <ArrowDown size={16} />
-              Add album to my library
+              Download album
             </button>
           </div>
-          {release.tracks.map((t) => {
-            return (
-              <div className="result-row catalogue-song" key={t.id}>
-                <span className="song-number">{t.track_number}</span>
-                <div>
-                  <strong>{t.title}</strong>
-                  <span>
-                    {t.artist} ·{" "}
-                    {t.duration
-                      ? `${Math.floor(t.duration / 60)}:${String(Math.floor(t.duration % 60)).padStart(2, "0")}`
-                      : ""}
-                  </span>
-                </div>
-                <button
-                  className="secondary-button"
-                  onClick={() => void download(t.id)}
-                >
-                  Add to my library
-                </button>
-              </div>
-            );
-          })}
+          <div className="song-list">
+            {rows.map((row, i) => (
+              <SongRow
+                key={row.key}
+                song={row}
+                queue={rows}
+                index={i}
+                numbered
+                onAlbum
+                onArtist={
+                  row.artist.toLocaleLowerCase() ===
+                  artist.name.toLocaleLowerCase()
+                }
+              />
+            ))}
+          </div>
           {editionTotal > 0 && (
             <button
               className="secondary-button edition-switch"
