@@ -1513,9 +1513,25 @@
           "library_revision": {
             "title": "Library Revision",
             "type": "string"
+          },
+          "next_offset": {
+            "nullable": true,
+            "title": "Next Offset",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
           }
         },
         "required": [
+          "total",
+          "offset",
+          "next_offset",
           "library_revision",
           "downloads_enabled",
           "items"
@@ -1953,7 +1969,7 @@
         "title": "ValidationError",
         "type": "object"
       },
-      "server__app__create_app___locals___ArtistRequest": {
+      "server__routes__catalogue__catalogue_router___locals___ArtistRequest": {
         "properties": {
           "kinds": {
             "default": [
@@ -8654,6 +8670,28 @@
     "/api/v1/requests": {
       "get": {
         "operationId": "requests_api_v1_requests_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -8733,7 +8771,7 @@
                 }
               }
             },
-            "description": "Request error"
+            "description": "Validation Error"
           },
           "429": {
             "content": {

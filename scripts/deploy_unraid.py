@@ -38,6 +38,7 @@ def bundle(target):
             )
         ]
         for folder in (
+            "api",
             "server",
             "client",
             "tests",
@@ -214,6 +215,11 @@ def main():
         "docker run --rm --network none --memory=1g --entrypoint python "
         + shlex.quote(image)
         + " /app/scripts/benchmark_delivery.py"
+    )
+    remote(
+        "docker run --rm --network none --memory=1g --entrypoint python "
+        + shlex.quote(image)
+        + " /app/scripts/benchmark_native_sync.py --sizes 10000 50000"
     )
     print(
         "Candidate passed isolated Linux tests, artwork and HTTP delivery scale gates:",

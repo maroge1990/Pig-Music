@@ -41,6 +41,11 @@ jobs:
               raise SystemExit('Contract fixture did not start')
           PY
           PIG_CONTRACT_SERVER=http://127.0.0.1:8781 swift test --package-path swift/PigKit
+      - name: Unsigned generated iPhone client build
+        working-directory: swift/PigKit
+        run: |
+          xcodebuild -quiet -scheme PigAPI -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath ../build/PigKitSimulator -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO build
       - name: Shared core tests
         run: swift test --package-path swift/NativeSpike
       - name: Unsigned iPhone and embedded Watch simulator build

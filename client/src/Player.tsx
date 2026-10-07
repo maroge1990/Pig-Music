@@ -51,6 +51,27 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const serial = useRef(0);
   const queue = useRef<Track[]>([]);
   const cursor = useRef(-1);
+  const playEvent = useRef<{
+    event_id: string;
+    track_id: string;
+    played_at: number;
+    seconds: number;
+    last: number;
+  } | null>(null);
+  function reportPlay() {
+    const event = playEvent.current;
+    playEvent.current = null;
+    if (event && event.seconds >= 1) {
+      const { last: _last, ...body } = event;
+      void fetch("/api/v1/play-events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          events: [{ ...body, seconds: Math.floor(body.seconds) }],
+        }),
+      }).catch(() => {});
+    }
+  }
   const [song, setSong] = useState<Playing | null>(null);
   const playerBar = useFixedHeight("--player-height", !!song);
   const [busy, setBusy] = useState(false);
@@ -62,6 +83,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const stop = () => {
+      playEvent.current = null;
       ++serial.current;
       audio.current?.pause();
       audio.current?.removeAttribute("src");
@@ -80,6 +102,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function load(track: Playing, path: string, options?: RequestInit) {
+    reportPlay();
+    playEvent.current = track.saved_id
+      ? {
+          event_id: crypto.randomUUID(),
+          track_id: track.saved_id,
+          played_at: Math.floor(Date.now() / 1000),
+          seconds: 0,
+          last: 0,
+        }
+      : null;
     const request = ++serial.current;
     audio.current?.pause();
     setSong({ ...track, url: undefined });
@@ -210,6 +242,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [song?.url]);
   function close() {
+    reportPlay();
     serial.current++;
     audio.current?.pause();
     setSong(null);
@@ -241,12 +274,23 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           preload="metadata"
           onPlay={() => setPlaying(true)}
           onPause={() => setPlaying(false)}
-          onTimeUpdate={() => setPosition(audio.current?.currentTime || 0)}
+          onTimeUpdate={() => {
+            const current = audio.current?.currentTime || 0;
+            const event = playEvent.current;
+            if (event) {
+              const elapsed = current - event.last;
+              if (playing && elapsed > 0 && elapsed < 3)
+                event.seconds += elapsed;
+              event.last = current;
+            }
+            setPosition(current);
+          }}
           onDurationChange={() => {
             const n = audio.current?.duration;
             if (n && Number.isFinite(n)) setDuration(n);
           }}
           onEnded={() => {
+            reportPlay();
             setPlaying(false);
             step(1);
           }}

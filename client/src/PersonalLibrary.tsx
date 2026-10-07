@@ -8,6 +8,7 @@ import {
   Ellipsis,
 } from "lucide-react";
 import { api } from "./api";
+import { PersonalRequests } from "./PersonalRequests";
 import { PersonalQuality } from "./PersonalQuality";
 import { CatalogueExplorer } from "./CatalogueExplorer";
 import { Cover } from "./Cover";
@@ -65,9 +66,6 @@ export function PersonalLibrary({ user }: { user: Person }) {
     tracks: Track[];
     household_tracks: Track[];
   } | null>(null);
-  const [requests, setRequests] = useState<
-    { id: string; title: string; status: string }[]
-  >([]);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [removal, setRemoval] = useState<{
@@ -102,16 +100,18 @@ export function PersonalLibrary({ user }: { user: Person }) {
     window.addEventListener("music-library-changed", changed);
     const events = new EventSource("/api/v1/events");
     events.addEventListener("revision", changed);
-    events.addEventListener("queue", (e) => {
-      const data = JSON.parse((e as MessageEvent).data);
-      setRequests(data.items);
-    });
+    events.addEventListener("queue", () =>
+      window.dispatchEvent(new Event("music-requests-changed")),
+    );
     events.addEventListener("revoked", () =>
       window.dispatchEvent(new Event("music-auth-required")),
     );
     let fallback: ReturnType<typeof setInterval> | undefined;
     events.onerror = () => {
-      fallback ||= setInterval(changed, 15000);
+      fallback ||= setInterval(() => {
+        changed();
+        window.dispatchEvent(new Event("music-requests-changed"));
+      }, 15000);
     };
     events.onopen = () => {
       clearInterval(fallback);
@@ -476,10 +476,6 @@ export function PersonalLibrary({ user }: { user: Person }) {
                 onClick={() => {
                   setTab(id);
                   setSearch(null);
-                  if (id === "requests")
-                    void api<{ items: typeof requests }>("/v1/requests")
-                      .then((d) => setRequests(d.items))
-                      .catch((e) => setError(e.message));
                 }}
               >
                 {id[0].toUpperCase() + id.slice(1)}
@@ -612,16 +608,7 @@ export function PersonalLibrary({ user }: { user: Person }) {
             </>
           )}
           {tab === "search" && <CatalogueExplorer />}
-          {tab === "requests" && (
-            <>
-              <p>Your requests</p>
-              {requests.map((r) => (
-                <p key={r.id}>
-                  {r.title} · {r.status.replaceAll("_", " ")}
-                </p>
-              ))}
-            </>
-          )}
+          {tab === "requests" && <PersonalRequests />}
           {tab === "import" && (
             <section className="account-section">
               <h2>Import your playlists</h2>

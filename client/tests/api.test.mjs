@@ -21,3 +21,42 @@ test("library conditional reads reuse the body on 304 and replace it on change",
   assert.equal(calls[1].options.headers.get("If-None-Match"), '"one"');
   assert.equal((await (await apiFetch("/api/library")).json()).revision, "two");
 });
+
+test("a previous account's delayed library response cannot enter the next account cache", async () => {
+  const events = [];
+  window.dispatchEvent = (event) => events.push(event.type);
+  const { apiFetch, clearSessionReads } = await import("../src/api.ts");
+  clearSessionReads();
+  let complete;
+  globalThis.fetch = () =>
+    new Promise((resolve) => {
+      complete = resolve;
+    });
+  const old = apiFetch("/api/v1/library");
+  clearSessionReads();
+  complete(
+    new Response('{"revision":"old-person"}', {
+      headers: { etag: '"old-person"' },
+    }),
+  );
+  await old;
+  let conditional;
+  globalThis.fetch = async (path, options) => {
+    conditional = options.headers.get("If-None-Match");
+    return new Response('{"revision":"new-person"}');
+  };
+  assert.equal(
+    (await (await apiFetch("/api/v1/library")).json()).revision,
+    "new-person",
+  );
+  assert.equal(conditional, null);
+  globalThis.fetch = () =>
+    new Promise((resolve) => {
+      complete = resolve;
+    });
+  const late = apiFetch("/api/v1/me");
+  clearSessionReads();
+  complete(new Response("{}", { status: 401 }));
+  await late;
+  assert.deepEqual(events, []);
+});

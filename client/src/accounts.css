@@ -211,3 +211,33 @@
   justify-content: center;
   cursor: pointer;
 }
+
+/* Intrinsic input/select widths must not force enlarged text beyond a phone. */
+.sign-in-card,
+.account-section,
+.sign-in-card form,
+.account-section form,
+.sign-in-card label,
+.account-section label {
+  min-width: 0;
+}
+.sign-in-card input,
+.account-section input,
+.account-section select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.account-section button,
+.sign-in-card button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.account-wordmark {
+  max-width: 100%;
+}
+.account-section h2,
+.sign-in-card h1 {
+  overflow-wrap: anywhere;
+}

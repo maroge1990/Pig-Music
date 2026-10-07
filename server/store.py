@@ -11,7 +11,6 @@ from pathlib import Path
 
 from .migrations import migrate
 from .cover_store import CoverStore
-from .image_cache import public_image
 
 from .library import (
     build_library,
@@ -867,133 +866,14 @@ class Store:
         return json.loads(row[0]) if row else {}
 
     def _cache_covers(self, snapshot_tracks):
-        # Quality replacements can supersede every scanned track in an album.
-        # Retain its display artwork without moving the old file membership.
-        scanned_art = {}
-        for track in snapshot_tracks:
-            if track.get("cover_sha"):
-                key = (
-                    normalise(
-                        track.get("album_artist", track.get("artist", "Unknown artist"))
-                    ),
-                    normalise(track.get("album", "Singles")),
-                )
-                scanned_art.setdefault(key, []).append(track)
-        for album in self.library["albums"]:
-            if not album.get("cover_sha"):
-                candidates = scanned_art.get(
-                    (normalise(album["artist"]), normalise(album["title"])), []
-                )
-                release = album.get("musicbrainz_release_id")
-                hashes = {
-                    t["cover_sha"]
-                    for t in candidates
-                    if not release or t.get("musicbrainz_release_id") == release
-                }
-                if len(hashes) == 1:
-                    album["cover_sha"] = next(iter(hashes))
-            target = self.covers.path(album.get("cover_sha"))
-            album["cover_url"] = "/api/artwork/" + target.name if target else None
-        albums = {a["id"]: a for a in self.library["albums"]}
-        # Prefer any available own-album cover, rather than only the first album.
-        for artist in self.library["artists"]:
-            candidates = artist["album_ids"] or [artist["cover_album_id"]]
-            artist["cover_url"] = next(
-                (
-                    albums[a]["cover_url"]
-                    for a in candidates
-                    if a in albums and albums[a].get("cover_url")
-                ),
-                None,
-            )
-        for album in self.library["albums"]:
-            if not album["cover_url"]:
-                cached = public_image(
-                    self,
-                    self.cover_dir
-                    / (identifier("catalogue-cover", album["id"]) + ".jpg"),
-                )
-                album["cover_url"] = (
-                    "/api/artwork/" + cached.name
-                    if cached
-                    else "/api/library-artwork/albums/" + album["id"]
-                )
-        config = media_settings(self)
-        from .portraits import portrait_target
+        from .library_artwork import cache_covers
 
-        for artist in self.library["artists"]:
-            if not artist["cover_url"]:
-                artist["cover_url"] = next(
-                    (
-                        albums[a]["cover_url"]
-                        for a in (artist["album_ids"] or [artist["cover_album_id"]])
-                        if a in albums
-                        and (albums[a].get("cover_url") or "").startswith(
-                            "/api/artwork/"
-                        )
-                    ),
-                    None,
-                )
-            known = self.read_document("library-artist:" + artist["id"])
-            portrait = (
-                public_image(
-                    self, portrait_target(self, artist["name"], known.get("id"))
-                )
-                if config["portraits"]
-                else None
-            )
-            artist["fallback_cover_url"] = artist["cover_url"]
-            if portrait:
-                artist["cover_url"] = "/api/artwork/" + portrait.name
-            elif config["portraits"] or not artist["cover_url"]:
-                artist["cover_url"] = (
-                    "/api/library-artwork/artists/" + artist["id"] + "?portraits=1"
-                )
-        # Optional image metadata is read from a small sidecar, never decoded here.
-        for item in [*self.library["albums"], *self.library["artists"]]:
-            url = item.get("cover_url", "") or ""
-            if url.startswith("/api/artwork/"):
-                sha = url.removeprefix("/api/artwork/").removesuffix(".jpg")
-                metadata = self.covers.presentation(sha)
-                if metadata:
-                    item["artwork_metadata"] = metadata
+        return cache_covers(self, snapshot_tracks)
 
     def prune_artwork(self, now=None):
-        now = time.time() if now is None else now
-        with self.covers.lock, self.library_lock:
-            snapshot = load_json(self.directory / "library-snapshot.json")
-            references = {t.get("cover_sha") for t in snapshot.get("tracks", [])}
-            references.update(a.get("cover_sha") for a in self.library["albums"])
-            with self.connect() as conn:
-                references.update(
-                    json.loads(payload).get("sha")
-                    for (payload,) in conn.execute(
-                        "SELECT payload FROM documents WHERE name LIKE 'image-public:%'"
-                    )
-                )
-            with self.connect() as conn:
-                for (payload,) in conn.execute("SELECT payload FROM acquired"):
-                    references.add(json.loads(payload).get("cover_sha"))
-                expired = []
-                for name, payload in conn.execute(
-                    "SELECT name,payload FROM documents WHERE name LIKE 'missing-artwork:%' OR name LIKE 'catalogue:%'"
-                ):
-                    value = json.loads(payload)
-                    expiry = (
-                        value.get("retry_after")
-                        if name.startswith("missing-artwork:")
-                        else value.get("time", now) + 86400
-                    )
-                    if isinstance(expiry, (int, float)) and expiry < now:
-                        expired.append((name, payload))
-                # Compare payload as well so a concurrently refreshed cache wins.
-                conn.executemany(
-                    "DELETE FROM documents WHERE name=? AND payload=?", expired
-                )
-            return {
-                "covers_removed": self.covers.prune(references, now),
-                "documents_removed": len(expired),
-            }
+        from .library_artwork import prune_artwork
+
+        return prune_artwork(self, now)
 
     def write_document(self, key, value):
         with self.connect() as conn:

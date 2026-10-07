@@ -4,13 +4,14 @@ import asyncio
 import json
 import time
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from pathlib import Path
 from ..api_models import TrackPage, AlbumPage, ArtistPage, LibraryChanges
 from ..native_sync import NativeSync, ResyncRequired
 from ..auth import AuthError
 
 
-def native_router(store, auth):
+def native_router(store, auth, health_snapshot=None):
     router = APIRouter(prefix="/api/v1", tags=["personal-library"])
     sync = NativeSync(store)
     connections = {}
@@ -24,6 +25,14 @@ def native_router(store, auth):
             raise HTTPException(409, str(exc))
         except ValueError as exc:
             raise HTTPException(422, str(exc))
+
+    @router.get("/openapi.json", include_in_schema=False)
+    def published_contract():
+        return FileResponse(
+            Path(__file__).resolve().parents[2] / "api/openapi.v1.json",
+            media_type="application/json",
+            headers={"Cache-Control": "private, no-cache"},
+        )
 
     @router.get("/library/tracks", response_model=TrackPage)
     async def tracks(request: Request, cursor: str | None = None, limit: int = 200):
@@ -58,6 +67,8 @@ def native_router(store, auth):
         async def stream():
             previous = {}
             heartbeat = time.monotonic()
+            health_checked = 0.0
+            health = {}
             try:
                 while not await request.is_disconnected():
                     # Revoked sessions cannot keep receiving events indefinitely.
@@ -73,10 +84,14 @@ def native_router(store, auth):
                         store.user_libraries.projection, user_id
                     )
                     queue = await asyncio.to_thread(store.user_libraries.queue, user_id)
+                    if health_snapshot and time.monotonic() - health_checked >= 15:
+                        status = await asyncio.to_thread(health_snapshot)
+                        health = {"storage_available": status["storage_available"]}
+                        health_checked = time.monotonic()
                     state = {
                         "revision": {"revision": summary["revision"]},
                         "queue": queue,
-                        "health": {"status": "ok"},
+                        "health": health,
                     }
                     for kind, value in state.items():
                         if previous.get(kind) != value:

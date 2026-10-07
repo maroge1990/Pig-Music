@@ -3,7 +3,8 @@
  */
 const reads = new Map<string, Promise<Response>>();
 let libraryRead: Promise<unknown> | undefined;
-let libraryResponse: Response | undefined;
+const libraryResponses = new Map<string, Response>();
+let sessionGeneration = 0;
 let artworkRevision: number | undefined;
 
 export async function apiFetch(
@@ -103,15 +104,21 @@ async function readResponse(
   path: string,
   options?: RequestInit,
 ): Promise<Response> {
-  if (path !== "/api/library" || (options?.method && options.method !== "GET"))
+  if (
+    !["/api/library", "/api/v1/library"].includes(path) ||
+    (options?.method && options.method !== "GET")
+  )
     return transport(path, options);
+  const generation = sessionGeneration;
+  const remembered = libraryResponses.get(path);
   const headers = new Headers(options?.headers);
-  const etag = libraryResponse?.headers.get("etag");
+  const etag = remembered?.headers.get("etag");
   if (etag) headers.set("If-None-Match", etag);
   const response = await transport(path, { ...options, headers });
-  if (response.status === 304 && libraryResponse)
-    return libraryResponse.clone();
-  if (response.ok) libraryResponse = response.clone();
+  if (response.status === 304 && remembered && generation === sessionGeneration)
+    return remembered.clone();
+  if (response.ok && generation === sessionGeneration)
+    libraryResponses.set(path, response.clone());
   return response;
 }
 
@@ -129,16 +136,18 @@ setInterval(() => {
 export function clearSessionReads() {
   reads.clear();
   libraryRead = undefined;
-  libraryResponse = undefined;
+  libraryResponses.clear();
+  ++sessionGeneration;
 }
 
 async function transport(path: string, options?: RequestInit) {
+  const generation = sessionGeneration;
   const response = await fetch(path, options);
-  if (response.status === 401) {
+  if (response.status === 401 && generation === sessionGeneration) {
     clearSessionReads();
     window.dispatchEvent(new Event("music-auth-required"));
   }
-  if (response.status === 403)
+  if (response.status === 403 && generation === sessionGeneration)
     window.dispatchEvent(
       new CustomEvent("music-forbidden", {
         detail: "You do not have access to that action.",

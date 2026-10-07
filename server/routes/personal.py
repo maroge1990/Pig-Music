@@ -3,7 +3,8 @@
 import asyncio
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, SecretStr
 
 from ..library import identifier, normalise
@@ -151,7 +152,19 @@ def personal_router(store, artist_jobs, recovery):
 
     @router.get("/library")
     async def library(request: Request):
-        return await run(users.summary, identity(request))
+        data = await run(users.summary, identity(request))
+        etag = '"' + data["revision"] + '"'
+        headers = {
+            "ETag": etag,
+            "Cache-Control": "private, no-cache",
+            "Vary": "Accept-Encoding",
+        }
+        if any(
+            value.strip().removeprefix("W/") in {etag, "*"}
+            for value in request.headers.get("if-none-match", "").split(",")
+        ):
+            return Response(status_code=304, headers=headers)
+        return JSONResponse(data, headers=headers)
 
     @router.get("/library-pages/{kind}")
     async def page(
@@ -362,8 +375,8 @@ def personal_router(store, artist_jobs, recovery):
         )
 
     @router.get("/requests", response_model=RequestList)
-    async def requests(request: Request):
-        return await run(users.queue, identity(request))
+    async def requests(request: Request, offset: int = 0, limit: int = 200):
+        return await run(users.queue, identity(request), offset, limit)
 
     @router.post("/play-events")
     async def play_events(body: PlayEvents, request: Request):

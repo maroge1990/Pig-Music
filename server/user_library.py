@@ -338,28 +338,47 @@ class UserLibrary:
                 HouseholdPolicy(self.store).membership_changed(conn, track_ids)
         return {"added": changed, "revision": self.projection(user_id)["revision"]}
 
-    def queue(self, user_id):
-        result = self.store.queue()
-        result["items"] = [
-            {
-                k: v
-                for k, v in job.items()
-                if k
-                in TRACK_FIELDS
-                | {
-                    "status",
-                    "created_at",
-                    "updated_at",
-                    "progress",
-                    "quality_profile",
-                    "received_bytes",
-                    "total_bytes",
-                    "error",
-                }
+    def queue(self, user_id, offset=0, limit=200):
+        if offset < 0 or not 1 <= limit <= 200:
+            raise ValueError("Invalid request page bounds")
+        where = "EXISTS (SELECT 1 FROM json_each(queue.payload,'$.requested_by') WHERE value=?)"
+        with self.store.connect() as conn:
+            total = conn.execute(
+                "SELECT count(*) FROM queue WHERE " + where, (user_id,)
+            ).fetchone()[0]
+            records = conn.execute(
+                "SELECT id,payload,status,created_at,updated_at FROM queue WHERE "
+                + where
+                + " ORDER BY CASE WHEN status IN ('waiting_for_sources','searching','downloading','validating','importing') THEN 0 ELSE 1 END,created_at DESC,id LIMIT ? OFFSET ?",
+                (user_id, limit, offset),
+            ).fetchall()
+        result = {
+            "library_revision": self.store.library_revision,
+            "downloads_enabled": self.store.download_settings()["enabled"],
+            "total": total,
+            "offset": offset,
+            "next_offset": offset + limit if offset + limit < total else None,
+            "items": [],
+        }
+        allowed = TRACK_FIELDS | {
+            "status",
+            "created_at",
+            "updated_at",
+            "progress",
+            "quality_profile",
+            "received_bytes",
+            "total_bytes",
+            "error",
+        }
+        for key, raw, status, created, updated in records:
+            job = {
+                "id": key,
+                **json.loads(raw),
+                "status": status,
+                "created_at": created,
+                "updated_at": updated,
             }
-            for job in result["items"]
-            if user_id in job.get("requested_by", [])
-        ]
+            result["items"].append({k: v for k, v in job.items() if k in allowed})
         for job in result["items"]:
             active = job["status"] in {
                 "waiting_for_sources",

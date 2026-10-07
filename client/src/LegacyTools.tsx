@@ -1,24 +1,29 @@
-import { api, rememberLibrary, updateArtworkRevision } from "./api";
+import { LibraryView } from "./LibraryView";
+import { Empty } from "./EmptyState";
+import { QueueView, type Queue } from "./QueueView";
+import {
+  SystemView,
+  type Appearance,
+  type DownloadSettings,
+} from "./SystemView";
+import { api, updateArtworkRevision } from "./api";
 import { discoverUrl } from "./navigation";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
-  ArrowLeft,
-  ArrowRight,
   ChevronDown,
+  Disc3,
+  ArrowRight,
   ChevronRight,
   ListMusic,
-  CircleCheck,
-  Disc3,
   FolderHeart,
-  HardDrive,
   Heart,
   LibraryBig,
   LoaderCircle,
-  Music2,
+  CircleCheck,
+  ShieldCheck,
   Search,
   Settings2,
-  ShieldCheck,
   Upload,
   X,
   Play,
@@ -32,60 +37,15 @@ const pigLogo = "/brand/mark.png";
 import { CatalogueBrowser } from "./CatalogueBrowser";
 import { Cover } from "./Cover";
 import { useFixedHeight } from "./useFixedHeight";
-import { AlbumCards, ArtistCards } from "./LibraryCards";
-import { CollectionPages } from "./CollectionPages";
+import { AlbumCards } from "./LibraryCards";
 import { usePlayer } from "./Player";
-import { MediaSettings } from "./MediaSettings";
 import { SearchPanel } from "./SearchPanel";
-import { AlbumQuality } from "./AlbumQuality";
-import { ArtistHero } from "./ArtistHero";
-import { ArtistDiscography } from "./ArtistDiscography";
-import { QualitySettings } from "./QualitySettings";
-import { Playlists } from "./Playlists";
-const Organisation = lazy(() =>
-  import("./Organisation").then((m) => ({ default: m.Organisation })),
-);
-import { RemoveSong, RemoveCollection } from "./Recovery";
-const RemovedMusic = lazy(() =>
-  import("./RemovedMusic").then((m) => ({ default: m.RemovedMusic })),
-);
+
+import { RemoveSong } from "./Recovery";
+
 import { SongActions } from "./SongActions";
-import { MusicLink } from "./MusicLink";
-import { LibraryScan } from "./LibraryScan";
-import { ToolBoundary } from "./ToolBoundary";
 
 type Page = "library" | "search" | "migration" | "queue" | "system";
-
-type Appearance = "system" | "light" | "dark";
-
-type QueueItem = {
-  id: string;
-  title: string;
-  artist: string;
-  album: string;
-  status: string;
-  source?: string;
-  error?: string;
-  received_bytes?: number;
-  total_bytes?: number;
-};
-
-type Queue = {
-  library_revision: string;
-  artwork_revision?: number;
-  media?: Library["media"];
-  downloads_enabled: boolean;
-  items: QueueItem[];
-};
-type DownloadSettings = {
-  enabled: boolean;
-  profile: string;
-  sources: string[];
-  concurrent_downloads: number;
-  fallback_profile: string;
-  fallback_minutes: number;
-  recheck_hours: number;
-};
 
 type Route = {
   page: Page;
@@ -148,9 +108,6 @@ export function LegacyTools() {
   const [route, setRoute] = useState<Route>(fromHash);
 
   const [library, setLibrary] = useState<Library | null>(null);
-  useEffect(() => {
-    if (library) rememberLibrary(library);
-  }, [library]);
 
   const [importLoaded, setImportLoaded] = useState(false);
   const [migration, setMigration] = useState<Migration | null>(null);
@@ -702,377 +659,40 @@ export function LegacyTools() {
     </div>
   );
 
-  function libraryPage() {
-    if (!library) return null;
+  async function changeCategory(category: string) {
+    if (!albumDetail) return;
 
-    if (detailLoading)
-      return (
-        <div className="loading-block">
-          <LoaderCircle className="spin" />
-          Opening your music…
-        </div>
-      );
-
-    if (albumDetail)
-      return (
-        <>
-          <button
-            className="back-button"
-            onClick={() =>
-              albumDetail.category !== "album"
-                ? navigate("library")
-                : openArtist(albumDetail.artist_id!)
-            }
-          >
-            <ArrowLeft size={16} />{" "}
-            {albumDetail.category !== "album"
-              ? "Your library"
-              : albumDetail.artist}
-          </button>
-
-          <div className="detail-hero album-hero">
-            <Cover
-              title={albumDetail.title}
-              src={albumDetail.cover_url}
-              sizes="(max-width: 600px) 190px, (max-width: 800px) 130px, (max-width: 1200px) 170px, 210px"
-            />
-            <div>
-              <div className="eyebrow">
-                {albumDetail.compilation
-                  ? "MULTI-ARTIST COMPILATION"
-                  : "IN YOUR LIBRARY"}
-              </div>
-              <h1>{albumDetail.title}</h1>
-              <p>
-                <MusicLink artist={albumDetail.artist} />
-                <span>·</span> {albumDetail.year || "Unknown year"}{" "}
-                <span>·</span> {plural(albumDetail.track_count, "saved track")}
-              </p>
-              <span className="status-pill">
-                <CircleCheck size={14} /> Downloaded
-              </span>
-            </div>
-          </div>
-
-          <div className="section-title">
-            <h2>Tracks</h2>
-            <button
-              className="small-button"
-              disabled={!albumDetail.tracks?.length}
-              onClick={() =>
-                player.playSaved(
-                  {
-                    ...albumDetail.tracks![0],
-                    cover_url: albumDetail.cover_url,
-                  },
-                  albumDetail.tracks!.map((t) => ({
-                    ...t,
-                    cover_url: albumDetail.cover_url,
-                    album_id: albumDetail.id,
-                  })),
-                )
-              }
-            >
-              <Play size={14} /> Play album
-            </button>
-          </div>
-          {savedTracks(
-            (albumDetail.tracks || []).map((t) => ({
-              ...t,
-              cover_url: albumDetail.cover_url,
-              album_id: albumDetail.id,
-            })),
-          )}
-
-          <details className="album-quality">
-            <summary>Album settings</summary>
-            <div className="appearance-control">
-              <label htmlFor="album-category">Library section</label>
-              <select
-                id="album-category"
-                value={albumDetail.category}
-                disabled={busy}
-                onChange={async (e) => {
-                  setBusy(true);
-                  try {
-                    const updated = await api<Library>(
-                      `/albums/${albumDetail.id}/category`,
-                      {
-                        method: "PUT",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ category: e.target.value }),
-                      },
-                    );
-                    setLibrary(updated);
-                    libraryRef.current = updated;
-                    albumCache.current.clear();
-                    artistCache.current.clear();
-                    setAlbumDetail(
-                      await api<Album>(`/albums/${albumDetail.id}`),
-                    );
-                  } catch (error) {
-                    setError((error as Error).message);
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
-              >
-                <option value="album">Artists &amp; albums</option>
-                <option value="compilation">Compilations</option>
-                <option value="soundtrack">Soundtracks</option>
-                <option value="musical">Musicals</option>
-                <option value="auto">Automatic</option>
-              </select>
-              <span>
-                This changes app grouping; it does not change your music files.
-              </span>
-            </div>
-            <AlbumQuality
-              key={albumDetail.id}
-              id={albumDetail.id}
-              notify={setToast}
-              embedded
-            />
-            <RemoveCollection
-              kind="albums"
-              id={albumDetail.id}
-              title={albumDetail.title}
-            />
-          </details>
-        </>
-      );
-
-    if (artistDetail)
-      return (
-        <>
-          <button className="back-button" onClick={() => navigate("library")}>
-            <ArrowLeft size={16} /> Your library
-          </button>
-
-          <ArtistHero key={artistDetail.id} artist={artistDetail} />
-
-          {!!artistDetail.albums?.length && (
-            <>
-              <div className="section-title">
-                <h2>Albums & releases</h2>
-                <span>{plural(artistDetail.albums.length, "release")}</span>
-              </div>
-              {albumCards(
-                [...artistDetail.albums].sort(
-                  (a, b) =>
-                    (b.year || 0) - (a.year || 0) ||
-                    a.title.localeCompare(b.title),
-                ),
-              )}
-            </>
-          )}
-
-          <ArtistDiscography
-            key={"discography:" + artistDetail.id}
-            id={artistDetail.id}
-            notify={setToast}
-          />
-          {!!artistDetail.compilation_tracks?.length && (
-            <>
-              <div className="section-title">
-                <h2>On soundtracks & compilations</h2>
-                <span>
-                  {plural(artistDetail.compilation_tracks.length, "track")}
-                </span>
-              </div>
-              {artistDetail.compilation_tracks.map((t) => (
-                <button
-                  className="result-row"
-                  key={t.id}
-                  onClick={() => openAlbum(t.album_id!)}
-                >
-                  <Disc3 />
-                  <div>
-                    <strong>{t.title}</strong>
-                    <span>{t.album}</span>
-                  </div>
-                  <ChevronRight size={16} />
-                </button>
-              ))}
-            </>
-          )}
-
-          <AlbumQuality
-            key={"quality:" + artistDetail.id}
-            kind="artist"
-            id={artistDetail.id}
-            notify={setToast}
-          />
-        </>
-      );
-
-    const artists = library.artists.filter((a) => !a.compilation_only);
-
-    const albums = library.albums.filter(
-      (a) =>
-        a.category ===
-        (libraryTab === "compilations"
-          ? "compilation"
-          : libraryTab === "soundtracks"
-            ? "soundtrack"
-            : libraryTab === "musicals"
-              ? "musical"
-              : "album"),
-    );
-
-    const sortedArtists = [...artists].sort((a, b) =>
-      sort === "tracks"
-        ? b.track_count - a.track_count
-        : a.name.localeCompare(b.name),
-    );
-
-    const sortedAlbums = [...albums].sort((a, b) =>
-      sort === "year" ? b.year - a.year : a.title.localeCompare(b.title),
-    );
-
-    return (
-      <>
-        <div className="library-controls">
-          <div className="tab-list" role="tablist" aria-label="Library views">
-            {[
-              ["artists", "Artists"],
-              ["albums", "Albums"],
-              ["compilations", "Compilations"],
-              ["soundtracks", "Soundtracks"],
-              ["musicals", "Musicals"],
-              ["playlists", "Playlists"],
-              ["favourites", "Favourites"],
-            ]
-              .filter(
-                ([id]) =>
-                  !["compilations", "soundtracks", "musicals"].includes(id) ||
-                  library.stats[
-                    id as "compilations" | "soundtracks" | "musicals"
-                  ] > 0,
-              )
-              .map(([id, label]) => (
-                <button
-                  role="tab"
-                  aria-selected={libraryTab === id}
-                  key={id}
-                  className={libraryTab === id ? "active" : ""}
-                  onClick={() => {
-                    if (route.playlist) navigate("library");
-                    setLibraryTab(id);
-                    setSort("az");
-                  }}
-                >
-                  {label}
-                  {id === "compilations" && (
-                    <span>{library.stats.compilations}</span>
-                  )}
-                  {id === "soundtracks" && (
-                    <span>{library.stats.soundtracks}</span>
-                  )}
-                  {id === "musicals" && <span>{library.stats.musicals}</span>}
-                </button>
-              ))}
-          </div>
-          <label className="sort-control" hidden={libraryTab === "playlists"}>
-            <span className="sr-only">Sort collection</span>
-            <select value={sort} onChange={(e) => setSort(e.target.value)}>
-              <option value="az">A–Z</option>
-              <option value={libraryTab === "artists" ? "tracks" : "year"}>
-                {libraryTab === "artists" ? "Most tracks" : "Newest release"}
-              </option>
-            </select>
-            <ChevronDown size={13} />
-          </label>
-        </div>
-
-        {["playlists", "favourites"].includes(libraryTab) ? (
-          <Playlists
-            initialId={route.playlist}
-            favourites={libraryTab === "favourites"}
-            notify={setToast}
-            review={async (id) => {
-              try {
-                setMigration(
-                  await api<Migration>("/playlists/" + id + "/review", {
-                    method: "POST",
-                  }),
-                );
-                setImportLoaded(true);
-                navigate("migration");
-              } catch (e) {
-                setToast((e as Error).message);
-              }
-            }}
-          />
-        ) : (
-          <>
-            <div className="section-title collection-heading">
-              <h2>
-                {libraryTab === "artists"
-                  ? "Your artists"
-                  : libraryTab === "albums"
-                    ? "Albums & releases"
-                    : libraryTab === "soundtracks"
-                      ? "Soundtracks"
-                      : libraryTab === "musicals"
-                        ? "Musicals"
-                        : "Compilations"}
-              </h2>
-              <span>
-                {libraryTab === "artists"
-                  ? plural(artists.length, "artist")
-                  : plural(albums.length, "release")}
-              </span>
-            </div>
-
-            {libraryTab === "compilations" && (
-              <p className="section-description">
-                Multi-artist collections, kept together. Single-artist best-of
-                albums live with their artist.
-              </p>
-            )}
-
-            {libraryTab === "artists" ? (
-              <CollectionPages
-                key={`artists:${sort}`}
-                items={sortedArtists}
-                label="Artists"
-              >
-                {(visibleArtists) => (
-                  <ArtistCards
-                    artists={visibleArtists}
-                    open={openArtist}
-                    prefetch={(id) => {
-                      if (!artistCache.current.has(id))
-                        api<Artist>(`/artists/${id}`)
-                          .then((a) => artistCache.current.set(a.id, a))
-                          .catch(() => {});
-                    }}
-                  />
-                )}
-              </CollectionPages>
-            ) : (
-              <CollectionPages
-                key={`${libraryTab}:${sort}`}
-                items={sortedAlbums}
-                label="Releases"
-              >
-                {albumCards}
-              </CollectionPages>
-            )}
-
-            {!(libraryTab === "artists" ? artists : albums).length && (
-              <Empty
-                title="Nothing here yet"
-                description="This section will fill as your library is indexed."
-              />
-            )}
-          </>
-        )}
-      </>
-    );
+    setBusy(true);
+    try {
+      const updated = await api<Library>(`/albums/${albumDetail.id}/category`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category: category }),
+      });
+      setLibrary(updated);
+      libraryRef.current = updated;
+      albumCache.current.clear();
+      artistCache.current.clear();
+      setAlbumDetail(await api<Album>(`/albums/${albumDetail.id}`));
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
   }
-
+  async function reviewPlaylist(id: string) {
+    try {
+      setMigration(
+        await api<Migration>("/playlists/" + id + "/review", {
+          method: "POST",
+        }),
+      );
+      setImportLoaded(true);
+      navigate("migration");
+    } catch (e) {
+      setToast((e as Error).message);
+    }
+  }
   function discoverArtist(artist: {
     id: string;
     name: string;
@@ -1526,280 +1146,6 @@ export function LegacyTools() {
       setBusy(false);
     }
   }
-  function queuePage() {
-    return (
-      <>
-        <div className="page-heading queue-heading">
-          <div>
-            <h1>Download queue</h1>
-            <p>
-              {queue?.downloads_enabled
-                ? "Downloads go directly to your SMB library."
-                : "Downloads are paused. Enable them in System settings."}
-            </p>
-          </div>
-          <button
-            className="secondary-button"
-            disabled={busy || !queue?.items.length}
-            onClick={clearQueue}
-          >
-            Clear all
-          </button>
-        </div>
-        {!queue ? (
-          <p>Loading requests...</p>
-        ) : !queue.items.length ? (
-          <Empty
-            title="Ready when you are"
-            description="Submit music from your migration inventory to add requests here."
-          />
-        ) : (
-          queue.items.map((item) => (
-            <div className="result-row" key={item.id}>
-              <Music2 size={22} />
-              <div>
-                <strong>{item.title}</strong>
-                <span>
-                  {item.artist} · {item.album}
-                </span>
-                <span>
-                  {(
-                    {
-                      waiting_for_sources: "Waiting",
-                      searching: "Searching sources",
-                      downloading: "Downloading",
-                      validating: "Checking audio and tags",
-                      completed: "Downloaded and imported",
-                      failed: "Failed",
-                      cancelled: "Cancelled",
-                    } as Record<string, string>
-                  )[item.status] || item.status}
-                  {item.source && ` · ${item.source}`}
-                </span>
-                {item.status === "downloading" && (
-                  <span>
-                    {Math.round((item.received_bytes || 0) / 1024)} KB
-                    {item.total_bytes
-                      ? ` / ${Math.round(item.total_bytes / 1024)} KB`
-                      : ""}
-                  </span>
-                )}
-                {item.error && item.status === "failed" && (
-                  <span className="inline-error">{item.error}</span>
-                )}
-              </div>
-              {["failed", "cancelled"].includes(item.status) ? (
-                <button
-                  className="small-button"
-                  disabled={busy}
-                  onClick={() => queueAction(item.id, "retry")}
-                >
-                  Retry
-                </button>
-              ) : (
-                item.status !== "completed" && (
-                  <button
-                    className="small-button"
-                    disabled={busy}
-                    onClick={() => queueAction(item.id, "cancel")}
-                  >
-                    Cancel
-                  </button>
-                )
-              )}
-            </div>
-          ))
-        )}
-      </>
-    );
-  }
-
-  function systemPage() {
-    return (
-      <>
-        <div className="page-heading">
-          <h1>Settings</h1>
-        </div>
-        <div className="appearance-control">
-          <label htmlFor="appearance">Appearance</label>
-          <select
-            id="appearance"
-            value={appearance}
-            onChange={(e) => setAppearance(e.target.value as Appearance)}
-          >
-            <option value="system">System default</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
-          <span>
-            Saved on this device. System default follows your device appearance.
-          </span>
-        </div>
-        <div className="system-grid">
-          <section className="system-panel">
-            <HardDrive />
-            <h2>Synology library</h2>
-            <span className="status-pill">
-              <CircleCheck size={13} /> Local snapshot ready
-            </span>
-            <dl>
-              <dt>Source</dt>
-              <dd>{library?.snapshot.source || "No snapshot loaded"}</dd>
-              <dt>Captured</dt>
-              <dd>
-                {library?.snapshot.captured_at
-                  ? new Date(library.snapshot.captured_at).toLocaleString()
-                  : "Not yet"}
-              </dd>
-              <dt>Indexed tracks</dt>
-              <dd>{library?.stats.tracks.toLocaleString()}</dd>
-              <dt>Tag read issues</dt>
-              <dd>{library?.snapshot.read_failures?.length || 0}</dd>
-            </dl>
-            <p>
-              Browsing uses a local snapshot. Use Scan library to pick up
-              changes made outside Pig Music.
-            </p>
-          </section>
-          <section className="system-panel">
-            <ShieldCheck />
-            <h2>Library storage</h2>
-            <span className="status-pill preview-pill">Direct SMB storage</span>
-            <dl>
-              <dt>Downloads</dt>
-              <dd>{downloadSettings?.enabled ? "Enabled" : "Paused"}</dd>
-              <dt>Tagging & renaming</dt>
-              <dd>Existing artist / album folders</dd>
-              <dt>Migration &amp; queue</dt>
-              <dd>Saved locally</dd>
-              <dt>Remote access</dt>
-              <dd>Existing Tailscale connection</dd>
-            </dl>
-            <p>
-              Downloads are validated and tagged before publication into your
-              SMB library. Plex playlists update as songs become available.
-            </p>
-          </section>
-        </div>
-        {downloadSettings && (
-          <section className="system-panel download-panel">
-            <h2>Download settings</h2>
-            <p className="status-text">
-              Soulseek engine:{" "}
-              {soulseekHealth
-                ? soulseekHealth.connected
-                  ? "Connected"
-                  : soulseekHealth.configured
-                    ? "Unavailable"
-                    : "Not configured"
-                : "Checking connection…"}
-            </p>
-            <p>
-              Files download directly to SMB and publish into your existing
-              artist and album folders. Quality is checked on the actual file;
-              quality changes always download a new source file and never
-              convert existing files.
-            </p>
-            <label className="download-option">
-              <input
-                type="checkbox"
-                checked={downloadSettings.enabled}
-                onChange={(e) =>
-                  setDownloadSettings({
-                    ...downloadSettings,
-                    enabled: e.target.checked,
-                  })
-                }
-              />
-              Enable downloads
-            </label>
-            <label className="download-option">
-              Quality
-              <select
-                aria-label="Download quality"
-                value={downloadSettings.profile}
-                onChange={(e) =>
-                  setDownloadSettings({
-                    ...downloadSettings,
-                    profile: e.target.value,
-                  })
-                }
-              >
-                <option value="mp3_320">MP3 320 kbps</option>
-                <option value="mp3_128">MP3 128 kbps</option>
-                <option value="aac_256">AAC 256 kbps or better</option>
-                <option value="lossless">FLAC lossless (Soulseek)</option>
-              </select>
-            </label>
-            {["soulseek", "freemp3cloud", "zvu4no", "jiosaavn"].map(
-              (source) => (
-                <label className="download-option" key={source}>
-                  <input
-                    type="checkbox"
-                    checked={downloadSettings.sources.includes(source)}
-                    onChange={(e) =>
-                      setDownloadSettings({
-                        ...downloadSettings,
-                        sources: e.target.checked
-                          ? [...downloadSettings.sources, source]
-                          : downloadSettings.sources.filter(
-                              (s) => s !== source,
-                            ),
-                      })
-                    }
-                  />
-                  {source}
-                </label>
-              ),
-            )}
-            <QualitySettings
-              value={downloadSettings}
-              onChange={(value) =>
-                setDownloadSettings({ ...downloadSettings, ...value })
-              }
-            />
-            <button
-              className="primary-button"
-              disabled={busy}
-              onClick={saveDownloads}
-            >
-              Save download settings
-            </button>
-          </section>
-        )}
-        <LibraryScan
-          refresh={() => {
-            artistCache.current.clear();
-            albumCache.current.clear();
-            void api<Library>("/library").then(setLibrary);
-          }}
-        />
-        <MediaSettings />
-        <ToolBoundary>
-          <Suspense fallback={<p>Loading library tools…</p>}>
-            <RemovedMusic notify={setToast} />
-            <Organisation notify={setToast} />
-          </Suspense>
-        </ToolBoundary>
-        {!!library?.snapshot.read_failures?.length && (
-          <>
-            <div className="section-title">
-              <h2>Files needing attention</h2>
-            </div>
-            <div className="read-issues">
-              {library.snapshot.read_failures.slice(0, 30).map((f) => (
-                <div key={f.path}>
-                  <strong>{f.path}</strong>
-                  <span>{f.error}</span>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </>
-    );
-  }
-
   useEffect(() => {
     if (route.playlist) setLibraryTab("playlists");
   }, [route.playlist]);
@@ -1949,15 +1295,63 @@ export function LegacyTools() {
           )}
 
           {library &&
-            (route.page === "library"
-              ? libraryPage()
-              : route.page === "search"
-                ? searchPage()
-                : route.page === "migration"
-                  ? migrationPage()
-                  : route.page === "queue"
-                    ? queuePage()
-                    : systemPage())}
+            (route.page === "library" ? (
+              <LibraryView
+                library={library}
+                detailLoading={detailLoading}
+                albumDetail={albumDetail}
+                artistDetail={artistDetail}
+                navigate={navigate}
+                openArtist={openArtist}
+                openAlbum={openAlbum}
+                player={player}
+                albumCards={albumCards}
+                savedTracks={savedTracks}
+                libraryTab={libraryTab}
+                setLibraryTab={setLibraryTab}
+                sort={sort}
+                setSort={setSort}
+                setToast={setToast}
+                playlist={route.playlist}
+                busy={busy}
+                changeCategory={changeCategory}
+                reviewPlaylist={reviewPlaylist}
+                prefetchArtist={(id) => {
+                  if (!artistCache.current.has(id))
+                    api<Artist>(`/artists/${id}`)
+                      .then((a) => artistCache.current.set(a.id, a))
+                      .catch(() => {});
+                }}
+              />
+            ) : route.page === "search" ? (
+              searchPage()
+            ) : route.page === "migration" ? (
+              migrationPage()
+            ) : route.page === "queue" ? (
+              <QueueView
+                queue={queue}
+                busy={busy}
+                clearQueue={clearQueue}
+                queueAction={queueAction}
+              />
+            ) : (
+              <SystemView
+                appearance={appearance}
+                setAppearance={setAppearance}
+                library={library}
+                downloadSettings={downloadSettings}
+                setDownloadSettings={setDownloadSettings}
+                soulseekHealth={soulseekHealth}
+                busy={busy}
+                saveDownloads={saveDownloads}
+                setToast={setToast}
+                refresh={() => {
+                  artistCache.current.clear();
+                  albumCache.current.clear();
+                  void api<Library>("/library").then(setLibrary);
+                }}
+              />
+            ))}
         </main>
       </div>
       <nav
@@ -2081,16 +1475,6 @@ export function LegacyTools() {
           </section>
         </div>
       )}
-    </div>
-  );
-}
-
-function Empty({ title, description }: { title: string; description: string }) {
-  return (
-    <div className="empty-state">
-      <img className="empty-pig" src="/brand/mark.png" alt="" />
-      <h3>{title}</h3>
-      <p>{description}</p>
     </div>
   );
 }

@@ -24,3 +24,7 @@ Stopped-state migration retained **1,395 tracks** and existing links/durable row
 Container protections remain **1 GB**, **99:100**, read-only root, original NAS/appdata mounts and private addressing. Rollback container: `pig-music-preview-before-audit-followup-20261007-v1`. Matching backup: `/mnt/user/appdata/pig-music-preview/backups/pre-audit-followup-20261007-v1`; source release inputs: `/mnt/user/appdata/pig-music-preview/releases/audit-followup-20261007-v1`. Later handover-only commits do not change the running image revision.
 
 Final post-release read-only integrity verification passed: **1,395 NAS files opened**, **zero read failures**, **25/25 managed-file hashes matched**, **81 referenced covers**, **zero missing covers**. Snapshot schema3 has no base64 image map and is927,914 bytes; the pre-v3 snapshot remains retained. This verifies server files and stored hashes; physical iPhone/Watch acceptance remains pending.
+
+## Account and native continuation
+
+The next staged release is documented in [household-native-audit-delivery.md](household-native-audit-delivery.md). It completes the account-facing UI and extends P2-7 with dedicated library/detail, queue and settings views, a catalogue router and separate artwork maintenance. F-1 now has a published versioned contract, generated Swift client, authenticated SSE and durable final-state sync. F-2 has explicit private household accounts and personal libraries. F-4 listening history is recorded per user. This continuation has not yet replaced the live image above.

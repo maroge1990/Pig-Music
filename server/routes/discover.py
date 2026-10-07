@@ -1,5 +1,6 @@
 """Shared provider metadata with personal availability and acquisition controls."""
 
+import asyncio
 from uuid import UUID
 import httpx
 from fastapi import APIRouter, HTTPException, Request
@@ -95,7 +96,7 @@ def discover_router(store, catalogue):
             inc="recordings+artist-credits+isrcs",
         )
         user = request.state.user["id"]
-        projection = store.user_libraries.projection(user)
+        projection = await asyncio.to_thread(store.user_libraries.projection, user)
         personal = {t["id"] for t in projection["tracks"]}
         tracks = []
         for raw in release_tracks(result):
