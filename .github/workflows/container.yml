@@ -17,7 +17,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6
+        with:
+          python-version: '3.14'
+      - run: python -m pip install pip-audit==2.10.1
+      - run: pip-audit -r requirements.lock.txt
+      - working-directory: client
+        run: npm audit --omit=dev
   image:
+    needs: dependency-audit
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -45,6 +57,11 @@ jobs:
           docker run --rm --network none --memory=1g \
             -e PYTHONDONTWRITEBYTECODE=1 --entrypoint python pig-music:candidate \
             scripts/benchmark_delivery.py | tee delivery-benchmark.json
+      - name: Two-user native sync scale gate under 1 GB
+        run: |
+          docker run --rm --network none --memory=1g \
+            -e PYTHONDONTWRITEBYTECODE=1 --entrypoint python pig-music:candidate \
+            scripts/benchmark_native_sync.py | tee native-sync-benchmark.json
       - name: Brand token drift
         run: python scripts/generate_brand_tokens.py --check
       - name: Frontend tests and formatting

@@ -13,19 +13,36 @@ from .library import load_json
 
 
 class Plex:
-    def __init__(self, store, playlists):
+    def __init__(self, store, playlists, user_id=None):
         self.store, self.playlists = store, playlists
         self.stopping = asyncio.Event()
         self.path_cache = None
+        self.user_id = user_id
+        self.accounts = None
+        self.controllers = {}
 
     def config(self):
-        return load_json(self.store.directory / "plex-connection.json")
+        config = load_json(self.store.directory / "plex-connection.json")
+        if self.user_id:
+            from .plex_accounts import PlexAccounts
+
+            config["token"] = PlexAccounts(self.store).token(self.user_id)
+        return config
 
     def status(self):
+        if not self.user_id:
+            with self.store.connect() as conn:
+                owner = conn.execute(
+                    "SELECT id FROM users WHERE role='owner'"
+                ).fetchone()
+            if owner:
+                return Plex(self.store, self.playlists, owner[0]).status()
         config = self.config()
         return {
             "configured": bool(config.get("token") and config.get("section_id")),
-            **self.store.read_document("plex-status"),
+            **self.store.read_document(
+                "plex-status:" + self.user_id if self.user_id else "plex-status"
+            ),
         }
 
     def save(self, name, value):
@@ -102,6 +119,19 @@ class Plex:
         desired = list(dict.fromkeys(desired))
         state = self.store.read_document("plex-playlist:" + detail["id"])
         marker = "Managed by Pig Music: " + detail["id"]
+        if self.user_id and detail.get("favourites"):
+            with self.store.connect() as conn:
+                owner = conn.execute(
+                    "SELECT id FROM users WHERE role='owner'"
+                ).fetchone()
+            legacy = self.store.read_document("plex-playlist:pig-favourites")
+            if (
+                owner
+                and owner[0] == self.user_id
+                and legacy.get("remote_id")
+                and legacy["remote_id"] == state.get("remote_id")
+            ):
+                marker = "Managed by Pig Music: pig-favourites"
         remote = state.get("remote_id")
         if remote:
             try:
@@ -245,6 +275,35 @@ class Plex:
         )
 
     async def sync(self):
+        if not self.user_id:
+            with self.store.connect() as conn:
+                ready = conn.execute(
+                    "SELECT 1 FROM users WHERE role='owner'"
+                ).fetchone()
+            if ready:
+                from .plex_accounts import PlexAccounts
+                from .playlists import Playlists
+
+                await asyncio.to_thread(PlexAccounts(self.store).migrate_owner)
+                with self.store.connect() as conn:
+                    users = [
+                        r[0]
+                        for r in conn.execute(
+                            "SELECT p.user_id FROM plex_accounts p JOIN users u ON u.id=p.user_id WHERE u.disabled=0"
+                        )
+                    ]
+                for identity in users:
+                    if identity not in self.controllers:
+                        self.controllers[identity] = Plex(
+                            self.store, Playlists(self.store, identity), identity
+                        )
+                    await self.controllers[identity].sync()
+                self.controllers = {
+                    key: value
+                    for key, value in self.controllers.items()
+                    if key in users
+                }
+                return
         config = self.config()
         if not config.get("token") or not config.get("section_id"):
             return
@@ -290,7 +349,7 @@ class Plex:
                         client, config, detail, self.desired(detail, paths, config)
                     )
             self.save(
-                "plex-status",
+                "plex-status:" + self.user_id if self.user_id else "plex-status",
                 {
                     "connected": True,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -299,7 +358,7 @@ class Plex:
         except (httpx.HTTPError, ValueError, ET.ParseError, KeyError):
             # Never put a token, signed URL or transport exception in a public document.
             self.save(
-                "plex-status",
+                "plex-status:" + self.user_id if self.user_id else "plex-status",
                 {
                     "connected": False,
                     "error": "Plex playlist sync is unavailable. Existing playlists are retained.",

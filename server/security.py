@@ -113,13 +113,14 @@ class Security:
         media_path = request.url.path.startswith(
             "/api/playback/files/"
         ) or request.url.path.startswith("/api/v1/playback/")
+        media_path = media_path or request.url.path.startswith("/api/v1/tracks/")
         if media_path:
             track_id = request.path_params.get("track_id")
             if not self.auth.store.user_libraries.contains(person["id"], track_id):
                 raise HTTPException(404, "Track not found")
             scoped = True
         if person["role"] != "owner" and request.url.path.startswith(
-            ("/api/artwork/", "/api/library-artwork/")
+            ("/api/artwork/", "/api/library-artwork/", "/api/v1/artwork/")
         ):
             from urllib.parse import urlsplit
 
@@ -127,6 +128,8 @@ class Security:
                 self.auth.store.user_libraries.projection, person["id"]
             )
             path = request.url.path.removesuffix("/metadata")
+            if path.startswith("/api/v1/artwork/"):
+                path = path.replace("/api/v1/artwork/", "/api/artwork/") + ".jpg"
             if path.startswith("/api/library-artwork/"):
                 kind, item_id = request.path_params.get(
                     "kind"

@@ -4,6 +4,7 @@ import json, uuid
 from datetime import datetime, timezone
 from .library import identifier
 from .library import normalise
+from .lifecycle import coordinated
 
 
 class PlaylistConflict(ValueError):
@@ -138,6 +139,7 @@ class Playlists:
         )
         return self.store.migration()
 
+    @coordinated
     def create(self, name):
         name = name.strip()
         if not name or len(name) > 100:
@@ -178,6 +180,7 @@ class Playlists:
 
         return same_song(left, right)
 
+    @coordinated
     def add(self, playlist_id, track):
         clause, params = self.clause()
         with self.store.connect() as conn:
@@ -203,6 +206,7 @@ class Playlists:
                 bump(conn, self.owner())
         return self.detail(playlist_id)
 
+    @coordinated
     def edit(
         self, playlist_id, revision, *, name=None, order=None, remove=None, delete=False
     ):
@@ -250,6 +254,7 @@ class Playlists:
                 bump(conn, self.owner())
         return {"deleted": True} if delete else self.detail(playlist_id)
 
+    @coordinated
     def favourite(self, track, value=None):
         owner_id = self.owner()
         identity = "pig-favourites:" + owner_id if owner_id else "pig-favourites"

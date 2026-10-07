@@ -4,11 +4,22 @@ import asyncio
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
+from ..library import identifier, normalise
+from ..api_models import (
+    AlbumDetail,
+    ArtistDetail,
+    PlaylistDTO,
+    PlaylistList,
+    SearchResults,
+    RequestList,
+)
 from ..playlists import Playlists, PlaylistConflict
 from ..user_library import track_dto
 from ..personal_removal import PersonalRemoval, RemovalChanged
+from ..household_policy import HouseholdPolicy
+from ..plex_accounts import PlexAccounts
 
 
 class TrackInput(BaseModel):
@@ -19,7 +30,7 @@ class TrackInput(BaseModel):
     year: str = Field(default="", max_length=10)
     disc_number: int = Field(default=1, ge=1, le=999)
     track_number: int = Field(default=1, ge=0, le=9999)
-    duration: int = Field(default=0, ge=0, le=86400)
+    duration: float = Field(default=0, ge=0, le=86400)
     musicbrainz_release_id: str | None = Field(default=None, max_length=36)
     musicbrainz_recording_id: str | None = Field(default=None, max_length=36)
 
@@ -36,6 +47,17 @@ class Removal(Membership):
     confirmation: str = Field(min_length=64, max_length=64)
 
 
+class QualityPreference(BaseModel):
+    scope: Literal["system", "artist", "album"]
+    item_id: str = Field(default="*", max_length=128)
+    preferred: Literal["mp3_128", "mp3_320", "aac_256", "lossless"] | None = None
+
+
+class PlexAccount(BaseModel):
+    token: SecretStr = Field(min_length=1, max_length=512)
+    label: str = Field(default="My Plex account", max_length=128)
+
+
 class PlaylistName(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
@@ -48,7 +70,7 @@ class PlaylistEdit(BaseModel):
 
 class Favourite(BaseModel):
     track: TrackInput
-    favourite: bool
+    favourite: bool | None = None
 
 
 class PlayEvent(BaseModel):
@@ -73,6 +95,15 @@ def playlist_dto(value):
         "entries": [
             {
                 **track_dto(t),
+                "server_state": (
+                    "in_library"
+                    if t.get("saved_track")
+                    else (
+                        "household_available"
+                        if t.get("household_available")
+                        else "not_in_library"
+                    )
+                ),
                 **{
                     k: t.get(k)
                     for k in (
@@ -122,7 +153,7 @@ def personal_router(store, artist_jobs, recovery):
     async def library(request: Request):
         return await run(users.summary, identity(request))
 
-    @router.get("/library/{kind}")
+    @router.get("/library-pages/{kind}")
     async def page(
         kind: Literal["artists", "albums", "tracks"],
         request: Request,
@@ -148,7 +179,7 @@ def personal_router(store, artist_jobs, recovery):
             "revision": data["revision"],
         }
 
-    @router.get("/albums/{album_id}")
+    @router.get("/albums/{album_id}", response_model=AlbumDetail)
     async def album(album_id: str, request: Request):
         data = await run(users.projection, identity(request))
         found = next((a for a in data["albums"] if a["id"] == album_id), None)
@@ -159,7 +190,7 @@ def personal_router(store, artist_jobs, recovery):
             "tracks": [track_dto(t) for t in found["tracks"]],
         }
 
-    @router.get("/artists/{artist_id}")
+    @router.get("/artists/{artist_id}", response_model=ArtistDetail)
     async def artist(artist_id: str, request: Request):
         data = await run(users.projection, identity(request))
         found = next((a for a in data["artists"] if a["id"] == artist_id), None)
@@ -170,7 +201,22 @@ def personal_router(store, artist_jobs, recovery):
             for a in data["albums"]
             if a["id"] in found["album_ids"]
         ]
-        return {**found, "albums": albums}
+        owned_track_ids = {
+            t["id"]
+            for a in data["albums"]
+            if a["id"] in found["album_ids"]
+            for t in a["tracks"]
+        }
+        return {
+            **found,
+            "albums": albums,
+            "compilation_tracks": [
+                track_dto(t)
+                for t in data["tracks"]
+                if identifier("artist", normalise(t.get("artist", ""))) == artist_id
+                and t["id"] not in owned_track_ids
+            ],
+        }
 
     @router.get("/artists/{artist_id}/acquisition")
     async def artist_acquisition(artist_id: str, request: Request):
@@ -190,7 +236,7 @@ def personal_router(store, artist_jobs, recovery):
     async def cancel_artist(artist_id: str, request: Request):
         return await run(artist_jobs.scoped(identity(request)).cancel, artist_id)
 
-    @router.get("/search")
+    @router.get("/search", response_model=SearchResults)
     async def search(request: Request, q: str = ""):
         return await run(users.search, identity(request), q)
 
@@ -225,7 +271,7 @@ def personal_router(store, artist_jobs, recovery):
     async def undo_removal(operation_id: str, request: Request):
         return await remove_call(removal.undo, identity(request), operation_id)
 
-    @router.get("/playlists")
+    @router.get("/playlists", response_model=PlaylistList)
     async def playlists(request: Request):
         return {"playlists": await run(Playlists(store, identity(request)).list)}
 
@@ -235,7 +281,7 @@ def personal_router(store, artist_jobs, recovery):
             await run(Playlists(store, identity(request)).create, body.name)
         )
 
-    @router.get("/playlists/{playlist_id}")
+    @router.get("/playlists/{playlist_id}", response_model=PlaylistDTO)
     async def playlist(playlist_id: str, request: Request):
         try:
             value = await asyncio.to_thread(
@@ -315,7 +361,7 @@ def personal_router(store, artist_jobs, recovery):
             [t.model_dump(exclude_none=True) for t in body.tracks],
         )
 
-    @router.get("/requests")
+    @router.get("/requests", response_model=RequestList)
     async def requests(request: Request):
         return await run(users.queue, identity(request))
 
@@ -341,6 +387,36 @@ def personal_router(store, artist_jobs, recovery):
                     )
                 )
             }
+
+    @router.get("/plex")
+    async def plex_status(request: Request):
+        return await run(PlexAccounts(store).status, identity(request))
+
+    @router.put("/plex")
+    async def plex_account(body: PlexAccount, request: Request):
+        return await run(
+            PlexAccounts(store).set,
+            identity(request),
+            body.token.get_secret_value(),
+            body.label,
+        )
+
+    @router.get("/quality")
+    async def quality(request: Request):
+        return await run(HouseholdPolicy(store).quality, identity(request))
+
+    @router.put("/quality")
+    async def save_quality(body: QualityPreference, request: Request):
+        try:
+            return await run(
+                HouseholdPolicy(store).set_quality,
+                identity(request),
+                body.scope,
+                body.item_id,
+                body.preferred,
+            )
+        except LookupError:
+            raise HTTPException(404, "Library item not found")
 
     @router.get("/preferences")
     async def preferences(request: Request):

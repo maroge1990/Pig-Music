@@ -239,7 +239,7 @@ class Auth:
                 "DELETE FROM login_attempts WHERE key=?", (self.keys(name, ip)[0],)
             )
             self.event(conn, "login", ip, person["id"])
-        return {"token": token, "user": public_user(person)}
+        return {"token": token, "user": public_user(person), "expires_at": expires}
 
     def authenticate(self, token, kind=None):
         if not token or len(token) > 256:
@@ -295,6 +295,38 @@ class Auth:
             if not result.rowcount:
                 raise AuthError("session_not_found", 404)
             self.event(conn, "session_revoked", "", identity)
+
+    def disable(self, owner_id, identity, disabled):
+        if self.user(owner_id)["role"] != "owner":
+            raise AuthError("owner_required", 403)
+        with self.store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            target = conn.execute(
+                "SELECT role FROM users WHERE id=?", (identity,)
+            ).fetchone()
+            if not target:
+                raise AuthError("user_not_found", 404)
+            if target[0] == "owner":
+                raise AuthError("owner_cannot_be_disabled", 409)
+            conn.execute(
+                "UPDATE users SET disabled=? WHERE id=?", (int(disabled), identity)
+            )
+            if disabled:
+                conn.execute(
+                    "UPDATE sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL",
+                    (self.now(), identity),
+                )
+                conn.execute(
+                    "UPDATE setup_codes SET used_at=? WHERE user_id=? AND used_at IS NULL",
+                    (self.now(), identity),
+                )
+            self.event(
+                conn,
+                "account_disabled" if disabled else "account_enabled",
+                "",
+                identity,
+            )
+        return {"disabled": disabled}
 
     def reset_password(self, name, password):
         name = username(name)

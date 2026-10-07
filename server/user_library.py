@@ -39,7 +39,23 @@ TRACK_FIELDS = frozenset(
 
 
 def track_dto(track):
-    return {key: value for key, value in track.items() if key in TRACK_FIELDS}
+    source_revision = hashlib.sha256(
+        json.dumps(
+            [
+                track.get("id"),
+                track.get("sha256"),
+                track.get("size_bytes"),
+                track.get("mtime_ns"),
+            ]
+        ).encode()
+    ).hexdigest()
+    return {
+        **{key: value for key, value in track.items() if key in TRACK_FIELDS},
+        "source_sha": track.get("sha256"),
+        "source_revision": source_revision,
+        "server_state": track.get("server_state")
+        or ("in_library" if track.get("available", True) else "failed"),
+    }
 
 
 def bump(conn, user_id):
@@ -156,6 +172,7 @@ class UserLibrary:
                         }
                     )
             by_album = {a["id"]: a for a in albums}
+            album_by_track = {t["id"]: a["id"] for a in albums for t in a["tracks"]}
             all_tracks = {t["id"]: t for a in albums for t in a["tracks"]}
             credited_by_artist = defaultdict(list)
             artist_ids = {}
@@ -170,17 +187,11 @@ class UserLibrary:
                 credited = credited_by_artist[artist["id"]]
                 associated = {t["id"] for t in credited}
                 associated.update(
-                    t["id"] for a in albums if a["id"] in owned for t in a["tracks"]
+                    t["id"] for key in owned for t in by_album[key]["tracks"]
                 )
                 if associated:
                     representative = (
-                        owned[0]
-                        if owned
-                        else next(
-                            a["id"]
-                            for a in albums
-                            if any(t["id"] in associated for t in a["tracks"])
-                        )
+                        owned[0] if owned else album_by_track[credited[0]["id"]]
                     )
                     artists.append(
                         {
@@ -253,7 +264,11 @@ class UserLibrary:
                 "household_tracks": list(
                     islice(
                         (
-                            {**track_dto(t), "household_available": True}
+                            {
+                                **track_dto(t),
+                                "household_available": True,
+                                "server_state": "household_available",
+                            }
                             for album in self.store.library["albums"]
                             for t in album["tracks"]
                             if t["id"] not in personal_ids
@@ -318,6 +333,9 @@ class UserLibrary:
                 ).rowcount
             if changed:
                 bump(conn, user_id)
+                from .household_policy import HouseholdPolicy
+
+                HouseholdPolicy(self.store).membership_changed(conn, track_ids)
         return {"added": changed, "revision": self.projection(user_id)["revision"]}
 
     def queue(self, user_id):
@@ -328,13 +346,48 @@ class UserLibrary:
                 for k, v in job.items()
                 if k
                 in TRACK_FIELDS
-                | {"status", "created_at", "updated_at", "progress", "quality_profile"}
+                | {
+                    "status",
+                    "created_at",
+                    "updated_at",
+                    "progress",
+                    "quality_profile",
+                    "received_bytes",
+                    "total_bytes",
+                    "error",
+                }
             }
             for job in result["items"]
             if user_id in job.get("requested_by", [])
         ]
+        for job in result["items"]:
+            active = job["status"] in {
+                "waiting_for_sources",
+                "searching",
+                "downloading",
+                "validating",
+                "importing",
+            }
+            job["server_state"] = (
+                "requested"
+                if active
+                else (
+                    "in_library"
+                    if job["status"] == "completed"
+                    else "failed" if job["status"] == "failed" else "not_in_library"
+                )
+            )
+            total = job.get("total_bytes") or 0
+            job["request_progress"] = (
+                min(1, (job.get("received_bytes") or 0) / total)
+                if active and total
+                else None
+            )
+            if job.get("error"):
+                job["error"] = "Acquisition failed. Retry or ask your administrator."
         return result
 
+    @coordinated
     def import_playlists(self, user_id, raw):
         from .library import parse_apple
 

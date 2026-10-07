@@ -4,15 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#15111A" />
-    <script>
-      (() => {
-        let appearance = 'system';
-        try { appearance = localStorage.getItem('pig-music-appearance') || 'system'; } catch {}
-        const theme = appearance === 'light' || appearance === 'dark' ? appearance : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-        document.documentElement.dataset.theme = theme;
-        document.querySelector('meta[name="theme-color"]').content = theme === 'dark' ? '#15111A' : '#FBF8FA';
-      })();
-    </script>
+    <script src="/theme.js"></script>
     <link rel="icon" type="image/png" href="/brand/web-light-32.png" media="(prefers-color-scheme: light)" />
     <link rel="icon" type="image/png" href="/brand/web-dark-32.png" media="(prefers-color-scheme: dark)" />
     <link rel="apple-touch-icon" href="/brand/web-light-180.png" />

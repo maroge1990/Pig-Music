@@ -20,6 +20,9 @@ COPY --from=soulseek /slskd /opt/slskd
 COPY requirements.lock.txt ./
 RUN pip install --no-cache-dir -r requirements.lock.txt
 COPY server/ ./server/
+COPY api/ ./api/
+COPY scripts/benchmark_native_sync.py ./scripts/
+COPY scripts/export_openapi.py ./scripts/
 COPY scripts/prune_artwork.py scripts/verify_state_migration.py scripts/benchmark_cover_store.py scripts/benchmark_delivery.py scripts/generate_brand_tokens.py ./scripts/
 COPY docs/pig-family-brand-tokens.json ./docs/
 COPY client/src/tokens.css ./client/src/

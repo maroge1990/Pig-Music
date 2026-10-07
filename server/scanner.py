@@ -221,6 +221,8 @@ class LibraryScanner:
                             cover = None
                         else:
                             track, cover = inspect_file(path, relative)
+                            if cached:
+                                track["id"] = cached["id"]
                         try:
                             if cover:
                                 raw_sha = hashlib.sha256(cover).hexdigest()

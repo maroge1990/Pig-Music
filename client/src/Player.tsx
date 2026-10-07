@@ -12,7 +12,7 @@ import {
   LoaderCircle,
 } from "lucide-react";
 import type { Track } from "./types";
-import { SongActions } from "./SongActions";
+import { PersonalSongActions } from "./PersonalSongActions";
 import { MusicLink } from "./MusicLink";
 import { useFixedHeight } from "./useFixedHeight";
 import { Cover } from "./Cover";
@@ -60,6 +60,25 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [duration, setDuration] = useState(0);
   const [muted, setMuted] = useState(false);
 
+  useEffect(() => {
+    const stop = () => {
+      ++serial.current;
+      audio.current?.pause();
+      audio.current?.removeAttribute("src");
+      queue.current = [];
+      cursor.current = -1;
+      setSong(null);
+      setBusy(false);
+      if ("mediaSession" in navigator) navigator.mediaSession.metadata = null;
+    };
+    window.addEventListener("music-auth-required", stop);
+    window.addEventListener("music-signed-out", stop);
+    return () => {
+      window.removeEventListener("music-auth-required", stop);
+      window.removeEventListener("music-signed-out", stop);
+    };
+  }, []);
+
   async function load(track: Playing, path: string, options?: RequestInit) {
     const request = ++serial.current;
     audio.current?.pause();
@@ -69,8 +88,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setPosition(0);
     setDuration(track.duration);
     try {
-      const response = await fetch("/api/playback/" + path, options);
+      const saved = path.startsWith("saved/");
+      const response = await fetch(
+        saved
+          ? "/api/v1/playback/" + path.slice(6) + "/url"
+          : "/api/playback/" + path,
+        saved ? { method: "POST" } : options,
+      );
       const body = await response.json();
+      if (saved) {
+        body.id = track.id;
+        body.source = "Saved library";
+      }
       if (!response.ok)
         throw new Error(
           typeof body.detail === "string"
@@ -313,13 +342,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
               </div>
             </div>
             <div className="player-extra">
-              <SongActions
-                song={
-                  song.saved_id
-                    ? { saved_id: song.saved_id }
-                    : { release_id: song.release_id, track_id: song.id }
-                }
-                title={song.title}
+              <PersonalSongActions
+                track={{
+                  id: song.saved_id || song.id,
+                  title: song.title,
+                  artist: song.artist,
+                  album: song.album || "",
+                  album_artist: song.artist,
+                  duration: song.duration,
+                  disc_number: 1,
+                  track_number: 0,
+                }}
               />
               <button
                 className="icon-button"

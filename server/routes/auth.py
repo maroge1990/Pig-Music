@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, SecretStr
 
 from ..auth import Auth, AuthError, COOKIE, DAY
+from ..api_models import UserDTO, DeviceSessionDTO
 
 
 class Credentials(BaseModel):
@@ -27,6 +28,10 @@ class PasswordChange(BaseModel):
 class Activation(BaseModel):
     code: SecretStr = Field(min_length=8, max_length=64)
     password: SecretStr = Field(min_length=12, max_length=256)
+
+
+class Disabled(BaseModel):
+    disabled: bool
 
 
 class Person(BaseModel):
@@ -109,7 +114,11 @@ def auth_router(auth: Auth):
         set_cookie(response, result["token"])
         return {"user": result["user"]}
 
-    @router.post("/auth/device", dependencies=[Depends(require_https)])
+    @router.post(
+        "/auth/device",
+        dependencies=[Depends(require_https)],
+        response_model=DeviceSessionDTO,
+    )
     async def device(body: DeviceCredentials, request: Request):
         return await run(
             auth.login,
@@ -132,7 +141,7 @@ def auth_router(auth: Auth):
             )
         }
 
-    @router.get("/me")
+    @router.get("/me", response_model=UserDTO)
     async def me(result=Depends(current)):
         return result[0]
 
@@ -186,5 +195,22 @@ def auth_router(auth: Auth):
     @router.post("/people/{identity}/setup-code")
     async def reset(identity: str, result=Depends(owner)):
         return await run(auth.setup_code, result[0]["id"], identity=identity)
+
+    @router.put("/people/{identity}/disabled")
+    async def disable(identity: str, body: Disabled, result=Depends(owner)):
+        return await run(auth.disable, result[0]["id"], identity, body.disabled)
+
+    @router.get("/people/activity")
+    async def activity(result=Depends(owner)):
+        from ..auth import records
+
+        with auth.store.connect() as conn:
+            return {
+                "events": records(
+                    conn.execute(
+                        "SELECT a.at,a.user_id,a.event,u.display_name FROM auth_events a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.id DESC LIMIT 200"
+                    )
+                )
+            }
 
     return router

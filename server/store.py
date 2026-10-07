@@ -108,6 +108,10 @@ class Store:
         # A content revision survives restart: a reset counter could leave an
         # already-open browser displaying stale content after a new scan/start.
         self.library_revision = fingerprint
+        from .household_policy import HouseholdPolicy
+
+        with self.connect() as conn:
+            HouseholdPolicy(self).refresh_inbox(conn)
         self.library_payload = None
 
     def categorise(self, album_id, category):
@@ -202,7 +206,7 @@ class Store:
                 conn.execute("BEGIN IMMEDIATE")
                 for row in conn.execute("SELECT payload FROM acquired").fetchall():
                     track = json.loads(row[0])
-                    desired = self.quality_policy(track)
+                    desired = self.quality_policy(track, conn=conn)
                     self._enqueue_quality(conn, track, desired)
                     self._save_quality_policy(
                         conn, {**track, "quality_policy": desired}
@@ -625,8 +629,11 @@ class Store:
             return identifier("album-edition", legacy, release)
         return legacy
 
-    def quality_policy(self, track, preferred=None):
-        result = policy(self.download_settings(), preferred)
+    def quality_policy(self, track, preferred=None, conn=None, context=None):
+        result = policy(
+            context["settings"] if context is not None else self.download_settings(),
+            preferred,
+        )
         if preferred is None:
             artist_key = identifier(
                 "artist",
@@ -637,9 +644,24 @@ class Store:
                 "quality-override:artist:" + artist_key,
                 "quality-override:album:" + album_key,
             ):
-                value = self.read_document(name).get("profile")
+                value = (
+                    context["overrides"].get(name)
+                    if context is not None
+                    else self.read_document(name).get("profile")
+                )
                 if value:
                     result["preferred"] = value
+        from .household_policy import HouseholdPolicy
+
+        if conn is None:
+            with self.connect() as connection:
+                result["preferred"] = HouseholdPolicy(self).effective(
+                    connection, track, result["preferred"]
+                )
+        else:
+            result["preferred"] = HouseholdPolicy(self).effective(
+                conn, track, result["preferred"], context
+            )
         return result
 
     def _save_quality_policy(self, conn, metadata):
@@ -653,10 +675,14 @@ class Store:
             ("quality-policy:" + metadata["id"], json.dumps(value)),
         )
 
-    def _enqueue_quality(self, conn, track, desired, automatic=False):
-        active = conn.execute(
-            "SELECT id,payload FROM queue WHERE status IN ('waiting_for_sources','searching','downloading','validating','importing')"
-        ).fetchall()
+    def _enqueue_quality(self, conn, track, desired, automatic=False, active=None):
+        active = (
+            active
+            if active is not None
+            else conn.execute(
+                "SELECT id,payload FROM queue WHERE status IN ('waiting_for_sources','searching','downloading','validating','importing')"
+            ).fetchall()
+        )
         for request_id, raw in active:
             payload = json.loads(raw)
             if payload.get("library_track_id") == track["id"]:
@@ -700,6 +726,13 @@ class Store:
             quality_policy=desired,
             upgrade_only=automatic or rank(preferred) > rank(current),
             exact_quality=True,
+            requested_by=[
+                r[0]
+                for r in conn.execute(
+                    "SELECT user_id FROM library_members WHERE track_id=?",
+                    (track["id"],),
+                )
+            ],
         )
         managed = conn.execute(
             "SELECT 1 FROM acquired WHERE id=?", (track["id"],)
@@ -750,7 +783,7 @@ class Store:
             conn.execute("BEGIN IMMEDIATE")
             for album in albums:
                 for track in album["tracks"]:
-                    desired = self.quality_policy(track)
+                    desired = self.quality_policy(track, conn=conn)
                     created += self._enqueue_quality(conn, track, desired)
                     conn.execute(
                         "INSERT INTO documents VALUES (?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
@@ -1114,6 +1147,9 @@ class Store:
                     "SELECT status FROM queue WHERE id=?", (key,)
                 ).fetchone()
                 if prior and prior[0] not in {"cancelled", "failed"}:
+                    from .household_policy import HouseholdPolicy
+
+                    HouseholdPolicy(self).reconcile_pending(conn)
                     existing += 1
                 elif prior:
                     conn.execute(
@@ -1173,6 +1209,11 @@ class Store:
                             ).rowcount
                             if added:
                                 bump(conn, user_id)
+                                from .household_policy import HouseholdPolicy
+
+                                HouseholdPolicy(self).membership_changed(
+                                    conn, [matched["id"]]
+                                )
                     skipped += 1
                     continue
                 payload = {
@@ -1183,7 +1224,9 @@ class Store:
                 if user_id:
                     payload["requested_by"] = [user_id]
                 payload["quality_profile"] = preferred or settings["profile"]
-                payload["quality_policy"] = self.quality_policy(payload, preferred)
+                payload["quality_policy"] = self.quality_policy(
+                    payload, preferred, conn=conn
+                )
                 payload["quality_profile"] = payload["quality_policy"]["preferred"]
                 key = identifier(
                     "request",
@@ -1217,6 +1260,9 @@ class Store:
                                 "UPDATE queue SET payload=? WHERE id=?",
                                 (json.dumps(previous), key),
                             )
+                    from .household_policy import HouseholdPolicy
+
+                    HouseholdPolicy(self).reconcile_pending(conn)
                     existing += 1
                 elif prior:
                     conn.execute(

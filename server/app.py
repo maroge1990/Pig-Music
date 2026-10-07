@@ -9,6 +9,7 @@ from pathlib import Path
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import (
+    JSONResponse,
     FileResponse,
     Response,
     RedirectResponse,
@@ -21,11 +22,13 @@ from .auth_logging import install_validation_redaction
 from .routes.auth import auth_router, set_cookie
 from .routes.personal import personal_router
 from .security import Security, audit_routes
+from .request_limits import JsonBodyLimit
 from .transport import public_origin
 from .enrichment import Enrichment
 from .change_feed import ChangeFeed
 from .image_cache import public_image
 from .routes.artwork import artwork_router
+from .routes.household import household_router
 from .portraits import portrait_target
 from .artist_backgrounds import background_target
 from pydantic import BaseModel, Field
@@ -197,12 +200,20 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     app.state.auth = auth
     app.state.security = security
     app.include_router(auth_router(auth))
+    app.include_router(household_router(store))
+    from .routes.native import native_router
+
+    app.include_router(native_router(store, auth))
+    from .routes.discover import discover_router
+
+    app.include_router(discover_router(store, music_catalogue))
     app.include_router(personal_router(store, artist_jobs, recovery))
     install_validation_redaction(app)
     app.state.store = store
     app.state.enrichment = enrichment
     app.state.change_feed = change_feed
     app.add_middleware(GZipMiddleware, minimum_size=1000)
+    app.add_middleware(JsonBodyLimit)
 
     @app.middleware("http")
     async def headers(request, call_next):
@@ -212,12 +223,28 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 https_origin,
                 str(request.base_url).rstrip("/"),
             }:
-                return Response("Cross-origin writes are not allowed.", status_code=403)
+                return JSONResponse(
+                    {
+                        "detail": "Cross-origin writes are not allowed.",
+                        "code": "invalid_origin",
+                    },
+                    status_code=403,
+                )
         response = await call_next(request)
         if getattr(request.state, "refresh_cookie", None):
             set_cookie(response, request.state.refresh_cookie)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        response.headers["Permissions-Policy"] = (
+            "camera=(), microphone=(), geolocation=()"
+        )
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+        )
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000"
+
         if request.url.path.startswith("/api/") and not request.url.path.startswith(
             ("/api/artwork/", "/api/library-artwork/")
         ):
@@ -228,6 +255,39 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         }:
             response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
+
+    from fastapi.exceptions import RequestValidationError
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request, exc):
+        code = (
+            exc.detail
+            if isinstance(exc.detail, str) and exc.detail.replace("_", "").isalnum()
+            else {
+                400: "invalid_request",
+                401: "authentication_required",
+                403: "forbidden",
+                404: "not_found",
+                409: "conflict",
+                410: "resync_required",
+                413: "request_too_large",
+                422: "invalid_request",
+                503: "setup_required",
+            }.get(exc.status_code, "request_failed")
+        )
+        return JSONResponse(
+            {"detail": str(exc.detail), "code": code},
+            status_code=exc.status_code,
+            headers=exc.headers,
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request, exc):
+        return JSONResponse(
+            {"detail": "Check the submitted fields", "code": "invalid_request"},
+            status_code=422,
+        )
 
     @app.get("/api/health")
     def health(request: Request):
@@ -1284,7 +1344,9 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
-    @app.post("/api/v1/playback/{track_id}/url")
+    from .api_models import PlaybackURL
+
+    @app.post("/api/v1/playback/{track_id}/url", response_model=PlaybackURL)
     def playback_url(track_id: str, request: Request):
         try:
             track_file(store, track_id)
@@ -1312,6 +1374,8 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             "source": "Saved library",
         }
 
+    @app.get("/api/v1/tracks/{track_id}/file", tags=["personal-library"])
+    @app.head("/api/v1/tracks/{track_id}/file", tags=["personal-library"])
     @app.get("/api/playback/files/{track_id}")
     @app.head("/api/playback/files/{track_id}")
     def playback_file(track_id: str):
@@ -1387,6 +1451,14 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                     media_type="application/manifest+json",
                     headers={"Cache-Control": "no-cache"},
                 )
+
+        @app.get("/theme.js", include_in_schema=False)
+        def theme():
+            return FileResponse(
+                dist / "theme.js",
+                media_type="text/javascript",
+                headers={"Cache-Control": "no-cache"},
+            )
 
         @app.get("/")
         def index():

@@ -1,4 +1,4 @@
-import { Cloud, CloudDownload, Clock, LoaderCircle, Play } from "lucide-react";
+import { Cloud, CirclePlus, Clock, LoaderCircle, Play } from "lucide-react";
 
 export type SongState = {
   title: string;
@@ -47,8 +47,8 @@ export function SongControls({
         : active
           ? `Downloading ${percent}%`
           : song.download_status === "failed"
-            ? "Retry download"
-            : "Download";
+            ? "Retry request"
+            : "Request";
   return (
     <>
       <button
@@ -74,7 +74,7 @@ export function SongControls({
         ) : waiting ? (
           <Clock size={17} />
         ) : (
-          <CloudDownload size={17} />
+          <CirclePlus size={17} />
         )}
       </button>
     </>

@@ -69,4 +69,10 @@ def artwork_router(store, image_slots, enrichment, image_response):
             target, media_type="image/webp" if w else "image/jpeg", headers=headers
         )
 
+    @router.get("/api/v1/artwork/{sha}", tags=["personal-library"])
+    async def native_artwork(request: Request, sha: str, w: int = 256):
+        if len(sha) != 64 or any(c not in "0123456789abcdef" for c in sha):
+            raise HTTPException(404, "Artwork not found.")
+        return await cached_artwork(request, sha + ".jpg", w=w)
+
     return router

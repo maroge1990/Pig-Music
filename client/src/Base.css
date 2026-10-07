@@ -1,0 +1,253 @@
+@import "./tokens.css";
+
+:root {
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  color: var(--text);
+  background: var(--canvas);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  font-weight: 400;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input,
+select {
+  font: inherit;
+}
+button,
+a,
+input,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+button {
+  cursor: pointer;
+  color: inherit;
+}
+button {
+  background: none;
+  border: 0;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+button,
+input {
+  touch-action: manipulation;
+}
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+h1 {
+  font-weight: 650;
+  letter-spacing: -2px;
+  line-height: 1.1;
+}
+h2 {
+  font-weight: 600;
+  letter-spacing: -0.5px;
+}
+img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.muted {
+  color: var(--secondary);
+}
+.small {
+  font-size: 0.75rem;
+}
+.spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.app-shell {
+  min-height: 100vh;
+}
+.sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: 238px;
+  background: var(--canvas);
+  border-right: 1px solid var(--raised);
+  padding: 35px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  z-index: 20;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  text-align: left;
+  margin: 0 5px 56px;
+  padding: 0;
+}
+.sidebar-section-label {
+  font-size: 0.75rem;
+  letter-spacing: 1.8px;
+  font-weight: 600;
+  color: var(--secondary);
+  margin: 0 14px 15px;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 13px 14px;
+  width: 100%;
+  border-radius: var(--radius-compact);
+  text-align: left;
+  font-size: 0.75rem;
+  color: var(--secondary);
+  margin-bottom: 6px;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+.nav-item:hover {
+  color: var(--text);
+  background: var(--surface);
+}
+.nav-item.active {
+  background: var(--selected-fill);
+  color: var(--text-accent);
+}
+.nav-count {
+  margin-left: auto;
+  line-height: 17px;
+  padding: 0 5px;
+  border-radius: var(--radius-compact);
+  font-size: 0.75rem;
+  background: var(--selected-fill);
+}
+.sidebar-bottom {
+  margin-top: auto;
+}
+.connection-card {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 6px 23px;
+  padding: var(--space-16) var(--space-8);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.connection-card strong {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.connection-card small {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--secondary);
+  margin-top: 6px;
+}
+.connection-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 4px var(--success-fill);
+}
+.workspace {
+  margin-left: 238px;
+}
+.topbar {
+  height: 78px;
+  border-bottom: 1px solid var(--raised);
+  padding: 0 44px;
+  display: flex;
+  align-items: center;
+  gap: 25px;
+}
+.breadcrumb {
+  display: flex;
+  gap: var(--space-12);
+  align-items: center;
+  color: var(--secondary);
+  font-size: 0.75rem;
+  flex: 1;
+  white-space: nowrap;
+}
+.breadcrumb strong {
+  font-weight: 500;
+  color: var(--text);
+}
+.mobile-system,
+.mobile-nav {
+  display: none;
+}
+.main-content {
+  max-width: 1570px;
+  margin: auto;
+  padding: 35px 44px 70px;
+  min-height: calc(100vh - 78px);
+}
+.eyebrow {
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 1.5px;
+  color: var(--text-accent);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 18px;
+}
+.tiny-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.saved-dot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-left: 7px;
+  color: var(--success);
+}

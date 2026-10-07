@@ -1,4 +1,10 @@
 export type Track = {
+  server_state?:
+    | "not_in_library"
+    | "household_available"
+    | "requested"
+    | "in_library"
+    | "failed";
   id: string;
   title: string;
   artist: string;
@@ -7,6 +13,9 @@ export type Track = {
   track_number: number;
   disc_number: number;
   duration: number;
+  year?: string | number;
+  musicbrainz_release_id?: string;
+  musicbrainz_recording_id?: string;
   codec?: string;
   bitrate?: number;
   relative_path?: string;

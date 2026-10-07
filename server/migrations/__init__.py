@@ -6,6 +6,9 @@ MIGRATIONS = (
     (1, "0001_baseline"),
     (2, "0002_accounts"),
     (3, "0003_personal_libraries"),
+    (4, "0004_shared_policy"),
+    (5, "0005_plex_accounts"),
+    (6, "0006_native_sync"),
 )
 
 

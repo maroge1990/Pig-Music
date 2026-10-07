@@ -68,6 +68,12 @@ def verify_owner_attribution(store, before, owner_id):
         "managed_files",
         "play_events",
         "user_preferences",
+        "quality_preferences",
+        "unassigned_tracks",
+        "plex_accounts",
+        "sync_entities",
+        "sync_revisions",
+        "sqlite_sequence",
     ):
         if table in before:
             assert before[table] == after[table]
@@ -151,7 +157,7 @@ def main():
             if r[0] != "album-edition-anchors" and r[0] not in added_images
         ]
     ledger = after.pop("schema_migrations", [])
-    assert [r[0] for r in ledger] == [1, 2, 3], "Unexpected migration versions"
+    assert [r[0] for r in ledger] == [1, 2, 3, 4, 5, 6], "Unexpected migration versions"
     assert all(
         isinstance(r[1], str) and r[1] for r in ledger
     ), "Missing migration timestamps"
@@ -169,6 +175,12 @@ def main():
         "membership_versions",
         "play_events",
         "user_preferences",
+        "quality_preferences",
+        "unassigned_tracks",
+        "plex_accounts",
+        "sync_entities",
+        "sync_revisions",
+        "sqlite_sequence",
     ):
         if table not in before:
             assert (

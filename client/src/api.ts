@@ -11,6 +11,10 @@ export async function apiFetch(
   options?: RequestInit,
 ): Promise<Response> {
   const method = options?.method?.toUpperCase() || "GET";
+  const headers = new Headers(options?.headers);
+  if (method !== "GET" && method !== "HEAD") headers.set("X-Pig-Request", "1");
+  options = { ...options, headers, credentials: "same-origin" };
+
   if (method !== "GET" || options?.signal) {
     const response = await readResponse(path, options);
     if (
@@ -42,23 +46,45 @@ export async function apiFetch(
   return (await read).clone();
 }
 
+export class ApiError extends Error {
+  public code: string;
+  constructor(message: string, code: string) {
+    super(message);
+    this.code = code;
+  }
+}
+const accountErrors: Record<string, string> = {
+  invalid_credentials: "The username or password is incorrect.",
+  authentication_required: "Please sign in to continue.",
+  setup_required: "The administrator needs to finish the first account setup.",
+  https_required: "Open Pig Music using its private HTTPS address.",
+  rate_limited: "Too many attempts. Please wait before trying again.",
+  invalid_setup_code:
+    "The setup code has expired or was already used. Ask your administrator for a new code.",
+  username_unavailable: "That username is already in use.",
+  weak_password: "Choose a password between 12 and 256 characters.",
+};
+
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await apiFetch("/api" + path, options);
   if (!response.ok) {
     let message = "Something went wrong. Please try again.";
+    let code = "request_failed";
     try {
       const body = await response.json();
-      if (typeof body.detail === "string") message = body.detail;
+      code = body.code || "request_failed";
+      if (typeof body.detail === "string")
+        message = accountErrors[code] || body.detail;
     } catch {
       /* Keep a readable response for non-JSON failures. */
     }
-    throw new Error(message);
+    throw new ApiError(message, code);
   }
   return response.json();
 }
 
 export function cachedLibrary<T>(): Promise<T> {
-  libraryRead ||= api("/library").catch((error) => {
+  libraryRead ||= api("/v1/library").catch((error) => {
     libraryRead = undefined;
     throw error;
   });
@@ -78,11 +104,11 @@ async function readResponse(
   options?: RequestInit,
 ): Promise<Response> {
   if (path !== "/api/library" || (options?.method && options.method !== "GET"))
-    return fetch(path, options);
+    return transport(path, options);
   const headers = new Headers(options?.headers);
   const etag = libraryResponse?.headers.get("etag");
   if (etag) headers.set("If-None-Match", etag);
-  const response = await fetch(path, { ...options, headers });
+  const response = await transport(path, { ...options, headers });
   if (response.status === 304 && libraryResponse)
     return libraryResponse.clone();
   if (response.ok) libraryResponse = response.clone();
@@ -99,3 +125,24 @@ export function updateArtworkRevision(revision: number | undefined) {
 setInterval(() => {
   if (!document.hidden) window.dispatchEvent(new Event("music-artwork-retry"));
 }, 60000);
+
+export function clearSessionReads() {
+  reads.clear();
+  libraryRead = undefined;
+  libraryResponse = undefined;
+}
+
+async function transport(path: string, options?: RequestInit) {
+  const response = await fetch(path, options);
+  if (response.status === 401) {
+    clearSessionReads();
+    window.dispatchEvent(new Event("music-auth-required"));
+  }
+  if (response.status === 403)
+    window.dispatchEvent(
+      new CustomEvent("music-forbidden", {
+        detail: "You do not have access to that action.",
+      }),
+    );
+  return response;
+}
