@@ -350,3 +350,25 @@ The first preflight caught a quoting error in the release state probe before any
 - **Status.** Owner-only `GET /api/warmer` returns the status. Admin → Overview shows "Artist pages ready", and each pass logs `Pre-cache pass complete …`.
 
 **Verification:** 237 backend tests pass, including `tests/test_warmer.py`. On local disposable data the first pass prepared 16 artist pages in 29.5 s with no failures, and a search prepared its results within seconds.
+
+### Listening and pre-cache release, 8 October 2026
+
+**Delivered:** `listening-20261008-v1` through `scripts/deploy_release.py`. It includes both 8 October passes.
+- Image `ghcr.io/maroge1990/pig-music@sha256:5bf112791ad1bae2f2398c22337f6813fa121712ad2c99f535b8ea520b3f4750`, source `c1f01aa1ac6c1c1b6fc05eb1cb28912270c901f1` on `main`.
+- GitHub image checks passed.
+- Exact-image Unraid acceptance passed:
+  - 237 backend tests.
+  - Artwork and HTTP delivery scale gates under 1 GB; 50k HTTP peak 382.4 MB.
+  - Two-person sync at 50k each: 384.27 MB.
+- Backup: `/mnt/user/appdata/pig-music-preview/backups/pre-listening-20261008-v1`. Rollback container: `PigMusic-before-listening-20261008-v1`.
+- Live warmer check:
+  - The container is healthy on the new image.
+  - Within ten minutes, 372 artwork files had been written, including 12 Fanart logos.
+  - The first pass logged `Pre-cache pass complete in 843.9s: 27 artist pages and 47 covers prepared so far, 0 failures`.
+  - Most of the first-pass time is one-off catalogue identification of library artists at MusicBrainz's 1 request/s. Later passes reuse it.
+
+**Owner checks next:**
+- The categorisation of Hamilton, Westworld, Persona, Book of Mormon and Transformers.
+- Real artist photos and logos.
+- Folding navigation and safe areas on the iPhone.
+- Admin → Overview "Artist pages ready".
