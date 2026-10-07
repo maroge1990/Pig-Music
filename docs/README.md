@@ -21,3 +21,5 @@ Credentials, appdata, music exports, private measurements and screenshots remain
 - [Remaining audit delivery](audit-followup-delivery.md): current release, accessibility/scale checks and remaining physical-device evidence.
 
 - [Household and native audit continuation](household-native-audit-delivery.md): final code-finding ledger, exact candidate/Unraid evidence, protected owner setup and device gates.
+
+- [Audit verification, review and combined roadmap](review-roadmap-20261007.md): both audits checked, new findings, admin/member experience and delivery status.
