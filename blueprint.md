@@ -282,3 +282,10 @@ A disposable copy of the stopped production backup passed migration and exact fi
   - `deploy_release.py`, the routine Docker Manager release path; `main` had none after first-run
 
   221 backend and 7 frontend tests pass. Still unpushed and unreleased. Next: owner approval to push `main`, then exact-image verification and `deploy_release.py` once the owner account exists.
+- **7 October 2026 — third build pass:** Delivered:
+  - one Search across library, server and catalogue
+  - a fix so following an artist no longer downloads its back catalogue (N15)
+  - polish to playlists, favourites, requests and buttons
+  - an Admin at-a-glance overview
+
+  Still unpushed and unreleased. `/api/v1/admin` is deferred until native Admin work begins, because the legacy owner handlers live inside `create_app` and return untyped payloads.

@@ -94,6 +94,7 @@ Severity: **High** means broken today or a security/data risk; **Med** means not
 | N11 | Low | The local dev environment can't run the backend (Python 3.9 only). Add a pinned `uv`/`.python-version` bootstrap so local verification matches CI |
 | **N13** | High | *Found during implementation.* **The personal library ETag wasn't bound to the person.** `user_library.projection` hashed library revision, membership revision and settings, so two people with equal membership counters got identical ETags. On a shared browser the second person's revalidation returned 304 and showed the previous person's library. This was reproduced in a fixture (member saw the owner's 12 songs instead of 4), fixed by adding the user to the signature, and covered by a regression test |
 | **N14** | Med | *Found during implementation.* FastAPI 0.142 wraps included routers lazily, so `app.routes` omits them. The startup `audit_routes` guard check and `test_every_api_route_is_anonymous_denied…` covered only 52 of 132 API routes. The routes were still guarded at runtime, but nothing proved it. Fixed with `api_routes()` |
+| **N15** | High | *Found during implementation.* **Following an artist downloaded its whole back catalogue.** Turning monitoring on without a request let the background loop treat the artist as due and run a full request. Members' "Follow new albums" and the owner's "Monitor new releases" both queued every existing album, and each daily check reset the done list. Following now records existing release groups as a baseline, periodic checks keep the done list, and an explicit request still fetches everything. Reproduced in a fixture (a member got 11 unwanted requests); covered by two tests |
 | N12 | Gate | Owner account creation through the first-run form was still outstanding at the last handover. Physical iPhone/Watch, cellular Tailscale and VoiceOver gates (V01/S00) remain open |
 
 ---
@@ -225,3 +226,11 @@ Second pass: 221 backend tests, 7 frontend tests, strict build, Black, Prettier,
 - owner and member in light and dark, at desktop and 375 px
 - Admin pages after the CSS prune
 - the Songs tab, album Play (audio actually played through a signed URL) and Recently added
+
+Third pass:
+- **One Search:** the query lives in the URL. Results run library artists, albums and songs, then music on the server (add instantly), then the catalogue, and the catalogue degrades gracefully when unavailable. The drill-down explorer is gone, and following is a toggle on every discovered artist page.
+- **N15 follow fix.**
+- **Library polish:** playlist rows with counts, Favourites shown inline, plain-language request statuses with progress and errors, consistent form buttons, and a full-height canvas bloom.
+- **Admin overview:** an at-a-glance row (queued, failed, awaiting an owner, files needing attention, people).
+
+223 backend and 7 frontend tests pass.
