@@ -21,9 +21,9 @@ export async function apiFetch(
     if (
       response.ok &&
       method !== "GET" &&
-      path !== "/api/membership" &&
+      // A favourite status probe reads state; it must not invalidate reads.
       !(
-        path === "/api/favourites" &&
+        path === "/api/v1/favourites" &&
         options?.body &&
         !String(options.body).includes('"favourite":')
       )

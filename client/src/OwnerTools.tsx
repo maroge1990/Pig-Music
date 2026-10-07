@@ -8,7 +8,7 @@ import { go } from "./routes";
 /* Administrator additions always render after everything a member sees,
  * so the owner's screens match a member's from the top down. */
 
-function OwnerPanel({
+export function OwnerPanel({
   label,
   children,
 }: {

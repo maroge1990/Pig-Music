@@ -462,7 +462,7 @@ export function PersonalLibrary({
           notify={setNotice}
           initialRelease={catalogue.release}
           initialGroup={catalogue.group}
-          personal
+          owner={owner}
         />
         {notice && <p role="status">{notice}</p>}
       </main>

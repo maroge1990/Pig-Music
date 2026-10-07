@@ -1,4 +1,3 @@
-import { SongControls, isPending } from "./SongControls";
 import { apiFetch } from "./api";
 import { useEffect, useState } from "react";
 import {
@@ -9,12 +8,11 @@ import {
   Check,
 } from "lucide-react";
 import { Cover, catalogueCover } from "./Cover";
-import { usePlayer } from "./Player";
 import { ArtistPopular } from "./ArtistPopular";
-import { SongActions } from "./SongActions";
 import { MusicLink } from "./MusicLink";
 import { mergePage } from "./discography";
 import { ArtistAcquisition } from "./ArtistAcquisition";
+import { OwnerPanel } from "./OwnerTools";
 import { ArtistHero } from "./ArtistHero";
 import { discoverUrl } from "./navigation";
 import type { Discography } from "./discography";
@@ -57,30 +55,32 @@ type Release = {
   description: string;
   tracks: Song[];
 };
-const pending = isPending;
+// Request states still in progress on the server.
+const pending = (song: { download_status?: string }) =>
+  [
+    "waiting_for_sources",
+    "searching",
+    "downloading",
+    "validating",
+    "importing",
+  ].includes(song.download_status || "");
 export function CatalogueBrowser({
   artist,
   close,
   notify,
-  embedded = false,
   initialRelease,
-  personal = false,
   initialGroup,
+  owner = false,
 }: {
   artist: { id: string; name: string };
   close: () => void;
   notify: (text: string) => void;
-  embedded?: boolean;
   initialRelease?: string;
-  personal?: boolean;
   initialGroup?: string;
+  owner?: boolean;
 }) {
-  const player = usePlayer();
   async function request<T>(path: string, options?: RequestInit): Promise<T> {
-    const response = await apiFetch(
-      `/api/${personal ? "v1/" : ""}catalogue/` + path,
-      options,
-    );
+    const response = await apiFetch("/api/v1/catalogue/" + path, options);
     const data = await response.json();
     if (!response.ok)
       throw new Error(
@@ -99,7 +99,7 @@ export function CatalogueBrowser({
         setRankedAlbums(d.ranked_album_ids || d.albums.map((a) => a.id)),
       )
       .catch(() => {});
-  }, [artist.id, personal]);
+  }, [artist.id]);
   const [kind, setKind] = useState("album");
   const scope = artist.id + ":" + kind;
   const [listing, setListing] = useState<Discography>({
@@ -129,8 +129,6 @@ export function CatalogueBrowser({
   const [busy, setBusy] = useState(false);
   const groupBusy = listing.scope !== scope || listing.loading;
   const [error, setError] = useState("");
-  const [profile, setProfile] = useState("");
-  const [selected, setSelected] = useState<string[]>([]);
   useEffect(() => {
     const controller = new AbortController();
     setListing({ scope, groups: [], total: 0, loading: true });
@@ -208,9 +206,7 @@ export function CatalogueBrowser({
     setError("");
     try {
       setRelease(await request<Release>(`releases/${id}`));
-      if (!embedded)
-        history.replaceState(null, "", "#" + discoverUrl(artist, id));
-      setProfile("");
+      history.replaceState(null, "", "#" + discoverUrl(artist, id));
       setChoose(false);
     } catch (e) {
       setError((e as Error).message);
@@ -238,14 +234,11 @@ export function CatalogueBrowser({
             `releases/${data.recommended_id || data.editions[0].id}`,
           ),
         );
-        if (!embedded)
-          history.replaceState(
-            null,
-            "",
-            "#" +
-              discoverUrl(artist, data.recommended_id || data.editions[0].id),
-          );
-        setProfile("");
+        history.replaceState(
+          null,
+          "",
+          "#" + discoverUrl(artist, data.recommended_id || data.editions[0].id),
+        );
       } else setError("No release editions are available.");
     } catch (e) {
       setError((e as Error).message);
@@ -270,53 +263,18 @@ export function CatalogueBrowser({
   }
   async function download(trackId?: string) {
     if (!release) return;
-    if (personal) {
-      const chosen = release.tracks.filter((t) => !trackId || t.id === trackId);
-      try {
-        const response = await apiFetch("/api/v1/requests", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tracks: chosen }),
-        });
-        if (!response.ok) throw new Error("Could not request music");
-        notify("Added or requested for your library");
-        window.dispatchEvent(new Event("music-library-changed"));
-      } catch (e) {
-        setError((e as Error).message);
-      }
-      return;
-    }
-    const ids = trackId
-      ? [trackId]
-      : release.tracks
-          .filter((t) => t.status !== "downloaded" && !pending(t))
-          .map((t) => t.id);
-    setSelected(ids);
-    setBusy(true);
-    setError("");
+    const chosen = release.tracks.filter((t) => !trackId || t.id === trackId);
     try {
-      const result = await request<{
-        created: number;
-        existing: number;
-        skipped: number;
-        downloads_enabled: boolean;
-      }>(`releases/${release.id}/request`, {
+      const response = await apiFetch("/api/v1/requests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          track_ids: ids,
-          quality_profile: profile || null,
-        }),
+        body: JSON.stringify({ tracks: chosen }),
       });
-      notify(
-        `${result.created} songs queued${result.downloads_enabled ? "" : " · downloads paused"}`,
-      );
-      setRelease(await request<Release>(`releases/${release.id}`));
+      if (!response.ok) throw new Error("Could not request music");
+      notify("Added or requested for your library");
+      window.dispatchEvent(new Event("music-library-changed"));
     } catch (e) {
       setError((e as Error).message);
-    } finally {
-      setSelected([]);
-      setBusy(false);
     }
   }
   function back() {
@@ -326,18 +284,16 @@ export function CatalogueBrowser({
     } else if (group) {
       setGroup(null);
       setRelease(null);
-      if (!embedded) history.replaceState(null, "", "#" + discoverUrl(artist));
+      history.replaceState(null, "", "#" + discoverUrl(artist));
     } else close();
   }
   return (
     <section aria-label="Artist discography">
-      {(group || !embedded) && (
-        <button className="back-button" onClick={back} disabled={busy}>
-          <ArrowLeft size={16} />
-          {choose ? "Selected edition" : group ? artist.name : "Search results"}
-        </button>
-      )}
-      {!embedded && !group && (
+      <button className="back-button" onClick={back} disabled={busy}>
+        <ArrowLeft size={16} />
+        {choose ? "Selected edition" : group ? artist.name : "Search results"}
+      </button>
+      {!group && (
         <ArtistHero
           discovered
           artist={{
@@ -441,7 +397,7 @@ export function CatalogueBrowser({
               onClick={() => download()}
             >
               <ArrowDown size={16} />
-              {personal ? "Add album to my library" : "Download all"}
+              Add album to my library
             </button>
           </div>
           {release.tracks.map((t) => {
@@ -457,57 +413,15 @@ export function CatalogueBrowser({
                       : ""}
                   </span>
                 </div>
-                {!personal && (
-                  <SongControls
-                    song={t}
-                    busy={busy}
-                    selected={selected.includes(t.id)}
-                    play={() =>
-                      player.playCatalogue(
-                        release.id,
-                        t,
-                        catalogueCover("release", release.id),
-                      )
-                    }
-                    download={() => void download(t.id)}
-                  />
-                )}
-                {personal && (
-                  <button
-                    className="secondary-button"
-                    onClick={() => void download(t.id)}
-                  >
-                    Add to my library
-                  </button>
-                )}
-                {!personal && (
-                  <SongActions
-                    song={{ release_id: release.id, track_id: t.id }}
-                    title={t.title}
-                  />
-                )}
+                <button
+                  className="secondary-button"
+                  onClick={() => void download(t.id)}
+                >
+                  Add to my library
+                </button>
               </div>
             );
           })}
-          {!personal && (
-            <details className="album-quality">
-              <summary>Album settings</summary>
-              <label>
-                Preferred quality
-                <select
-                  aria-label="Download preferred quality"
-                  value={profile}
-                  onChange={(e) => setProfile(e.target.value)}
-                >
-                  <option value="">Use artist / system preference</option>
-                  <option value="lossless">FLAC lossless</option>
-                  <option value="mp3_320">MP3 320 kbps</option>
-                  <option value="mp3_128">MP3 128 kbps</option>
-                  <option value="aac_256">AAC 256 kbps</option>
-                </select>
-              </label>
-            </details>
-          )}
           {editionTotal > 0 && (
             <button
               className="secondary-button edition-switch"
@@ -520,13 +434,7 @@ export function CatalogueBrowser({
       ) : !group ? (
         <>
           {!otherReleases && (
-            <ArtistPopular
-              id={artist.id}
-              openAlbum={openGroup}
-              notify={notify}
-              songsOnly
-              personal={personal}
-            />
+            <ArtistPopular id={artist.id} openAlbum={openGroup} songsOnly />
           )}
           {
             <div className="section-title">
@@ -637,8 +545,10 @@ export function CatalogueBrowser({
           )}
         </>
       ) : null}
-      {!personal && !embedded && !group && (
-        <ArtistAcquisition id={artist.id} notify={notify} />
+      {owner && !group && (
+        <OwnerPanel label="server downloads for this artist">
+          <ArtistAcquisition id={artist.id} notify={notify} />
+        </OwnerPanel>
       )}
     </section>
   );
