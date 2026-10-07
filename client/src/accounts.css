@@ -524,3 +524,33 @@ main h1[tabindex="-1"]:focus {
   font-size: var(--type-footnote);
   color: var(--secondary);
 }
+.request-status {
+  flex-shrink: 0;
+  padding: var(--space-4) var(--space-12);
+  border-radius: var(--radius-capsule);
+  font-size: var(--type-footnote);
+  font-weight: 600;
+  background: var(--raised);
+  color: var(--secondary);
+}
+.request-status.active {
+  background: var(--selected-fill);
+  color: var(--text-accent);
+}
+.request-status.done {
+  background: var(--success-fill);
+  color: var(--success);
+}
+.request-status.failed {
+  background: var(--danger-fill);
+  color: var(--danger);
+}
+.request-row progress {
+  width: 100%;
+  margin-top: var(--space-8);
+  accent-color: var(--accent);
+}
+.request-error {
+  color: var(--danger);
+  font-size: var(--type-footnote);
+}
