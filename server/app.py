@@ -698,14 +698,10 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             raise HTTPException(404, "Library item not found.")
         person = getattr(request.state, "user", None)
         if person and person["role"] != "owner":
-            item = next(
-                (
-                    i
-                    for i in store.user_libraries.projection(person["id"])[kind]
-                    if i["id"] == item_id
-                ),
-                None,
+            access = await asyncio.to_thread(
+                store.user_libraries.artwork_access, person["id"]
             )
+            item = access["items"][kind].get(item_id)
             if item is None:
                 raise HTTPException(404, "Library item not found.")
         target = artwork.target(item) if kind == "albums" else None

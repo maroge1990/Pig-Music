@@ -386,3 +386,27 @@ def test_simultaneous_household_requests_keep_both_beneficiaries(tmp_path, monke
     assert sum(r["created"] for r in results) == 1
     queue = app.state.store.queue()["items"]
     assert len(queue) == 1 and set(queue[0]["requested_by"]) == {owner, member}
+
+
+def test_library_validators_are_bound_to_the_person(tmp_path, monkeypatch):
+    # A shared browser revalidates its cached library with the previous
+    # person's ETag; equal membership counters must not yield a 304.
+    app, owner, member, token, track = household(tmp_path, monkeypatch)
+    store = app.state.store
+    store.user_libraries.add(member, [track["id"]])
+    store.user_libraries.projection(owner)
+    with store.connect() as conn:
+        conn.execute("UPDATE membership_versions SET revision=7")
+    assert (
+        store.user_libraries.projection(owner)["revision"]
+        != store.user_libraries.projection(member)["revision"]
+    )
+    owner_etag = '"' + store.user_libraries.summary(owner)["revision"] + '"'
+    with TestClient(
+        app,
+        base_url="https://private.ts.net",
+        headers={"Authorization": "Bearer " + token},
+    ) as client:
+        response = client.get("/api/v1/library", headers={"If-None-Match": owner_etag})
+        assert response.status_code == 200
+        assert response.json()["stats"]["tracks"] == 1

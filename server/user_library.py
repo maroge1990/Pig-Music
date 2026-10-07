@@ -8,6 +8,7 @@ from collections import OrderedDict, defaultdict
 import hashlib
 import json
 import time
+from urllib.parse import urlsplit
 
 from .library import identifier, normalise
 from .media import public_settings
@@ -134,6 +135,29 @@ class UserLibrary:
     def __init__(self, store):
         self.store = store
         self.cache = OrderedDict()
+        self.artwork_cache = {}
+
+    def artwork_access(self, user_id):
+        """Artwork a person may load, indexed once per projection revision."""
+        data = self.projection(user_id)
+        cached = self.artwork_cache.get(user_id)
+        if cached and cached[0] == data["revision"]:
+            return cached[1]
+        access = {
+            "items": {
+                kind: {item["id"]: item for item in data[kind]}
+                for kind in ("artists", "albums")
+            },
+            "paths": {
+                urlsplit(item.get(field) or "").path
+                for kind in ("artists", "albums", "tracks")
+                for item in data[kind]
+                for field in ("cover_url", "fallback_cover_url")
+                if item.get(field)
+            },
+        }
+        self.artwork_cache[user_id] = (data["revision"], access)
+        return access
 
     def projection(self, user_id):
         initialise_owner(self.store)
@@ -141,7 +165,10 @@ class UserLibrary:
             membership_revision = conn.execute(
                 "SELECT revision FROM membership_versions WHERE user_id=?", (user_id,)
             ).fetchone()
+            # The person is part of the validator: equal membership counters
+            # for two people must never let a shared browser reuse a 304.
             signature = (
+                user_id,
                 self.store.library_revision,
                 membership_revision[0] if membership_revision else 0,
                 json.dumps(public_settings(self.store), sort_keys=True),

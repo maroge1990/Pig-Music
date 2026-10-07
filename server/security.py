@@ -120,8 +120,8 @@ class Security:
             and self.auth.now() - session["last_seen_at"] >= 3600
         ):
             request.state.refresh_cookie = token
-        # Personal media/library projection lands in M03. Never expose the
-        # old household projection to members during this intermediate package.
+        # Members only reach personal-library routes and their own media. The
+        # household projection and server administration remain owner-only.
         scoped = "personal-library" in getattr(request.scope.get("route"), "tags", [])
         media_path = request.url.path.startswith(
             "/api/playback/files/"
@@ -135,10 +135,8 @@ class Security:
         if person["role"] != "owner" and request.url.path.startswith(
             ("/api/artwork/", "/api/library-artwork/", "/api/v1/artwork/")
         ):
-            from urllib.parse import urlsplit
-
-            projection = await asyncio.to_thread(
-                self.auth.store.user_libraries.projection, person["id"]
+            access = await asyncio.to_thread(
+                self.auth.store.user_libraries.artwork_access, person["id"]
             )
             path = request.url.path.removesuffix("/metadata")
             if path.startswith("/api/v1/artwork/"):
@@ -147,16 +145,11 @@ class Security:
                 kind, item_id = request.path_params.get(
                     "kind"
                 ), request.path_params.get("item_id")
-                allowed = kind in {"artists", "albums"} and any(
-                    item["id"] == item_id for item in projection[kind]
+                allowed = (
+                    kind in {"artists", "albums"} and item_id in access["items"][kind]
                 )
             else:
-                allowed = any(
-                    urlsplit(item.get(field) or "").path == path
-                    for kind in ("artists", "albums", "tracks")
-                    for item in projection[kind]
-                    for field in ("cover_url", "fallback_cover_url")
-                )
+                allowed = path in access["paths"]
             if not allowed:
                 raise HTTPException(404, "Artwork not found")
             scoped = True
@@ -165,7 +158,7 @@ class Security:
             and not scoped
             and not request.url.path.startswith(PERSONAL_ACCOUNT_PREFIXES)
         ):
-            raise HTTPException(403, "personal_libraries_pending")
+            raise HTTPException(403, "owner_only")
         request.state.user, request.state.session = person, session
         return person
 
