@@ -20,7 +20,6 @@ export function SearchPanel({
   onArtist,
   onAlbum,
   onDiscover,
-  onMigration,
 }: {
   compact?: boolean;
   onArtist: (id: string) => void;
@@ -109,7 +108,7 @@ export function SearchPanel({
           <Cover title={a.name} src={a.cover_url} artist />
           <div>
             <strong>{a.name}</strong>
-            <span>{a.album_count} releases</span>
+            <span>Artist</span>
           </div>
           <CircleCheck size={16} className="saved-icon" />
         </button>
@@ -149,15 +148,6 @@ export function SearchPanel({
         !local.tracks.length && (
           <p className="search-empty">No saved matches.</p>
         )}
-      {!!local?.available.length && (
-        <button className="result-row" onClick={() => choose(onMigration)}>
-          <div>
-            <strong>From your import</strong>
-            <span>{local.available.length} songs not yet saved</span>
-          </div>
-          <ArrowRight size={16} />
-        </button>
-      )}
       <div className="search-divider">Find artists outside your collection</div>
       {busy && (
         <p className="subtle-loading">

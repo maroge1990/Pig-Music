@@ -214,7 +214,9 @@ def catalogue_router(
     async def artist_popularity(artist_id: str):
         return await popularity.get(http_client(), valid_id(artist_id))
 
-    @router.get("/api/catalogue/artists/{artist_id}/background")
+    @router.get(
+        "/api/catalogue/artists/{artist_id}/background", tags=["personal-library"]
+    )
     async def catalogue_artist_background(
         artist_id: str, w: int = 0, soft: bool = False
     ):
@@ -281,7 +283,7 @@ def catalogue_router(
                 return target
         return None
 
-    @router.get("/api/catalogue/artists/{artist_id}/artwork")
+    @router.get("/api/catalogue/artists/{artist_id}/artwork", tags=["personal-library"])
     async def artist_artwork(artist_id: str, w: int = 0):
         artist_id = valid_id(artist_id)
         cache_key = "catalogue-artist-image:" + artist_id + ":" + image_config()

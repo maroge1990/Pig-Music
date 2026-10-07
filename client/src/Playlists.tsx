@@ -1,7 +1,10 @@
+import { Cover } from "./Cover";
+import { MusicLink } from "./MusicLink";
+import { shuffled } from "./shuffle";
 import { apiFetch as fetch } from "./api";
 import { useEffect, useState } from "react";
 
-import { ArrowLeft, Check, Play } from "lucide-react";
+import { ArrowLeft, Check, Play, Shuffle } from "lucide-react";
 
 import type { Track } from "./types";
 
@@ -25,7 +28,6 @@ type Playlist = {
 };
 
 export function Playlists({
-  review,
   notify,
   favourites = false,
   initialId,
@@ -163,18 +165,20 @@ export function Playlists({
           <Play size={16} />
           Play
         </button>
-        {detail.available_count < detail.track_count && (
-          <button
-            className="secondary-button"
-            onClick={() => review(detail.id)}
-          >
-            Add missing songs
-          </button>
-        )}
+        <button
+          className="secondary-button"
+          disabled={!playable.length}
+          onClick={() => {
+            const queue = shuffled(playable);
+            player.playSaved(queue[0], queue, 0);
+          }}
+        >
+          <Shuffle size={16} /> Shuffle
+        </button>
       </div>
       <div className="track-list">
         {entries.map((e, index) => (
-          <div className="track-row" key={e.entry_id}>
+          <div className="track-row playlist-track-row" key={e.entry_id}>
             <button
               className="track-position track-play"
               aria-label={`Play ${e.title}`}
@@ -190,13 +194,19 @@ export function Playlists({
             >
               {e.saved_track ? <Play size={15} /> : index + 1}
             </button>
+            <Cover
+              title={e.album}
+              src={e.saved_track?.cover_url || e.cover_url}
+            />
             <div className="track-name">
               <strong>{e.title}</strong>
               <span>
-                {e.artist} · {e.album}
+                <MusicLink artist={e.artist} /> ·{" "}
+                <MusicLink artist={e.artist} album={e.album} />
               </span>
             </div>
             <SongActions
+              hidePlaylist
               song={{ playlist_id: detail.id, position: index }}
               title={e.title}
             />

@@ -13,8 +13,7 @@ import { Cover } from "./Cover";
 import { MusicLink } from "./MusicLink";
 import { AlbumQuality } from "./AlbumQuality";
 import { RemoveCollection } from "./Recovery";
-import { ArtistHero } from "./ArtistHero";
-import { ArtistDiscography } from "./ArtistDiscography";
+import { SavedArtistHeading } from "./SavedArtistHeading";
 import { Playlists } from "./Playlists";
 import { CollectionPages } from "./CollectionPages";
 import { ArtistCards } from "./LibraryCards";
@@ -189,7 +188,7 @@ export function LibraryView({
           <ArrowLeft size={16} /> Your library
         </button>
 
-        <ArtistHero key={artistDetail.id} artist={artistDetail} />
+        <SavedArtistHeading artist={artistDetail} />
 
         {!!artistDetail.albums?.length && (
           <>
@@ -207,11 +206,6 @@ export function LibraryView({
           </>
         )}
 
-        <ArtistDiscography
-          key={"discography:" + artistDetail.id}
-          id={artistDetail.id}
-          notify={setToast}
-        />
         {!!artistDetail.compilation_tracks?.length && (
           <>
             <div className="section-title">

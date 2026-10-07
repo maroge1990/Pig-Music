@@ -3,6 +3,7 @@ import { api, ApiError, clearSessionReads } from "./api";
 import { PersonalLibrary } from "./PersonalLibrary";
 import { AccountSettings } from "./AccountSettings";
 import "./accounts.css";
+import { Home } from "./Home";
 
 export type Person = {
   id: string;
@@ -16,7 +17,24 @@ export function AccountsShell({ legacyTools }: { legacyTools: ReactNode }) {
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
-  const [page, setPage] = useState("library");
+  const [page, setPage] = useState(
+    location.hash.startsWith("#/library") ||
+      location.hash.startsWith("#/search")
+      ? "library"
+      : "home",
+  );
+  useEffect(() => {
+    const route = () => {
+      if (location.hash.startsWith("#/home")) setPage("home");
+      else if (
+        location.hash.startsWith("#/library") ||
+        location.hash.startsWith("#/search")
+      )
+        setPage("library");
+    };
+    window.addEventListener("hashchange", route);
+    return () => window.removeEventListener("hashchange", route);
+  }, []);
   const [setup, setSetup] = useState(location.hash.startsWith("#/setup"));
   async function refresh() {
     try {
@@ -178,7 +196,22 @@ export function AccountsShell({ legacyTools }: { legacyTools: ReactNode }) {
         </a>
         <span>{user.display_name}</span>
         <nav aria-label="Account navigation">
-          <button onClick={() => setPage("library")}>Library</button>
+          <button
+            onClick={() => {
+              location.hash = "/home";
+              setPage("home");
+            }}
+          >
+            Home
+          </button>
+          <button
+            onClick={() => {
+              location.hash = "/library";
+              setPage("library");
+            }}
+          >
+            Library
+          </button>
           <button onClick={() => setPage("account")}>Account</button>
           {user.role === "owner" && (
             <button onClick={() => setPage("tools")}>System tools</button>
@@ -202,7 +235,9 @@ export function AccountsShell({ legacyTools }: { legacyTools: ReactNode }) {
           {error}
         </p>
       )}
-      {page === "tools" && user.role === "owner" ? (
+      {page === "home" ? (
+        <Home />
+      ) : page === "tools" && user.role === "owner" ? (
         legacyTools
       ) : page === "account" ? (
         <AccountSettings user={user} />

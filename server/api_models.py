@@ -191,3 +191,21 @@ class RequestList(BaseModel):
     library_revision: str
     downloads_enabled: bool
     items: list[RequestDTO]
+
+
+class HomeItemDTO(BaseModel):
+    id: str
+    name: str
+    artist: str
+    artist_id: str
+    kind: Literal["artists", "albums", "songs"]
+    release_id: str | None = None
+    reason: str | None = None
+
+
+class HomeFeedDTO(BaseModel):
+    artists: list[HomeItemDTO]
+    albums: list[HomeItemDTO]
+    songs: list[HomeItemDTO]
+    source: str
+    unavailable: bool

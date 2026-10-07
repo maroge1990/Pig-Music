@@ -1,3 +1,4 @@
+import re
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
@@ -79,7 +80,7 @@ def test_member_cannot_see_unscoped_legacy_routes(tmp_path, monkeypatch):
         }
         for method, path in request_paths(app):
             if any(
-                path == route.path.replace("{" + name + "}", "fixture")
+                path == re.sub(r"\{[^}]+\}", "fixture", route.path)
                 for route in app.routes
                 if getattr(route, "path", "") in personal_paths
                 for name in route.param_convertors

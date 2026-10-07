@@ -1,3 +1,5 @@
+import { Home } from "./Home";
+import { House } from "lucide-react";
 import { LibraryView } from "./LibraryView";
 import { Empty } from "./EmptyState";
 import { QueueView, type Queue } from "./QueueView";
@@ -45,7 +47,7 @@ import { RemoveSong } from "./Recovery";
 
 import { SongActions } from "./SongActions";
 
-type Page = "library" | "search" | "migration" | "queue" | "system";
+type Page = "home" | "library" | "search" | "migration" | "queue" | "system";
 
 type Route = {
   page: Page;
@@ -54,6 +56,7 @@ type Route = {
   catalogue?: string;
   name?: string;
   release?: string;
+  group?: string;
   playlist?: string;
 };
 
@@ -63,6 +66,7 @@ function fromHash(): Route {
   const parameters = new URLSearchParams(query);
 
   const safePage: Page = [
+    "home",
     "library",
     "search",
     "migration",
@@ -79,6 +83,7 @@ function fromHash(): Route {
           catalogue: id,
           name: parameters.get("name") || "Artist",
           release: parameters.get("release") || undefined,
+          group: parameters.get("group") || undefined,
         }
       : kind === "artist"
         ? { artist: id }
@@ -583,6 +588,7 @@ export function LegacyTools() {
     });
 
   const navItems = [
+    { page: "home" as Page, label: "Home", short: "Home", icon: House },
     {
       page: "library" as Page,
       label: "Your library",
@@ -714,6 +720,7 @@ export function LegacyTools() {
           key={route.catalogue}
           artist={{ id: route.catalogue, name: route.name || "Artist" }}
           initialRelease={route.release}
+          initialGroup={route.group}
           close={() => navigate("search")}
           notify={setToast}
         />
@@ -1295,7 +1302,9 @@ export function LegacyTools() {
           )}
 
           {library &&
-            (route.page === "library" ? (
+            (route.page === "home" ? (
+              <Home />
+            ) : route.page === "library" ? (
               <LibraryView
                 library={library}
                 detailLoading={detailLoading}

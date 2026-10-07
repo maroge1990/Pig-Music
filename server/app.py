@@ -198,7 +198,10 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     app.include_router(native_router(store, auth, feed_health))
     from .routes.discover import discover_router
 
-    app.include_router(discover_router(store, music_catalogue))
+    from .routes.home import home_router
+
+    app.include_router(home_router(store, music_catalogue))
+    app.include_router(discover_router(store, music_catalogue, popularity))
     app.include_router(personal_router(store, artist_jobs, recovery))
     install_validation_redaction(app)
     app.state.store = store
@@ -716,7 +719,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             raise HTTPException(404, "Album not found.")
         return match
 
-    @app.get("/api/catalogue/artwork/{kind}/{item_id}")
+    @app.get("/api/catalogue/artwork/{kind}/{item_id}", tags=["personal-library"])
     async def catalogue_artwork(kind: str, item_id: str, w: int = 0):
         if kind not in {"release", "release-group"}:
             raise HTTPException(404, "Artwork not found.")

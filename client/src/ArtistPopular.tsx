@@ -29,10 +29,14 @@ export function ArtistPopular({
   id,
   openAlbum,
   notify,
+  songsOnly = false,
+  personal = false,
 }: {
   id: string;
   openAlbum: (album: Group) => void;
   notify: (message: string) => void;
+  songsOnly?: boolean;
+  personal?: boolean;
 }) {
   const player = usePlayer();
   const [tracks, setTracks] = useState<Record<string, Track>>({});
@@ -109,12 +113,8 @@ export function ArtistPopular({
     setAlbumPage(0);
     void (async () => {
       try {
-        const settings = await fetch("/api/settings/media", {
-          signal: controller.signal,
-        }).then((r) => r.json());
-        if (!settings.listenbrainz_configured) return;
         const response = await fetch(
-          `/api/catalogue/artists/${id}/popularity`,
+          `/api/${personal ? "v1/" : ""}catalogue/artists/${id}/popularity`,
           { signal: controller.signal },
         );
         if (response.ok) {
@@ -128,7 +128,7 @@ export function ArtistPopular({
     return () => controller.abort();
   }, [id]);
   useEffect(() => {
-    if (!data) return;
+    if (!data || personal) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const refresh = async () => {
@@ -210,13 +210,25 @@ export function ArtistPopular({
                   <strong>{song.title}</strong>
                   <span>{song.album}</span>
                 </div>
-                <SongControls
-                  song={{ ...track, title: song.title }}
-                  busy={working[song.id]}
-                  play={() => void act(song, false)}
-                  download={() => void act(song, true)}
-                />
-                {track && (
+                {personal && (
+                  <button
+                    className="text-button"
+                    onClick={() => {
+                      location.hash = `/search/artist/${id}?name=${encodeURIComponent(song.artist)}&release=${song.release_id}`;
+                    }}
+                  >
+                    View song
+                  </button>
+                )}
+                {!personal && (
+                  <SongControls
+                    song={{ ...track, title: song.title }}
+                    busy={working[song.id]}
+                    play={() => void act(song, false)}
+                    download={() => void act(song, true)}
+                  />
+                )}
+                {!personal && track && (
                   <SongActions
                     song={{ release_id: song.release_id, track_id: track.id }}
                     title={song.title}
@@ -227,7 +239,7 @@ export function ArtistPopular({
           })}
         </>
       )}
-      {!!data.albums.length && (
+      {!songsOnly && !!data.albums.length && (
         <>
           <div className="section-title">
             <h2>Popular albums</h2>

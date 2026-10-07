@@ -57,17 +57,6 @@ type Release = {
   description: string;
   tracks: Song[];
 };
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch("/api/catalogue/" + path, options);
-  const body = await response.json();
-  if (!response.ok)
-    throw new Error(
-      typeof body.detail === "string"
-        ? body.detail
-        : "Discovery unavailable. Try again.",
-    );
-  return body;
-}
 const pending = isPending;
 export function CatalogueBrowser({
   artist,
@@ -75,14 +64,42 @@ export function CatalogueBrowser({
   notify,
   embedded = false,
   initialRelease,
+  personal = false,
+  initialGroup,
 }: {
   artist: { id: string; name: string };
   close: () => void;
   notify: (text: string) => void;
   embedded?: boolean;
   initialRelease?: string;
+  personal?: boolean;
+  initialGroup?: string;
 }) {
   const player = usePlayer();
+  async function request<T>(path: string, options?: RequestInit): Promise<T> {
+    const response = await fetch(
+      `/api/${personal ? "v1/" : ""}catalogue/` + path,
+      options,
+    );
+    const data = await response.json();
+    if (!response.ok)
+      throw new Error(
+        typeof data.detail === "string" ? data.detail : "Catalogue unavailable",
+      );
+    return data;
+  }
+  const [otherReleases, setOtherReleases] = useState(false);
+  const [rankedAlbums, setRankedAlbums] = useState<string[]>([]);
+  useEffect(() => {
+    setRankedAlbums([]);
+    void request<{ ranked_album_ids?: string[]; albums: Group[] }>(
+      `artists/${artist.id}/popularity`,
+    )
+      .then((d) =>
+        setRankedAlbums(d.ranked_album_ids || d.albums.map((a) => a.id)),
+      )
+      .catch(() => {});
+  }, [artist.id, personal]);
   const [kind, setKind] = useState("album");
   const scope = artist.id + ":" + kind;
   const [listing, setListing] = useState<Discography>({
@@ -92,7 +109,17 @@ export function CatalogueBrowser({
     loading: true,
   });
   const [visible, setVisible] = useState(100);
-  const groups = listing.scope === scope ? listing.groups : [];
+  const allGroups = listing.scope === scope ? listing.groups : [];
+  const ranks = new Map(rankedAlbums.map((id, i) => [id, i]));
+  const groups =
+    kind === "album"
+      ? [...allGroups].sort(
+          (a, b) =>
+            (ranks.get(a.id) ?? Infinity) - (ranks.get(b.id) ?? Infinity) ||
+            (a.date || "").localeCompare(b.date || "") ||
+            a.title.localeCompare(b.title),
+        )
+      : allGroups;
   const total = listing.scope === scope ? listing.total : 0;
   const [group, setGroup] = useState<Group | null>(null);
   const [editions, setEditions] = useState<Edition[]>([]);
@@ -167,6 +194,15 @@ export function CatalogueBrowser({
       void loadRelease(initialRelease);
     }
   }, [initialRelease, artist.id]);
+  useEffect(() => {
+    if (initialGroup)
+      void openGroup({
+        id: initialGroup,
+        title: "Album",
+        date: "",
+        type: "Album",
+      });
+  }, [initialGroup, artist.id]);
   async function loadRelease(id: string) {
     setBusy(true);
     setError("");
@@ -234,6 +270,22 @@ export function CatalogueBrowser({
   }
   async function download(trackId?: string) {
     if (!release) return;
+    if (personal) {
+      const chosen = release.tracks.filter((t) => !trackId || t.id === trackId);
+      try {
+        const response = await fetch("/api/v1/requests", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tracks: chosen }),
+        });
+        if (!response.ok) throw new Error("Could not request music");
+        notify("Added or requested for your library");
+        window.dispatchEvent(new Event("music-library-changed"));
+      } catch (e) {
+        setError((e as Error).message);
+      }
+      return;
+    }
     const ids = trackId
       ? [trackId]
       : release.tracks
@@ -389,7 +441,7 @@ export function CatalogueBrowser({
               onClick={() => download()}
             >
               <ArrowDown size={16} />
-              Download all
+              {personal ? "Add album to my library" : "Download all"}
             </button>
           </div>
           {release.tracks.map((t) => {
@@ -405,43 +457,57 @@ export function CatalogueBrowser({
                       : ""}
                   </span>
                 </div>
-                <SongControls
-                  song={t}
-                  busy={busy}
-                  selected={selected.includes(t.id)}
-                  play={() =>
-                    player.playCatalogue(
-                      release.id,
-                      t,
-                      catalogueCover("release", release.id),
-                    )
-                  }
-                  download={() => void download(t.id)}
-                />
-                <SongActions
-                  song={{ release_id: release.id, track_id: t.id }}
-                  title={t.title}
-                />
+                {!personal && (
+                  <SongControls
+                    song={t}
+                    busy={busy}
+                    selected={selected.includes(t.id)}
+                    play={() =>
+                      player.playCatalogue(
+                        release.id,
+                        t,
+                        catalogueCover("release", release.id),
+                      )
+                    }
+                    download={() => void download(t.id)}
+                  />
+                )}
+                {personal && (
+                  <button
+                    className="secondary-button"
+                    onClick={() => void download(t.id)}
+                  >
+                    Add to my library
+                  </button>
+                )}
+                {!personal && (
+                  <SongActions
+                    song={{ release_id: release.id, track_id: t.id }}
+                    title={t.title}
+                  />
+                )}
               </div>
             );
           })}
-          <details className="album-quality">
-            <summary>Album settings</summary>
-            <label>
-              Preferred quality
-              <select
-                aria-label="Download preferred quality"
-                value={profile}
-                onChange={(e) => setProfile(e.target.value)}
-              >
-                <option value="">Use artist / system preference</option>
-                <option value="lossless">FLAC lossless</option>
-                <option value="mp3_320">MP3 320 kbps</option>
-                <option value="mp3_128">MP3 128 kbps</option>
-                <option value="aac_256">AAC 256 kbps</option>
-              </select>
-            </label>
-          </details>
+          {!personal && (
+            <details className="album-quality">
+              <summary>Album settings</summary>
+              <label>
+                Preferred quality
+                <select
+                  aria-label="Download preferred quality"
+                  value={profile}
+                  onChange={(e) => setProfile(e.target.value)}
+                >
+                  <option value="">Use artist / system preference</option>
+                  <option value="lossless">FLAC lossless</option>
+                  <option value="mp3_320">MP3 320 kbps</option>
+                  <option value="mp3_128">MP3 128 kbps</option>
+                  <option value="aac_256">AAC 256 kbps</option>
+                </select>
+              </label>
+            </details>
+          )}
           {editionTotal > 0 && (
             <button
               className="secondary-button edition-switch"
@@ -453,74 +519,111 @@ export function CatalogueBrowser({
         </>
       ) : !group ? (
         <>
-          <ArtistPopular id={artist.id} openAlbum={openGroup} notify={notify} />
+          {!otherReleases && (
+            <ArtistPopular
+              id={artist.id}
+              openAlbum={openGroup}
+              notify={notify}
+              songsOnly
+              personal={personal}
+            />
+          )}
           {
             <div className="section-title">
-              <h2>Full discography</h2>
-              <span>Saved and available releases</span>
+              <h2>
+                {otherReleases ? "Singles, EPs & other releases" : "All albums"}
+              </h2>
+              <span>
+                {otherReleases
+                  ? "Full catalogue"
+                  : rankedAlbums.length
+                    ? "Popular order"
+                    : "Chronological order"}
+              </span>
             </div>
           }
-          <div
-            className="tab-list discography-tabs"
-            role="tablist"
-            aria-label="Release types"
-          >
-            {[
-              ["album", "Albums"],
-              ["single", "Singles"],
-              ["ep", "EPs"],
-              ["other", "Other releases"],
-            ].map(([id, label]) => (
-              <button
-                role="tab"
-                aria-selected={kind === id}
-                className={kind === id ? "active" : ""}
-                key={id}
-                onClick={() => {
-                  setListing({
-                    scope: artist.id + ":" + id,
-                    groups: [],
-                    total: 0,
-                    loading: true,
-                  });
-                  setVisible(100);
-                  setKind(id);
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          {otherReleases && (
+            <div
+              className="tab-list discography-tabs"
+              role="tablist"
+              aria-label="Release types"
+            >
+              {[
+                ["single", "Singles"],
+                ["ep", "EPs"],
+                ["other", "Other releases"],
+              ].map(([id, label]) => (
+                <button
+                  role="tab"
+                  aria-selected={kind === id}
+                  className={kind === id ? "active" : ""}
+                  key={id}
+                  onClick={() => {
+                    setListing({
+                      scope: artist.id + ":" + id,
+                      groups: [],
+                      total: 0,
+                      loading: true,
+                    });
+                    setVisible(100);
+                    setKind(id);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
           <p className="section-description">
-            Newest first · {groups.length}
+            {otherReleases
+              ? "Newest first"
+              : rankedAlbums.length
+                ? "Popular first"
+                : "Oldest first"}{" "}
+            · {groups.length}
             {total > groups.length ? ` of ${total}` : ""} releases
             {groupBusy ? " · loading…" : ""}
           </p>
-          {groups.slice(0, visible).map((g) => (
-            <button
-              className="result-row"
-              key={scope + ":" + g.id}
-              disabled={busy}
-              onClick={() => openGroup(g)}
-            >
-              <Cover
-                title={g.title}
-                src={catalogueCover("release-group", g.id)}
-              />
-              <div>
-                <strong>{g.title}</strong>
-                <span>{[g.date, g.type].filter(Boolean).join(" · ")}</span>
-              </div>
-              {g.saved_album_id ? (
-                <span className="saved-icon discography-saved">
-                  <Check size={14} />
-                  Saved
-                </span>
-              ) : (
-                <ArrowRight size={16} />
-              )}
-            </button>
-          ))}
+          <div className={otherReleases ? "release-list" : "full-album-grid"}>
+            {groups.slice(0, visible).map((g) => (
+              <button
+                className={otherReleases ? "result-row" : "album-card"}
+                key={scope + ":" + g.id}
+                disabled={busy}
+                onClick={() => openGroup(g)}
+              >
+                <Cover
+                  title={g.title}
+                  src={catalogueCover("release-group", g.id)}
+                />
+                <div>
+                  <strong>{g.title}</strong>
+                  <span>{[g.date, g.type].filter(Boolean).join(" · ")}</span>
+                </div>
+                {g.saved_album_id ? (
+                  <span className="saved-icon discography-saved">
+                    <Check size={14} />
+                    Saved
+                  </span>
+                ) : (
+                  <ArrowRight size={16} />
+                )}
+              </button>
+            ))}
+          </div>
+          <button
+            className="secondary-button"
+            onClick={() => {
+              setOtherReleases(!otherReleases);
+              setKind(otherReleases ? "album" : "single");
+              setVisible(100);
+            }}
+          >
+            {otherReleases
+              ? "Back to artist albums"
+              : "Singles, EPs & other releases"}
+            <ArrowRight size={16} />
+          </button>
           {groups.length < total && (
             <button
               className="secondary-button"
@@ -534,7 +637,7 @@ export function CatalogueBrowser({
           )}
         </>
       ) : null}
-      {!embedded && !group && (
+      {!personal && !embedded && !group && (
         <ArtistAcquisition id={artist.id} notify={notify} />
       )}
     </section>

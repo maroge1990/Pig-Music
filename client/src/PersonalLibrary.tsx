@@ -1,3 +1,9 @@
+import { SavedArtistHeading } from "./SavedArtistHeading";
+import { CatalogueBrowser } from "./CatalogueBrowser";
+import { MusicLink } from "./MusicLink";
+import { PlaylistPicker } from "./PlaylistPicker";
+import { Shuffle } from "lucide-react";
+import { shuffled } from "./shuffle";
 import { useEffect, useRef, useState } from "react";
 import {
   Cloud,
@@ -49,11 +55,19 @@ const clean = (t: Track) => ({
   disc_number: t.disc_number,
 });
 export function PersonalLibrary({ user }: { user: Person }) {
+  const [catalogue, setCatalogue] = useState<{
+    id: string;
+    name: string;
+    release?: string;
+    group?: string;
+  } | null>(null);
   const [favourites, setFavourites] = useState<Set<string>>(new Set());
   const [library, setLibrary] = useState<Library | null>(null);
   const [tab, setTab] = useState("artists");
   const [detail, setDetail] = useState<{
     title: string;
+    artist?: Artist;
+    cover?: string | null;
     quality?: { scope: "artist" | "album"; itemId: string };
     tracks?: Track[];
     albums?: Album[];
@@ -125,7 +139,20 @@ export function PersonalLibrary({ user }: { user: Person }) {
   }, []);
   useEffect(() => {
     const route = () => {
-      const [, kind, id] = location.hash.replace(/^#\/?/, "").split("/");
+      const [path, query] = location.hash.replace(/^#\/?/, "").split("?");
+      const [page, kind, id] = path.split("/");
+      if (page === "search" && kind === "artist" && id) {
+        const params = new URLSearchParams(query);
+        setCatalogue({
+          id,
+          name: params.get("name") || "Artist",
+          release: params.get("release") || undefined,
+          group: params.get("group") || undefined,
+        });
+        return;
+      }
+      setCatalogue(null);
+      if (!kind) setDetail(null);
       if (kind === "album" && id) void openAlbum({ id } as Album);
       else if (kind === "artist" && id) void openArtist({ id } as Artist);
       else if (kind === "playlist" && id) void openPlaylist(id);
@@ -162,6 +189,7 @@ export function PersonalLibrary({ user }: { user: Person }) {
       );
       setDetail({
         title: data.title,
+        cover: data.cover_url,
         tracks: data.tracks,
         quality: { scope: "album", itemId: data.id },
       });
@@ -176,6 +204,7 @@ export function PersonalLibrary({ user }: { user: Person }) {
       >("/v1/artists/" + artist.id);
       setDetail({
         title: data.name,
+        artist: data,
         quality: { scope: "artist", itemId: data.id },
         albums: data.albums,
         tracks: data.compilation_tracks,
@@ -231,11 +260,12 @@ export function PersonalLibrary({ user }: { user: Person }) {
               : t.available !== false;
             return (
               <article className="personal-track" key={entry?.entry_id || t.id}>
-                <Cover title={t.title} src={t.cover_url} />
+                <Cover title={t.title} src={t.cover_url || detail?.cover} />
                 <div>
                   <strong>{t.title}</strong>
                   <p>
-                    {t.artist} · {t.album}
+                    <MusicLink artist={t.artist} /> ·{" "}
+                    <MusicLink artist={t.artist} album={t.album} />
                   </p>
                 </div>
                 <button
@@ -296,6 +326,38 @@ export function PersonalLibrary({ user }: { user: Person }) {
                     fill={favourites.has(t.id) ? "currentColor" : "none"}
                   />
                 </button>
+                {!playlist && (
+                  <PlaylistPicker
+                    title={t.title}
+                    load={async () =>
+                      (
+                        await api<{
+                          playlists: { id: string; name: string }[];
+                        }>("/v1/playlists")
+                      ).playlists.filter(
+                        (p) => !p.id.startsWith("pig-favourites:"),
+                      )
+                    }
+                    create={(name) =>
+                      api("/v1/playlists", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ name }),
+                      })
+                    }
+                    add={(id) =>
+                      api(`/v1/playlists/${id}/songs`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(clean(t)),
+                      }).then(() =>
+                        window.dispatchEvent(
+                          new Event("music-library-changed"),
+                        ),
+                      )
+                    }
+                  />
+                )}
                 <details>
                   <summary aria-label={`More options for ${t.title}`}>
                     <Ellipsis size={20} />
@@ -356,6 +418,23 @@ export function PersonalLibrary({ user }: { user: Person }) {
       </CollectionPages>
     );
   }
+  if (catalogue)
+    return (
+      <main className="personal-main">
+        <CatalogueBrowser
+          key={catalogue.id + (catalogue.release || "")}
+          artist={catalogue}
+          close={() => {
+            location.hash = "/library";
+          }}
+          notify={setNotice}
+          initialRelease={catalogue.release}
+          initialGroup={catalogue.group}
+          personal
+        />
+        {notice && <p role="status">{notice}</p>}
+      </main>
+    );
   if (!library)
     return (
       <main className="personal-main">
@@ -366,7 +445,11 @@ export function PersonalLibrary({ user }: { user: Person }) {
     );
   return (
     <main className="personal-main">
-      <h1>{detail?.title || "Your library"}</h1>
+      {detail?.artist ? (
+        <SavedArtistHeading artist={detail.artist} personal />
+      ) : (
+        <h1>{detail?.title || "Your library"}</h1>
+      )}
       <p>
         {user.display_name} · {library.stats.tracks} songs
       </p>
@@ -395,6 +478,29 @@ export function PersonalLibrary({ user }: { user: Person }) {
           <button className="text-button" onClick={() => setDetail(null)}>
             <ArrowLeft size={18} /> Back to library
           </button>
+          {detail.playlist && (
+            <div className="release-actions">
+              {[false, true].map((shuffle) => (
+                <button
+                  key={String(shuffle)}
+                  className={shuffle ? "secondary-button" : "primary-button"}
+                  disabled={
+                    !detail.playlist!.entries.some((e) => e.saved_track)
+                  }
+                  onClick={() => {
+                    const tracks = detail.playlist!.entries.flatMap((e) =>
+                      e.saved_track ? [e.saved_track] : [],
+                    );
+                    const queue = shuffle ? shuffled(tracks) : tracks;
+                    player.playSaved(queue[0], queue, 0);
+                  }}
+                >
+                  {shuffle ? <Shuffle size={18} /> : <Play size={18} />}{" "}
+                  {shuffle ? "Shuffle" : "Play"}
+                </button>
+              ))}
+            </div>
+          )}
           {detail.quality && (
             <PersonalQuality key={detail.quality.itemId} {...detail.quality} />
           )}
@@ -508,6 +614,7 @@ export function PersonalLibrary({ user }: { user: Person }) {
                               : (item as Album).title
                           }
                           src={item.cover_url}
+                          artist={artist}
                         />
                         <h3>
                           {artist

@@ -23,7 +23,7 @@ class Popularity:
             return {"enabled": False, "songs": [], "albums": []}
         artist_id = mbid(artist_id)
         key = (
-            "popularity:v4:"
+            "popularity:v5:"
             + hashlib.sha256(token.encode()).hexdigest()[:12]
             + ":"
             + artist_id
@@ -35,7 +35,12 @@ class Popularity:
             cached = self.store.read_document(key)
             if cached and cached.get("retry_after", 0) > time.time():
                 return cached["data"]
-            result = {"enabled": True, "songs": [], "albums": []}
+            result = {
+                "enabled": True,
+                "songs": [],
+                "albums": [],
+                "ranked_album_ids": [],
+            }
             try:
                 responses = []
                 failed = False
@@ -113,6 +118,16 @@ class Popularity:
                         continue
                     if len(result["songs"]) == 20:
                         break
+                ranked_ids = []
+                for item in responses[1]:
+                    group = item.get("release_group")
+                    if not isinstance(group, dict) or group.get("type") != "Album":
+                        continue
+                    try:
+                        ranked_ids.append(mbid(item["release_group_mbid"]))
+                    except (ValueError, KeyError, TypeError, AttributeError):
+                        continue
+                result["ranked_album_ids"] = list(dict.fromkeys(ranked_ids))[:10000]
                 seen = set()
                 album_lookups = 0
                 for item in responses[1]:
