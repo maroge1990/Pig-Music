@@ -93,6 +93,10 @@ jobs:
           image="ghcr.io/maroge1990/pig-music"
           docker tag pig-music:candidate "$image:sha-$REVISION"
           docker push "$image:sha-$REVISION"
+          if [ "$REF_TYPE" = branch ] && [ "$REF_NAME" = main ]; then
+            docker tag pig-music:candidate "$image:main"
+            docker push "$image:main"
+          fi
           if [ "$REF_TYPE" = tag ]; then
             [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]] || exit 1
             docker tag pig-music:candidate "$image:$REF_NAME"
