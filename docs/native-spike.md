@@ -34,7 +34,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   xcodebuild -project swift/NativeSpike/PigMusicNativeSpike.xcodeproj \
   -scheme PigMusicNativeSpike -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath swift/build/DerivedData CODE_SIGNING_ALLOWED=NO build
+  -derivedDataPath swift/build/DerivedData -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO build
 ```
 
 Open the project in Xcode for actual-device signing/archive work. Use the selected free account only in Xcode/Sideloadly's secure UI, and do not commit team/account credentials. Produce the install package with Sideloadly's required procedure and record whether it installs and refreshes both targets. Simulator output is not an installable device IPA. Do not overwrite production bundle IDs during spike testing.
@@ -43,7 +43,7 @@ Open the project in Xcode for actual-device signing/archive work. Use the select
 
 A generic iOS device archive completed successfully with signing disabled. The packaged IPA includes iPhone arm64 and embedded Watch arm64/arm64_32 executables with provisional minimum OS 18/11 and the matching companion ID. ZIP integrity passed. This local test artifact requires signing before installation; it proves neither free-account distribution nor Watch installation.
 
-Reproduce the archive with the project/scheme above, `-destination 'generic/platform=iOS' -archivePath swift/build/PigMusicNativeSpike.xcarchive CODE_SIGNING_ALLOWED=NO archive`. Package the archived iPhone app under `Payload/` using `ditto`; keep artifacts outside Git. The prepared local output is `outputs/native-spike-20261007/PigMusicNativeSpike-unsigned.ipa` in the project workspace.
+Reproduce the archive with the project/scheme above, `-destination 'generic/platform=iOS' -archivePath swift/build/PigMusicNativeSpike.xcarchive -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO archive`. Package the archived iPhone app under `Payload/` using `ditto`; keep artifacts outside Git. The prepared local output is `outputs/native-spike-20261007/PigMusicNativeSpike-unsigned.ipa` in the project workspace.
 
 ## Outstanding evidence
 

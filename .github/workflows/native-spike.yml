@@ -52,4 +52,4 @@ jobs:
         run: |
           xcodebuild -quiet -project swift/NativeSpike/PigMusicNativeSpike.xcodeproj \
             -scheme PigMusicNativeSpike -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath swift/build/DerivedData CODE_SIGNING_ALLOWED=NO build
+            -derivedDataPath swift/build/DerivedData -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO build
