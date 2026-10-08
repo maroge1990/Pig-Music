@@ -1,6 +1,8 @@
-import { apiFetch } from "./api";
-import { useEffect, useState } from "react";
+import { apiFetch, peekCatalogue } from "./api";
+import { useEffect, useRef, useState } from "react";
 import {
+  ChevronLeft,
+  ChevronRight,
   ArrowLeft,
   ArrowRight,
   LoaderCircle,
@@ -22,7 +24,7 @@ import type { Discography } from "./discography";
 import { SongRow } from "./SongRow";
 import { usePlayer } from "./Player";
 import { shuffled } from "./shuffle";
-import { withLibrary, type Song as Row } from "./songs";
+import { songBody, withLibrary, type Song as Row } from "./songs";
 
 function releaseSongs(release: Release, artistId: string): Row[] {
   const cover = catalogueCover("release", release.id);
@@ -33,6 +35,7 @@ function releaseSongs(release: Release, artistId: string): Row[] {
     album: release.title,
     album_artist: release.artist,
     duration: t.duration,
+    year: t.year,
     track_number: t.track_number,
     disc_number: t.disc_number,
     cover,
@@ -66,6 +69,7 @@ type Song = {
   title: string;
   artist: string;
   duration: number;
+  year?: string | number;
   disc_number: number;
   track_number: number;
   status: string;
@@ -117,9 +121,22 @@ export function CatalogueBrowser({
     return data;
   }
   const [otherReleases, setOtherReleases] = useState(false);
-  const [rankedAlbums, setRankedAlbums] = useState<string[]>([]);
+  const cachedPopularity = peekCatalogue<{
+    ranked_album_ids?: string[];
+    albums: Group[];
+  }>(`/api/v1/catalogue/artists/${artist.id}/popularity`);
+  const [rankedAlbums, setRankedAlbums] = useState<string[]>(
+    () =>
+      cachedPopularity?.ranked_album_ids ||
+      cachedPopularity?.albums.map((a) => a.id) ||
+      [],
+  );
   useEffect(() => {
-    setRankedAlbums([]);
+    setRankedAlbums(
+      cachedPopularity?.ranked_album_ids ||
+        cachedPopularity?.albums.map((a) => a.id) ||
+        [],
+    );
     void request<{ ranked_album_ids?: string[]; albums: Group[] }>(
       `artists/${artist.id}/popularity`,
     )
@@ -130,13 +147,38 @@ export function CatalogueBrowser({
   }, [artist.id]);
   const [kind, setKind] = useState("album");
   const scope = artist.id + ":" + kind;
-  const [listing, setListing] = useState<Discography>({
+  const cachedListing = peekCatalogue<{ releases: Group[]; total: number }>(
+    `/api/v1/catalogue/artists/${artist.id}/releases?kind=${kind}&offset=0`,
+  );
+  const [listing, setListing] = useState<Discography>(() => ({
     scope,
-    groups: [],
-    total: 0,
-    loading: true,
-  });
+    groups: cachedListing?.releases || [],
+    total: cachedListing?.total || 0,
+    loading: !cachedListing,
+  }));
   const [visible, setVisible] = useState(100);
+  const [group, setGroup] = useState<Group | null>(null);
+  const albumRow = useRef<HTMLDivElement>(null);
+  const [albumSize, setAlbumSize] = useState(3);
+  const [albumPage, setAlbumPage] = useState(0);
+  useEffect(() => {
+    setAlbumPage(0);
+  }, [scope]);
+  useEffect(() => {
+    const node = albumRow.current;
+    if (!node) return;
+    const observer = new ResizeObserver(([entry]) => {
+      setAlbumSize(
+        Math.max(
+          1,
+          Math.min(5, Math.floor((entry.contentRect.width + 20) / 180)),
+        ),
+      );
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [group, otherReleases]);
+
   const allGroups = listing.scope === scope ? listing.groups : [];
   const ranks = new Map(rankedAlbums.map((id, i) => [id, i]));
   const groups =
@@ -149,7 +191,12 @@ export function CatalogueBrowser({
         )
       : allGroups;
   const total = listing.scope === scope ? listing.total : 0;
-  const [group, setGroup] = useState<Group | null>(null);
+  const currentAlbumPage = Math.min(
+    albumPage,
+    Math.max(0, Math.ceil(groups.length / albumSize) - 1),
+  );
+  const albumStart = currentAlbumPage * albumSize;
+
   const [editions, setEditions] = useState<Edition[]>([]);
   const [editionTotal, setEditionTotal] = useState(0);
   const [release, setRelease] = useState<Release | null>(null);
@@ -173,7 +220,16 @@ export function CatalogueBrowser({
   const [error, setError] = useState("");
   useEffect(() => {
     const controller = new AbortController();
-    setListing({ scope, groups: [], total: 0, loading: true });
+    setListing((old) =>
+      old.scope === scope
+        ? { ...old, loading: true }
+        : {
+            scope,
+            groups: cachedListing?.releases || [],
+            total: cachedListing?.total || 0,
+            loading: true,
+          },
+    );
     setGroup(null);
     setRelease(null);
     setError("");
@@ -305,13 +361,21 @@ export function CatalogueBrowser({
   }
   async function download() {
     if (!release) return;
+    setBusy(true);
+    setError("");
     try {
       const response = await apiFetch("/api/v1/requests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tracks: release.tracks }),
+        body: JSON.stringify({ tracks: rows.map(songBody) }),
       });
-      if (!response.ok) throw new Error("Could not request music");
+      const result = await response.json();
+      if (!response.ok)
+        throw new Error(
+          typeof result.detail === "string"
+            ? result.detail
+            : "Could not request this album. Please try again.",
+        );
       notify("Downloading to your library");
       setRows((old) =>
         old.map((r) =>
@@ -322,6 +386,8 @@ export function CatalogueBrowser({
       window.dispatchEvent(new Event("music-requests-changed"));
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setBusy(false);
     }
   }
   function back() {
@@ -495,6 +561,40 @@ export function CatalogueBrowser({
               <h2>
                 {otherReleases ? "Singles, EPs & other releases" : "All albums"}
               </h2>
+              {!otherReleases && groups.length > 0 && (
+                <div className="popular-pager">
+                  <span aria-live="polite">
+                    {albumStart + 1}–
+                    {Math.min(albumStart + albumSize, groups.length)} of {total}
+                  </span>
+                  <button
+                    className="icon-button"
+                    aria-label="Previous albums"
+                    disabled={currentAlbumPage === 0}
+                    onClick={() => setAlbumPage(currentAlbumPage - 1)}
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
+                  <button
+                    className="icon-button"
+                    aria-label="Next albums"
+                    disabled={
+                      albumStart + albumSize >= groups.length &&
+                      (groups.length >= total || groupBusy)
+                    }
+                    onClick={() => {
+                      if (
+                        albumStart + albumSize >= groups.length &&
+                        groups.length < total
+                      )
+                        setVisible((n) => n + 100);
+                      setAlbumPage(currentAlbumPage + 1);
+                    }}
+                  >
+                    <ChevronRight size={18} />
+                  </button>
+                </div>
+              )}
               <span>
                 {otherReleases
                   ? "Full catalogue"
@@ -546,8 +646,23 @@ export function CatalogueBrowser({
             {total > groups.length ? ` of ${total}` : ""} releases
             {groupBusy ? " · loading…" : ""}
           </p>
-          <div className={otherReleases ? "release-list" : "full-album-grid"}>
-            {groups.slice(0, visible).map((g) => (
+          <div
+            ref={albumRow}
+            className={
+              otherReleases ? "release-list" : "full-album-grid album-carousel"
+            }
+            style={
+              otherReleases
+                ? undefined
+                : {
+                    gridTemplateColumns: `repeat(${albumSize}, minmax(0, 1fr))`,
+                  }
+            }
+          >
+            {(otherReleases
+              ? groups.slice(0, visible)
+              : groups.slice(albumStart, albumStart + albumSize)
+            ).map((g) => (
               <button
                 className={otherReleases ? "result-row" : "album-card"}
                 key={scope + ":" + g.id}
@@ -586,7 +701,7 @@ export function CatalogueBrowser({
               : "Singles, EPs & other releases"}
             <ArrowRight size={16} />
           </button>
-          {groups.length < total && (
+          {otherReleases && groups.length < total && (
             <button
               className="secondary-button"
               onClick={() => setVisible((n) => n + 100)}

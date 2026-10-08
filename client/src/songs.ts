@@ -13,6 +13,7 @@ export type Song = {
   album?: string;
   album_artist?: string;
   duration?: number;
+  year?: string | number;
   track_number?: number;
   disc_number?: number;
   cover?: string | null;
@@ -31,7 +32,8 @@ export type Song = {
 
 export function fromTrack(t: Track, cover?: string | null, key = t.id): Song {
   const saved =
-    t.available !== false && t.server_state !== "household_available";
+    t.available !== false &&
+    (!t.server_state || t.server_state === "in_library");
   return {
     key,
     title: t.title,
@@ -39,6 +41,7 @@ export function fromTrack(t: Track, cover?: string | null, key = t.id): Song {
     album: t.album,
     album_artist: t.album_artist,
     duration: t.duration,
+    year: t.year,
     track_number: t.track_number,
     disc_number: t.disc_number,
     cover: t.cover_url || cover,
@@ -57,6 +60,18 @@ export function fromTrack(t: Track, cover?: string | null, key = t.id): Song {
   };
 }
 
+export function playlistSongs(
+  entries: (Track & { entry_id: string; saved_track?: Track | null })[],
+  cover?: string | null,
+): Song[] {
+  return entries.map((entry) => {
+    const song = fromTrack(entry.saved_track || entry, cover, entry.entry_id);
+    return entry.saved_track || song.state === "server"
+      ? song
+      : { ...song, state: "missing", saved: undefined };
+  });
+}
+
 /** The fields the server needs to request, favourite or list a song. */
 export function songBody(s: Song) {
   const t = s.saved || s.server;
@@ -68,7 +83,7 @@ export function songBody(s: Song) {
     duration: s.duration || 0,
     track_number: s.track_number || 1,
     disc_number: s.disc_number || 1,
-    year: String(t?.year || ""),
+    year: String(s.year || t?.year || ""),
     musicbrainz_release_id: s.release_id,
     musicbrainz_recording_id: s.recording_id,
   };
@@ -125,14 +140,8 @@ type LibraryIndex = {
 const same = (a: string, b: string) =>
   a.toLocaleLowerCase() === b.toLocaleLowerCase();
 
-/** Your library's page when you have the artist, otherwise the catalogue. */
+/** Open the full artist catalogue, preserving a known catalogue identity. */
 export async function goToArtist(name: string, catalogueId?: string) {
-  const library = await cachedLibrary<LibraryIndex>();
-  const mine = library.artists.filter((a) => same(a.name, name));
-  if (mine.length === 1) {
-    location.hash = `/library/artist/${mine[0].id}`;
-    return;
-  }
   if (catalogueId) {
     location.hash = discoverUrl({ id: catalogueId, name });
     return;

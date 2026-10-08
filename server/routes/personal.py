@@ -389,6 +389,10 @@ def personal_router(store, artist_jobs, recovery):
             [t.model_dump(exclude_none=True) for t in body.tracks],
         )
 
+    @router.delete("/requests")
+    async def clear_requests(request: Request):
+        return await run(users.clear_requests, identity(request))
+
     @router.get("/requests", response_model=RequestList)
     async def requests(request: Request, offset: int = 0, limit: int = 200):
         return await run(users.queue, identity(request), offset, limit)

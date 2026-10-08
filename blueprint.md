@@ -21,6 +21,10 @@ Pig Music is a private household music-library manager with one container, one i
 
 ## Current status and evidence
 
+### Local bug fixes, 9 October 2026 — not deployed
+
+Album requests, finished-download clearing, Search artist navigation, a single-row album carousel, warm artist rendering, namesake identity resolution, Previous controls and cloud playlist queues are implemented locally. See [changes, Madonna diagnosis and verification](docs/music-bug-fixes-20261009.md). Production was inspected read-only; no release image or live deployment was made for these changes.
+
 Phase 1a operates independently on live NAS data. The four old container definitions have been retired; recovery data/images remain. The approved cleanup was delivered as `pig-music:cleanup-20261006-v3` on 6 October 2026. A01 and D01 were delivered on 7 October 2026. The current release is **`audit-followup-20261007-v1`**, including A01–A03, approved B01/B02 branding, M00 migrations, private HTTPS and the remaining accessibility/grid/artwork/token audit fixes. Exact-image and live acceptance are recorded in `docs/audit-followup-delivery.md`. The Phase 1a image `pig-music:preview-20261006-phase1a-final-v2` remains retained as historical recovery material; the immediate rollback is recorded with the current release.
 
 Existing delivered capabilities include local/discovered search, artwork, artist discographies, popular songs/albums, saved and experimental remote playback, song/album/artist acquisition, optional artist monitoring, quality replacement/fallback/upgrades, scans, recovery/restore, reviewed organisation, Apple XML import, custom playlists, favourites and a single Plex owner integration.

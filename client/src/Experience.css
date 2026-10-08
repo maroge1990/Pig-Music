@@ -199,7 +199,7 @@
   width: min(40rem, calc(100vw - 2rem));
   transform: translateX(-50%);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: var(--space-4);
   padding: var(--space-4) var(--space-8) var(--space-4) var(--space-4);

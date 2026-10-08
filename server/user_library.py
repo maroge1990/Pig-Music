@@ -423,6 +423,29 @@ class UserLibrary:
                 HouseholdPolicy(self.store).membership_changed(conn, track_ids)
         return {"added": changed, "revision": self.projection(user_id)["revision"]}
 
+    def clear_requests(self, user_id):
+        """Dismiss this person's finished history, retaining files and shared jobs."""
+        cleared = 0
+        with self.store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                "SELECT id,payload FROM queue WHERE status IN ('completed','downloaded','failed','cancelled') "
+                "AND EXISTS (SELECT 1 FROM json_each(queue.payload,'$.requested_by') WHERE value=?)",
+                (user_id,),
+            ).fetchall()
+            for key, raw in rows:
+                payload = json.loads(raw)
+                payload["requested_by"] = [
+                    value
+                    for value in payload.get("requested_by", [])
+                    if value != user_id
+                ]
+                conn.execute(
+                    "UPDATE queue SET payload=? WHERE id=?", (json.dumps(payload), key)
+                )
+                cleared += 1
+        return {"cleared": cleared}
+
     def queue(self, user_id, offset=0, limit=200):
         if offset < 0 or not 1 <= limit <= 200:
             raise ValueError("Invalid request page bounds")

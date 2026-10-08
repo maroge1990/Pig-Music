@@ -11,7 +11,7 @@ import { Cover } from "./Cover";
 import { CollectionPages } from "./CollectionPages";
 import { ShuffleLibrary } from "./ShuffleLibrary";
 import { SongRow } from "./SongRow";
-import { fromTrack, type Song } from "./songs";
+import { fromTrack, playlistSongs, type Song } from "./songs";
 import { warmCovers, whenIdle } from "./prefetch";
 import { usePlayer } from "./Player";
 import type { Album, Artist, Library, Track } from "./types";
@@ -245,13 +245,9 @@ export function PersonalLibrary({
     const albumArtist =
       detail?.quality?.scope === "album" && tracks[0]?.album_artist;
     const artistName = detail?.artist?.name;
-    const list: Song[] = tracks.map((t, i) => {
-      const entry = playlist?.entries[i];
-      const song = fromTrack(t, detail?.cover, entry?.entry_id || t.id);
-      return playlist && !entry?.saved_track
-        ? { ...song, state: "missing", saved: undefined }
-        : song;
-    });
+    const list: Song[] = playlist
+      ? playlistSongs(playlist.entries, detail?.cover)
+      : tracks.map((t) => fromTrack(t, detail?.cover));
     return (
       <CollectionPages key={detail?.title || tab} items={list} label="Songs">
         {(items) => (
@@ -413,15 +409,10 @@ export function PersonalLibrary({
             <div className="release-actions">
               {[false, true].map((shuffle) => {
                 const playable = detail.playlist
-                  ? detail.playlist.entries.flatMap((e) =>
-                      e.saved_track ? [e.saved_track] : [],
-                    )
+                  ? playlistSongs(detail.playlist.entries, detail.cover)
                   : (detail.tracks || [])
                       .filter((t) => t.available !== false)
-                      .map((t) => ({
-                        ...t,
-                        cover_url: t.cover_url || detail.cover,
-                      }));
+                      .map((t) => fromTrack(t, detail.cover));
                 return (
                   <button
                     key={String(shuffle)}
@@ -429,7 +420,7 @@ export function PersonalLibrary({
                     disabled={!playable.length}
                     onClick={() => {
                       const queue = shuffle ? shuffled(playable) : playable;
-                      player.playSaved(queue[0], queue, 0);
+                      player.play(queue, 0);
                     }}
                   >
                     {shuffle ? <Shuffle size={18} /> : <Play size={18} />}{" "}

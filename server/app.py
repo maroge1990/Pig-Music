@@ -1105,6 +1105,15 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             raise HTTPException(404, "Song not found in this release.")
         if track.get("saved_id"):
             return playback_saved(track["saved_id"])
+        return await remote_playback(track)
+
+    from .routes.personal import TrackInput
+
+    @app.post("/api/v1/remote-playback", tags=["personal-library"])
+    async def playback_remote(body: TrackInput):
+        return await remote_playback(body.model_dump(exclude_none=True))
+
+    async def remote_playback(track):
         if not public_settings(store)["remote_playback"]:
             raise HTTPException(
                 409, "Experimental remote playback is disabled in Settings."

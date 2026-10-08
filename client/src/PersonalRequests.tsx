@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 
 type Request = {
@@ -33,21 +33,68 @@ const labels: Record<
 };
 
 export function PersonalRequests() {
+  const readSerial = useRef(0);
   const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<RequestPage | null>(null);
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  async function clear() {
+    ++readSerial.current;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api<{ cleared: number }>("/v1/requests", {
+        method: "DELETE",
+      });
+      setOffset(0);
+      setPage(await api<RequestPage>("/v1/requests?offset=0&limit=100"));
+      setNotice(
+        `Cleared ${result.cleared} finished downloads. Your music files are unchanged.`,
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   useEffect(() => {
-    const load = () =>
+    const load = () => {
+      const serial = ++readSerial.current;
       void api<RequestPage>(`/v1/requests?offset=${offset}&limit=100`)
-        .then(setPage)
-        .catch((e) => setError(e.message));
+        .then((data) => {
+          if (serial === readSerial.current) setPage(data);
+        })
+        .catch((e) => {
+          if (serial === readSerial.current) setError(e.message);
+        });
+    };
     load();
     window.addEventListener("music-requests-changed", load);
-    return () => window.removeEventListener("music-requests-changed", load);
+    return () => {
+      ++readSerial.current;
+      window.removeEventListener("music-requests-changed", load);
+    };
   }, [offset]);
   return (
     <section>
       {error && <p role="alert">{error}</p>}
+      {notice && <p role="status">{notice}</p>}
+      {!!page?.total && (
+        <div className="release-actions">
+          <button
+            className="secondary-button"
+            disabled={busy}
+            onClick={() => void clear()}
+          >
+            Clear downloads
+          </button>
+          <p className="muted">
+            Clears finished, failed and cancelled entries. Active downloads and
+            music files are kept.
+          </p>
+        </div>
+      )}
       {page && !page.total && (
         <p className="muted">
           Songs you download from Search or an artist page appear here until
@@ -59,7 +106,7 @@ export function PersonalRequests() {
           {(offset > 0 || page.next_offset !== null) && (
             <nav className="collection-pages" aria-label="Request pages">
               <button
-                disabled={offset === 0}
+                disabled={busy || offset === 0}
                 onClick={() => setOffset(Math.max(0, offset - 100))}
               >
                 Previous
@@ -69,7 +116,7 @@ export function PersonalRequests() {
                 {page.total}
               </span>
               <button
-                disabled={page.next_offset === null}
+                disabled={busy || page.next_offset === null}
                 onClick={() => setOffset(page.next_offset!)}
               >
                 Next
