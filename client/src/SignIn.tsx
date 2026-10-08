@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { api } from "./api";
+import { api, ApiError } from "./api";
+import {
+  clearInvite,
+  markInstallHint,
+  pendingInvite,
+  setupErrorMessage,
+} from "./invite";
 
 export function SignIn({
   signedIn,
@@ -10,7 +16,52 @@ export function SignIn({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(initialError);
-  const [setup, setSetup] = useState(location.hash.startsWith("#/setup"));
+  const [invite] = useState(pendingInvite);
+  const joining = invite !== null || location.hash.startsWith("#/join");
+  const [setup, setSetup] = useState(
+    joining || location.hash.startsWith("#/setup"),
+  );
+  const [username, setUsername] = useState("");
+  async function finishSetup(form: HTMLFormElement) {
+    const fields = new FormData(form);
+    const password = String(fields.get("password"));
+    if (password !== fields.get("confirm")) {
+      setError("The passwords do not match.");
+      return;
+    }
+    let account: string;
+    try {
+      const result = await api<{ user: { username: string } }>("/v1/setup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: fields.get("code"), password }),
+      });
+      account = result.user.username;
+    } catch (e) {
+      const err = e as ApiError;
+      setError(setupErrorMessage(err.code, err.message));
+      return;
+    }
+    clearInvite();
+    form.reset();
+    try {
+      await api("/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: account, password }),
+      });
+    } catch {
+      setUsername(account);
+      setSetup(false);
+      setError(
+        `Account ready. Sign in with your username ${account} and new password.`,
+      );
+      return;
+    }
+    markInstallHint();
+    location.hash = "/home";
+    signedIn();
+  }
   return (
     <main className="account-shell">
       <section className="sign-in-card">
@@ -28,42 +79,42 @@ export function SignIn({
             alt=""
           />
         </span>
-        <h1>{setup ? "Set up your account" : "Your music, together"}</h1>
+        <h1>
+          {joining && setup
+            ? "Join Pig Music"
+            : setup
+              ? "Set up your account"
+              : "Your music, together"}
+        </h1>
         <p>
-          {setup
-            ? "Enter the setup code from your administrator and choose a password."
-            : "Sign in to your personal library."}
+          {joining && setup
+            ? `You've been invited to Pig Music on ${location.host}. Choose a password to finish setting up your account.`
+            : setup
+              ? "Enter the setup code from your administrator and choose a password."
+              : "Sign in to your personal library."}
         </p>
         <form
           onSubmit={(e) => {
             e.preventDefault();
             const form = e.currentTarget;
-            const fields = new FormData(form);
             setError("");
             setBusy(true);
-            void api(setup ? "/v1/setup" : "/v1/auth/login", {
+            if (setup) {
+              void finishSetup(form).finally(() => setBusy(false));
+              return;
+            }
+            const fields = new FormData(form);
+            void api("/v1/auth/login", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(
-                setup
-                  ? {
-                      code: fields.get("code"),
-                      password: fields.get("password"),
-                    }
-                  : {
-                      username: fields.get("username"),
-                      password: fields.get("password"),
-                    },
-              ),
+              body: JSON.stringify({
+                username: fields.get("username"),
+                password: fields.get("password"),
+              }),
             })
               .then(() => {
                 form.reset();
-                if (setup) {
-                  setSetup(false);
-                  setError(
-                    "Account ready. Sign in with your username and new password.",
-                  );
-                } else signedIn();
+                signedIn();
               })
               .catch((e) => setError(e.message))
               .finally(() => setBusy(false));
@@ -74,6 +125,7 @@ export function SignIn({
               Setup code
               <input
                 name="code"
+                defaultValue={invite ?? ""}
                 required
                 autoComplete="one-time-code"
                 maxLength={64}
@@ -84,6 +136,7 @@ export function SignIn({
               Username
               <input
                 name="username"
+                defaultValue={username}
                 required
                 autoComplete="username"
                 maxLength={64}
@@ -101,6 +154,19 @@ export function SignIn({
               maxLength={256}
             />
           </label>
+          {setup && (
+            <label>
+              Confirm password
+              <input
+                name="confirm"
+                type="password"
+                required
+                minLength={12}
+                autoComplete="new-password"
+                maxLength={256}
+              />
+            </label>
+          )}
           <button className="primary-button" type="submit" disabled={busy}>
             {setup ? "Create account" : "Sign in"}
           </button>

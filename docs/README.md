@@ -2,6 +2,7 @@
 
 Start with [blueprint.md](../blueprint.md), the primary engineering/agent handover and prioritised running roadmap. Update it for every delivery.
 
+- [Internet access and invites](internet-access.md): public origin, Cloudflare Tunnel deployment, invite model and protections.
 - [Operations and recovery](operations.md): current local setup, private configuration, candidate deployment and rollback.
 - [Testing](testing.md): isolation, verification journeys and performance measurement.
 - [Approved Pig family standard](pig-family-brand-standard.md) and [tokens](pig-family-brand-tokens.json): preserve the approved assets/roles.

@@ -16,10 +16,14 @@ Pig Music is a private household music-library manager with one container, one i
 - Favourites are membership only. Starring a missing song must never submit a download.
 - Existing music can be scanned without modification. Naming/tagging changes need a concrete review, recoverable originals and hash/path guards. Do not bulk reorganise music as an incidental code migration.
 - Separate only multi-artist compilations; single-artist greatest hits remain with their artist. Soundtracks and musicals have separate sections. Empty section headings stay hidden.
-- Private deployment uses LAN/Tailscale. Do not add public exposure or new authentication assumptions. Existing secrets remain server-side and must not enter Git, bundles, logs, browser responses or handover documents.
+- Internet access is through one public HTTPS origin (this household: `https://music.markrogers.au` via Cloudflare Tunnel), gated only by Pig Music accounts; Tailscale remains the owner's administration route. People join by one-use invite link/QR, never an external allowlist. See [internet access](docs/internet-access.md). Existing secrets remain server-side and must not enter Git, bundles, logs, browser responses or handover documents.
 - Fanart and ListenBrainz are optional. Without a configured key/token, their optional artist enhancements should disappear naturally.
 
 ## Current status and evidence
+
+### Internet access and invites, 9 October 2026 — in progress, not deployed
+
+Owner chose internet access through Cloudflare Tunnel at `music.markrogers.au`, gated by Pig Music accounts rather than Cloudflare Access, with invite links/QR codes as the only way to add a person. The app stays agnostic to how a server is reached; not every app user owns a server. Server invite links, the web join flow and initial PigKit/iPhone join work are implemented locally; tunnel deployment is an owner-authorised step. See [internet access](docs/internet-access.md).
 
 ### Local bug fixes, 9 October 2026 — not deployed
 

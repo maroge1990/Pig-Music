@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import type { Person } from "./AppShell";
+import { InvitePanel, type Invite } from "./InvitePanel";
 
 type InboxAlbum = {
   id: string;
@@ -62,7 +63,9 @@ function useAdminData(inboxOffset = 0) {
 
 export function AdminPeople() {
   const { people, events, action, notices } = useAdminData();
-  const [code, setCode] = useState("");
+  const [invite, setInvite] = useState<{ invite: Invite; name: string } | null>(
+    null,
+  );
   return (
     <>
       {notices}
@@ -74,14 +77,17 @@ export function AdminPeople() {
             const form = e.currentTarget;
             const d = new FormData(form);
             void action(async () => {
-              const result = await api<{ code: string }>(
+              const result = await api<Invite>(
                 "/v1/people",
                 json({
                   username: d.get("username"),
                   display_name: d.get("name"),
                 }),
               );
-              setCode(result.code);
+              setInvite({
+                invite: result,
+                name: String(d.get("name") || "this person"),
+              });
               form.reset();
             }, "Person added");
           }}
@@ -96,11 +102,12 @@ export function AdminPeople() {
           </label>
           <button type="submit">Add person</button>
         </form>
-        {code && (
-          <p role="status">
-            One-use setup code: <strong>{code}</strong>. It expires in 24 hours.{" "}
-            <button onClick={() => setCode("")}>Hide code</button>
-          </p>
+        {invite && (
+          <InvitePanel
+            invite={invite.invite}
+            name={invite.name}
+            done={() => setInvite(null)}
+          />
         )}
         {people.map((p) => (
           <p key={p.id}>
@@ -111,15 +118,14 @@ export function AdminPeople() {
                   onClick={() =>
                     void action(
                       async () =>
-                        setCode(
-                          (
-                            await api<{ code: string }>(
-                              `/v1/people/${p.id}/setup-code`,
-                              { method: "POST" },
-                            )
-                          ).code,
-                        ),
-                      "New setup code created",
+                        setInvite({
+                          invite: await api<Invite>(
+                            `/v1/people/${p.id}/setup-code`,
+                            { method: "POST" },
+                          ),
+                          name: p.display_name,
+                        }),
+                      "New invite created",
                     )
                   }
                 >

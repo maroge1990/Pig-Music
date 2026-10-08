@@ -64,3 +64,24 @@ The first production client milestone remains secure sign-in plus synced library
 ## Device status, 7 October 2026
 
 The owner reports that the prepared IPA has not yet been installed. Installation, refresh, phone networking and Watch headphones playback remain **not run**. Production Watch implementation remains gated on this evidence.
+
+## Joining a server (invite flow)
+
+The iOS spike app now links `PigKit` (`PigAPI`) and can sign in two ways:
+
+- **Join with an invite**: scan the owner's QR code (VisionKit) or paste the link
+  `https://<server>/#/join?code=<CODE>`. `Invite.parse` accepts only a bare HTTPS origin plus the
+  `/join` fragment. The app asks for a password (12+ characters), calls `POST /api/v1/setup` to
+  activate the account, then `POST /api/v1/auth/device` with the returned username and the same
+  password. Only the device token is stored (Keychain, account = server origin); the password is
+  never persisted. If activation succeeds but sign-in fails the app says so, because the invite is
+  already used.
+- **Add my server**: server URL, username and password go straight to `POST /api/v1/auth/device`.
+
+The server origin, username and display name are kept in `UserDefaults` (`SavedServer`). "Sign out
+of this server" clears the token and that record.
+
+Not verified on a device yet: the camera permission prompt and QR scanning (the simulator has no
+camera), Keychain behaviour across reinstall, and the join against a real server over Tailscale or
+a public domain. Unit tests cover link parsing, request order and bodies, error mapping and
+persistence with a fake transport only.

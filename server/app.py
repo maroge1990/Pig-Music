@@ -208,10 +208,14 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         version="0.1.0",
         lifespan=lifespan,
         dependencies=[Depends(guard)],
+        # Internet-facing: the schema is served only behind sign-in at /api/v1/openapi.json.
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
     )
     app.state.auth = auth
     app.state.security = security
-    app.include_router(auth_router(auth, security))
+    app.include_router(auth_router(auth, security, https_origin))
     app.include_router(household_router(store))
     from .routes.native import native_router
 

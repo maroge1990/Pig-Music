@@ -19,6 +19,12 @@ import { useFixedHeight } from "./useFixedHeight";
 import { PersonalRequests } from "./PersonalRequests";
 import { OwnerContext } from "./person";
 import { parseRoute, type Route, type Section } from "./routes";
+import {
+  captureInvite,
+  clearInvite,
+  dismissInstallHint,
+  installHintPending,
+} from "./invite";
 import "./accounts.css";
 
 const AdminTools = lazy(() =>
@@ -49,6 +55,9 @@ export function AppShell() {
   const [firstRun, setFirstRun] = useState(false);
   const [error, setError] = useState("");
   const [route, setRoute] = useState<Route>(() => parseRoute());
+  const [hint, setHint] = useState(false);
+  // Remounts the sign-in form when an invite link opens in an existing tab.
+  const [invites, setInvites] = useState(0);
   const nav = useFixedHeight("--mobile-nav-height", !!user);
   useCompactNav();
   useServerEvents(!!user);
@@ -76,6 +85,9 @@ export function AppShell() {
 
   useEffect(() => {
     const changed = () => {
+      // A link changing only the fragment does not reload the page.
+      if (/^#\/?join\b/.test(location.hash) && captureInvite())
+        setInvites((n) => n + 1);
       setRoute(parseRoute());
       window.scrollTo(0, 0);
       // Move keyboard and screen-reader focus to the new page's heading.
@@ -127,6 +139,14 @@ export function AppShell() {
     };
   }, []);
 
+  useEffect(() => {
+    // An invite is for new accounts: a signed-in person goes home instead.
+    if (user && /^#\/?(join|setup)\b/.test(location.hash)) {
+      clearInvite();
+      location.replace("#/home");
+    }
+  }, [user, route]);
+
   async function signOut() {
     await api("/v1/auth/logout", { method: "POST" });
     clearSessionReads();
@@ -152,7 +172,16 @@ export function AppShell() {
       />
     );
   if (!user)
-    return <SignIn signedIn={() => void refresh()} initialError={error} />;
+    return (
+      <SignIn
+        key={invites}
+        signedIn={() => {
+          setHint(installHintPending());
+          void refresh();
+        }}
+        initialError={error}
+      />
+    );
 
   const owner = user.role === "owner";
   const section = route.section === "admin" && !owner ? "home" : route.section;
@@ -199,6 +228,23 @@ export function AppShell() {
               ))}
           </nav>
         </header>
+        {hint && (
+          <div className="personal-notice install-hint" role="status">
+            <p>
+              Tip: add Pig Music to your Home Screen — tap Share, then Add to
+              Home Screen.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                dismissInstallHint();
+                setHint(false);
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
         {error && (
           <p className="personal-notice" role="alert">
             {error}

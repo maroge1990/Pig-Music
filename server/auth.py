@@ -140,7 +140,12 @@ class Auth:
         )
 
     def keys(self, name, ip):
-        return ("name:" + digest(name.strip().casefold()), "ip:" + digest(ip))
+        # A name locks only for the address that failed: on the internet, anyone
+        # knowing a username could otherwise keep that person from signing in.
+        return (self.name_key(name) + ":" + digest(ip), "ip:" + digest(ip))
+
+    def name_key(self, name):
+        return "name:" + digest(name.strip().casefold())
 
     def locked(self, name, ip):
         with self.store.connect() as conn:
@@ -372,7 +377,8 @@ class Auth:
                 (now, person[0]),
             )
             conn.execute(
-                "DELETE FROM login_attempts WHERE key=?", (self.keys(name, "")[0],)
+                "DELETE FROM login_attempts WHERE key LIKE ?",
+                (self.name_key(name) + ":%",),
             )
             self.event(conn, "password_reset", "", person[0])
 

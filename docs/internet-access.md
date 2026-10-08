@@ -1,0 +1,42 @@
+# Internet access and household invites
+
+9 October 2026. **Owner decision:** Pig Music becomes reachable from the internet at `https://music.markrogers.au` through a Cloudflare Tunnel, gated by Pig Music's own accounts. Tailscale is not removed; it remains the owner's administration route. This replaces the earlier "LAN/Tailscale only, no public exposure" rule. Cloudflare Access was considered and rejected: it adds a second guest list kept outside Pig Music (an email allowlist the owner must remember to update) and blocks the native iPhone app.
+
+## Product model
+
+- The app never assumes how a server is reached. A server has one public HTTPS address (`PIG_MUSIC_PUBLIC_ORIGIN`). Cloudflare Tunnel is this household's choice; another owner could use Tailscale or their own reverse proxy.
+- Not everyone owns a server. An owner signs in to their own server ("Add my server" in the iPhone app). Everyone else joins an owner's server with an **invite**.
+- **Invite flow:** Admin → People → Add person (or Reset password) shows a QR code and link, `https://<origin>/#/join?code=<CODE>`. The person scans it with the phone camera (opens the web app) or inside the iPhone app, chooses a password and is signed in. The code is one-use and expires in 24 hours. In the link it sits in the URL fragment, which browsers never send in requests, Referer headers or access logs, and the web app removes it from the address bar immediately. Cloudflare terminates TLS, so it does see the code in request and response bodies (creating the invite over the public address, and completing it with the new password); create invites over Tailscale if that matters. The link carries no username; activation returns it.
+- There is no email in Pig Music and no external allowlist: the People list is the only guest list. Disable a person in Admin → People to remove access.
+
+## Protections in front of the login page
+
+Already in the app: Argon2id hashes, per-name and per-IP failure lockouts, default-deny routes, `__Host-` secure/strict cookies, CSRF header and same-origin write checks, HSTS and CSP. Behind the tunnel, Uvicorn takes the visitor address that cloudflared appends to `X-Forwarded-For` only when the immediate peer is a configured trusted proxy (`tests/test_transport.py` covers a spoofed header), so login lockouts remain per visitor.
+
+Cloudflare (dashboard, `markrogers.au` zone), set once — never per person:
+
+1. **Custom rule, Block:** `ip.src.country ne "AU"` for hostname `music.markrogers.au`. Remove or widen before travelling.
+2. **Rate-limiting rule:** hostname `music.markrogers.au`, method `POST`, path starts with `/api/v1/auth/` or equals `/api/v1/setup` or `/api/v1/setup/owner`; about 10 requests per 10 seconds per IP; action Block.
+3. **Cache rule:** bypass cache for `music.markrogers.au/api/*` so signed media URLs and personal responses are never stored at the edge.
+4. Leave Bot Fight Mode off for this hostname; it challenges the native app's API calls.
+
+## Unraid deployment (owner-authorised step)
+
+Not yet performed. Run only with a backup and the usual release procedure.
+
+1. In Cloudflare Zero Trust → Networks → Tunnels, create a tunnel named `pig-music` and copy its token. Keep the token out of Git and chat; store it only in the Unraid container template.
+2. Add a `cloudflared` container (image `cloudflare/cloudflared`, pinned to a specific tag) on the existing `pig-music-preview` Docker network with a fixed address, for example `172.25.0.10`. Command: `tunnel --no-autoupdate run`; environment `TUNNEL_TOKEN=<token>`. No published ports.
+3. In the tunnel, add public hostname `music.markrogers.au` → service `http://PigMusic:8765` (the PigMusic container's name, resolved by Docker on the shared network). Do not target its bridge IP: it changes on redeploy and could then expose whichever container inherits it. Confirm the name with `docker ps` first.
+4. Update the PigMusic container:
+   - `PIG_MUSIC_PUBLIC_ORIGIN=https://music.markrogers.au` (invite links now use this host).
+   - `PIG_MUSIC_TRUSTED_PROXIES=127.0.0.1,172.25.0.1,172.25.0.10` (keep the Tailscale gateway; add cloudflared's fixed address exactly, never a range).
+5. Verify from a phone on cellular with Wi-Fi off: `https://music.markrogers.au/api/health` reports `"https": true`; sign in; create an invite and complete it on the second phone; play a saved song; confirm repeated wrong passwords lock out only the device that made them (lockouts are per username and address, so a stranger guessing `mark` cannot lock the owner out elsewhere).
+6. Rollback: delete the public hostname in the tunnel (or stop cloudflared) and restore the previous `PIG_MUSIC_PUBLIC_ORIGIN`/`PIG_MUSIC_TRUSTED_PROXIES`. Tailscale access is unaffected throughout.
+
+The Tailscale address keeps working for same-origin use (each address keeps its own sign-in cookie), but invite links always use the public origin.
+
+## Later, optional
+
+- **Split DNS for home playback during internet outages:** resolve `music.markrogers.au` to a LAN reverse proxy inside the house (certificate via Cloudflare DNS challenge) so the same address and cookies work locally. Not needed for normal use; traffic otherwise loops through Cloudflare.
+- **Cloudflare terms:** household audio streaming through a tunnel is low volume; revisit if usage grows substantially.
+- **Retire the plain LAN port** `192.168.1.235:8765`: accounts require HTTPS, so it can no longer sign anyone in.

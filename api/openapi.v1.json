@@ -42,6 +42,18 @@
         "title": "Activation",
         "type": "object"
       },
+      "ActivationDTO": {
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/UserDTO"
+          }
+        },
+        "required": [
+          "user"
+        ],
+        "title": "ActivationDTO",
+        "type": "object"
+      },
       "AlbumDTO": {
         "properties": {
           "artist": {
@@ -888,6 +900,36 @@
           "kind"
         ],
         "title": "HomeItemDTO",
+        "type": "object"
+      },
+      "InviteDTO": {
+        "description": "A one-use setup code. The link carries it in the fragment, which browsers\nnever send to the server, and is absent without a configured HTTPS origin.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "invite_url": {
+            "nullable": true,
+            "title": "Invite Url",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "code",
+          "expires_at",
+          "invite_url"
+        ],
+        "title": "InviteDTO",
         "type": "object"
       },
       "LibraryChanges": {
@@ -7151,7 +7193,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/InviteDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -7525,7 +7569,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/InviteDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -10249,7 +10295,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ActivationDTO"
+                }
               }
             },
             "description": "Successful Response"

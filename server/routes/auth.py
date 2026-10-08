@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, SecretStr
 
 from ..auth import Auth, AuthError, COOKIE, DAY
-from ..api_models import UserDTO, DeviceSessionDTO
+from ..api_models import ActivationDTO, DeviceSessionDTO, InviteDTO, UserDTO
 
 
 class Credentials(BaseModel):
@@ -61,7 +61,7 @@ def set_cookie(response, token):
     )
 
 
-def auth_router(auth: Auth, security=None):
+def auth_router(auth: Auth, security=None, origin: str | None = None):
     router = APIRouter(prefix="/api/v1", tags=["accounts"])
     workers = asyncio.Semaphore(2)
 
@@ -100,6 +100,10 @@ def auth_router(auth: Auth, security=None):
             set_cookie(response, token)
         request.state.user, request.state.session = person, session
         return result
+
+    def invite(result):
+        link = origin and f"{origin}/#/join?code={result['code']}"
+        return {**result, "invite_url": link}
 
     async def owner(result=Depends(current)):
         if result[0]["role"] != "owner":
@@ -158,7 +162,9 @@ def auth_router(auth: Auth, security=None):
             request.client.host,
         )
 
-    @router.post("/setup", dependencies=[Depends(require_https)])
+    @router.post(
+        "/setup", dependencies=[Depends(require_https)], response_model=ActivationDTO
+    )
     async def activate(body: Activation, request: Request):
         return {
             "user": await run(
@@ -214,15 +220,17 @@ def auth_router(auth: Auth, security=None):
                 )
             }
 
-    @router.post("/people")
+    @router.post("/people", response_model=InviteDTO)
     async def add(body: Person, result=Depends(owner)):
-        return await run(
-            auth.setup_code, result[0]["id"], body.username, body.display_name
+        return invite(
+            await run(
+                auth.setup_code, result[0]["id"], body.username, body.display_name
+            )
         )
 
-    @router.post("/people/{identity}/setup-code")
+    @router.post("/people/{identity}/setup-code", response_model=InviteDTO)
     async def reset(identity: str, result=Depends(owner)):
-        return await run(auth.setup_code, result[0]["id"], identity=identity)
+        return invite(await run(auth.setup_code, result[0]["id"], identity=identity))
 
     @router.put("/people/{identity}/disabled")
     async def disable(identity: str, body: Disabled, result=Depends(owner)):

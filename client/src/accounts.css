@@ -608,3 +608,37 @@ main h1[tabindex="-1"]:focus {
   border-color: var(--warning);
   background: var(--warning-fill);
 }
+
+.invite-panel {
+  display: grid;
+  gap: var(--space-8);
+  max-width: 30rem;
+  margin: var(--space-16) 0;
+  padding: var(--space-16);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--raised);
+}
+.invite-qr {
+  width: min(16rem, 100%);
+  height: auto;
+  border-radius: var(--radius-compact);
+  background: #ffffff;
+}
+.invite-actions {
+  display: flex;
+  gap: var(--space-8);
+}
+.invite-code {
+  font-size: var(--type-footnote);
+  color: var(--secondary);
+}
+.install-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+}
+.install-hint p {
+  margin: 0;
+}
