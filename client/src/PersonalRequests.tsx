@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { friendlyRequestError } from "./requestError";
 
 type Request = {
   id: string;
@@ -143,7 +144,9 @@ export function PersonalRequests() {
                     />
                   )}
                   {tone === "failed" && r.error && (
-                    <p className="request-error">{r.error}</p>
+                    <p className="request-error">
+                      {friendlyRequestError(r.error)}
+                    </p>
                   )}
                 </div>
                 <span className={`request-status ${tone}`}>{label}</span>

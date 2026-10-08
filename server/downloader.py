@@ -120,6 +120,13 @@ def safe_name(value):
     return value
 
 
+# freemp3cloud silently returns empty pages when searched in parallel or too fast.
+FREEMP3CLOUD_GAP = 2.5
+FREEMP3CLOUD_RETRY_PAUSE = 10.0
+_freemp3cloud_lock = threading.Lock()
+_freemp3cloud_last = [0.0]
+
+
 class Cancelled(Exception):
     pass
 
@@ -163,6 +170,34 @@ class Downloader:
         if not self.store.download_settings()["enabled"]:
             self.state(job_id, "waiting_for_sources")
             raise Cancelled()
+
+    def pause(self, job_id, seconds):
+        end = time.monotonic() + seconds
+        while (left := end - time.monotonic()) > 0:
+            self.check(job_id)
+            time.sleep(min(0.5, left))
+
+    def paced_search(self, job, query):
+        search = self.providers["freemp3cloud"]
+        for attempt in range(2):
+            while not _freemp3cloud_lock.acquire(timeout=0.5):
+                self.check(job["id"])
+            try:
+                self.check(job["id"])
+                self.pause(
+                    job["id"],
+                    _freemp3cloud_last[0] + FREEMP3CLOUD_GAP - time.monotonic(),
+                )
+                try:
+                    found = search(query, 20)
+                finally:
+                    _freemp3cloud_last[0] = time.monotonic()
+            finally:
+                _freemp3cloud_lock.release()
+            if found or attempt:
+                return found
+            self.pause(job["id"], FREEMP3CLOUD_RETRY_PAUSE)
+        return found
 
     def state(self, request_id, status, **details):
         self.store.request_state(
@@ -428,7 +463,13 @@ class Downloader:
                 candidates = (
                     self.soulseek.search(effective, lambda: self.check(job["id"]))
                     if source == "soulseek"
-                    else self.providers[source](f"{job['artist']} {job['title']}", 20)
+                    else (
+                        self.paced_search(job, f"{job['artist']} {job['title']}")
+                        if source == "freemp3cloud"
+                        else self.providers[source](
+                            f"{job['artist']} {job['title']}", 20
+                        )
+                    )
                 )
                 candidates = [c for c in candidates if matches(job, c)]
                 if job.get("exact_quality") and profile == "mp3_128":
