@@ -4,7 +4,7 @@ PROFILES = {"mp3_128", "mp3_320", "aac_256", "lossless"}
 
 
 def rank(profile):
-    return {"mp3_128": 1, "mp3_320": 2, "aac_256": 2, "lossless": 3}.get(profile, 0)
+    return {"aac_256": 1, "mp3_128": 2, "mp3_320": 3, "lossless": 4}.get(profile, 0)
 
 
 def actual_profile(track):
@@ -27,6 +27,9 @@ def policy(settings, preferred=None):
     return {
         "preferred": preferred or settings["profile"],
         "fallback": settings.get("fallback_profile", "mp3_320"),
+        # Marks requests made since AAC became the last resort; older
+        # queued requests keep their original fallback behaviour.
+        "aac_fallback": True,
         "fallback_minutes": settings.get("fallback_minutes", 10),
         "recheck_hours": settings.get("recheck_hours", 24),
     }

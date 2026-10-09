@@ -552,6 +552,17 @@ class Downloader:
             ):
                 if self.attempt(job, fallback, errors):
                     return
+            # Last resort: AAC from JioSaavn, only when the owner enabled it as
+            # a source, and only for requests made since this fallback existed.
+            if (
+                job.get("quality_policy", {}).get("aac_fallback")
+                and "jiosaavn" in self.store.download_settings()["sources"]
+                and not job.get("upgrade_only")
+                and preferred != "aac_256"
+                and not (preferred == "lossless" and fallback == "none")
+            ):
+                if self.attempt(job, "aac_256", errors):
+                    return
             self.state(
                 job["id"],
                 "failed",

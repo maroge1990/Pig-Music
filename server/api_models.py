@@ -200,6 +200,7 @@ class RequestDTO(BaseModel):
 
 class RequestList(BaseModel):
     total: int
+    active: int
     offset: int
     next_offset: int | None
     library_revision: str

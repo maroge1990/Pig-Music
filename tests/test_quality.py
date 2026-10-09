@@ -386,3 +386,172 @@ def test_musicals_and_preferred_standard_editions():
     deluxe = {**standard, "id": "deluxe", "disambiguation": "Deluxe edition"}
     bootleg = {**standard, "id": "bootleg", "status": "Bootleg"}
     assert sorted([deluxe, bootleg, standard], key=edition_rank)[0] == standard
+
+
+def test_rank_puts_aac_lowest_known_quality():
+    from server.quality import rank
+
+    order = ["unknown", "aac_256", "mp3_128", "mp3_320", "lossless"]
+    assert [rank(p) for p in order] == [0, 1, 2, 3, 4]
+
+
+def test_new_request_policies_are_marked_for_aac_fallback(tmp_path):
+    store = Store(tmp_path / "data")
+    from server.quality import policy
+
+    assert "aac_fallback" not in store.download_settings()
+    assert policy(store.download_settings())["aac_fallback"] is True
+
+
+@pytest.fixture
+def aac_audio(tmp_path):
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        pytest.skip("FFmpeg is needed to validate source downloads")
+    path = tmp_path / "aac.m4a"
+    subprocess.run(
+        [
+            ffmpeg,
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "anoisesrc=duration=3:sample_rate=44100:seed=1",
+            "-f",
+            "lavfi",
+            "-i",
+            "anoisesrc=duration=3:sample_rate=44100:seed=2",
+            "-filter_complex",
+            "amerge=inputs=2",
+            "-codec:a",
+            "aac",
+            "-b:a",
+            "320k",
+            str(path),
+        ],
+        check=True,
+        timeout=20,
+    )
+    return path
+
+
+def aac_worker(store, aac_audio, calls, mp3=None):
+    candidate = {"title": "Song", "channel": "Artist", "album": "Album", "duration": 3}
+
+    class Worker(Downloader):
+        def transfer(self, job_id, candidate, path):
+            shutil.copyfile(aac_audio, path)
+
+    def jio(*_):
+        calls.append("jiosaavn")
+        return [candidate]
+
+    def mp3_search(*_):
+        calls.append("mp3")
+        return []
+
+    worker = Worker(store, {"jiosaavn": jio, "freemp3cloud": mp3_search})
+    worker.soulseek.search = lambda *_: []
+    return worker
+
+
+def failed_request(store, worker, legacy=False, **settings):
+    (store.directory / "slskd-connection.json").write_text("{}")
+    store.save_download_settings(
+        {
+            "enabled": True,
+            "sources": ["soulseek", "freemp3cloud", "jiosaavn"],
+            **settings,
+        }
+    )
+    store.submit_catalogue([requested(store)])
+    job = store.claim_request()
+    if legacy:
+        # Queued before AAC became the last resort: no marker in its policy.
+        policy = {k: v for k, v in job["quality_policy"].items() if k != "aac_fallback"}
+        job = {**job, "quality_policy": policy}
+    worker.process(job)
+    return store.queue()["items"][0]
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"profile": "lossless"},
+        {"profile": "lossless", "fallback_profile": "mp3_128"},
+        {"profile": "mp3_320"},
+    ],
+)
+def test_aac_is_last_resort_when_jiosaavn_enabled(tmp_path, aac_audio, settings):
+    store = Store(tmp_path / "data")
+    calls = []
+    worker = aac_worker(store, aac_audio, calls)
+    item = failed_request(store, worker, **settings)
+    assert item["status"] == "completed", item.get("error")
+    assert calls[-1] == "jiosaavn" and "mp3" in calls
+    saved = store.library["albums"][0]["tracks"][0]
+    assert saved["codec"] == "aac"
+    assert store.quality_policy(saved)["preferred"] == settings["profile"]
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"profile": "lossless", "fallback_profile": "none"},
+        {"profile": "mp3_320", "sources": ["soulseek", "freemp3cloud"]},
+        {"profile": "mp3_320", "legacy": True},
+    ],
+)
+def test_aac_not_attempted_when_waiting_jiosaavn_off_or_queued_before(
+    tmp_path, aac_audio, settings
+):
+    store = Store(tmp_path / "data")
+    calls = []
+    worker = aac_worker(store, aac_audio, calls)
+    item = failed_request(store, worker, **settings)
+    assert item["status"] == "failed" and "jiosaavn" not in calls
+
+
+def test_aac_not_attempted_for_upgrade_jobs(tmp_path, aac_audio):
+    store = Store(tmp_path / "data")
+    calls = []
+    worker = aac_worker(store, aac_audio, calls)
+    store.save_download_settings(
+        {
+            "enabled": True,
+            "sources": ["freemp3cloud", "jiosaavn"],
+            "profile": "mp3_320",
+        }
+    )
+    store.submit_catalogue([requested(store)])
+    job = store.claim_request()
+    worker.process({**job, "upgrade_only": True})
+    assert "jiosaavn" not in calls
+
+
+def test_aac_saved_track_is_upgraded_daily_without_fallback(tmp_path, aac_audio):
+    from server.quality import actual_profile
+
+    store = Store(tmp_path / "data")
+    calls = []
+    worker = aac_worker(store, aac_audio, calls)
+    item = failed_request(store, worker, profile="mp3_320")
+    assert item["status"] == "completed"
+    track = store.library["albums"][0]["tracks"][0]
+    assert actual_profile(track) == "aac_256"
+    store.schedule_upgrades()
+    assert store.claim_request() is None  # not due before next_check
+    name = "quality-policy:" + track["id"]
+    value = store.read_document(name)
+    value["next_check"] = 0
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE documents SET payload=? WHERE name=?", (json.dumps(value), name)
+        )
+    store.schedule_upgrades()
+    retry = store.claim_request()
+    assert retry["upgrade_only"] and retry["quality_profile"] == "mp3_320"
+    calls.clear()
+    worker.process(retry)
+    assert "jiosaavn" not in calls

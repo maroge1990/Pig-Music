@@ -60,8 +60,13 @@ export function QualitySettings({
       ))}
       <p>
         Fallback begins when preferred sources are exhausted or their time limit
-        is reached. Upgrade checks never replace a saved song with a
-        lower-quality file. Each Soulseek peer handles one transfer at a time.
+        is reached. The order is preferred quality, then the MP3 fallback, then
+        AAC 256 kbps from JioSaavn as the lowest quality (only when JioSaavn is
+        ticked above). A song saved at a lower quality is checked again every
+        few hours (see above) until the preferred quality is found. Choosing
+        &ldquo;Wait for lossless&rdquo; skips AAC. Upgrade checks never replace
+        a saved song with a lower-quality file. Each Soulseek peer handles one
+        transfer at a time.
       </p>
     </div>
   );

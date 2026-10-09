@@ -10,6 +10,8 @@ from ..library import normalise
 from ..artwork import quoted
 from ..api_models import TrackDTO
 
+ACTIVE = {"waiting_for_sources", "searching", "downloading", "validating", "importing"}
+
 
 def discover_router(store, catalogue, popularity=None, warmer=None):
     router = APIRouter(prefix="/api/v1/catalogue", tags=["personal-library"])
@@ -218,6 +220,13 @@ def discover_router(store, catalogue, popularity=None, warmer=None):
         user = request.state.user["id"]
         projection = await asyncio.to_thread(store.user_libraries.projection, user)
         personal = {t["id"] for t in projection["tracks"]}
+        active = [
+            j
+            for j in store.queue()["items"]
+            if j.get("status") in ACTIVE
+            and user in j.get("requested_by", [])
+            and j.get("musicbrainz_release_id") == result["id"]
+        ]
         tracks = []
         for raw in release_tracks(result):
             matched = store.index.match(raw)
@@ -228,6 +237,13 @@ def discover_router(store, catalogue, popularity=None, warmer=None):
                     if matched.track["id"] in personal
                     else "household_available"
                 )
+            elif any(
+                j.get("musicbrainz_recording_id") == raw.get("musicbrainz_recording_id")
+                and j.get("track_number") == raw["track_number"]
+                and j.get("disc_number") == raw["disc_number"]
+                for j in active
+            ):
+                state = "requested"
             tracks.append(
                 TrackDTO.model_validate({**raw, "server_state": state}).model_dump(
                     mode="json"

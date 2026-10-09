@@ -59,6 +59,25 @@ export function PersonalRequests() {
       setBusy(false);
     }
   }
+  async function retry(id: string) {
+    ++readSerial.current;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await api("/v1/requests/" + encodeURIComponent(id) + "/retry", {
+        method: "POST",
+      });
+      window.dispatchEvent(new Event("music-requests-changed"));
+      setPage(
+        await api<RequestPage>(`/v1/requests?offset=${offset}&limit=100`),
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   useEffect(() => {
     const load = () => {
       const serial = ++readSerial.current;
@@ -150,6 +169,16 @@ export function PersonalRequests() {
                   )}
                 </div>
                 <span className={`request-status ${tone}`}>{label}</span>
+                {(r.status === "failed" || r.status === "cancelled") && (
+                  <button
+                    className="small-button"
+                    disabled={busy}
+                    aria-label={`Retry ${r.title}`}
+                    onClick={() => void retry(r.id)}
+                  >
+                    Retry
+                  </button>
+                )}
               </article>
             );
           })}

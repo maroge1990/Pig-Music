@@ -61,6 +61,7 @@ export function AppShell() {
   const nav = useFixedHeight("--mobile-nav-height", !!user);
   useCompactNav();
   useServerEvents(!!user);
+  const downloading = useActiveDownloads(!!user);
 
   useEffect(() => {
     // "System" appearance follows the device live, not only at page load.
@@ -215,17 +216,28 @@ export function AppShell() {
           <nav ref={nav} className="app-nav" aria-label="Main navigation">
             {sections
               .filter((s) => s.id !== "admin" || owner)
-              .map(({ id, label, icon: Icon }) => (
-                <a
-                  key={id}
-                  href={"#/" + id}
-                  className={"nav-" + id}
-                  aria-current={section === id ? "page" : undefined}
-                >
-                  <Icon size={20} aria-hidden="true" />
-                  <span>{label}</span>
-                </a>
-              ))}
+              .map(({ id, label, icon: Icon }) => {
+                const count = id === "downloads" ? downloading : 0;
+                return (
+                  <a
+                    key={id}
+                    href={"#/" + id}
+                    className={"nav-" + id}
+                    aria-current={section === id ? "page" : undefined}
+                    aria-label={
+                      count ? `${label}, ${count} in progress` : undefined
+                    }
+                  >
+                    <Icon size={20} aria-hidden="true" />
+                    <span>{label}</span>
+                    {count > 0 && (
+                      <span className="nav-badge" aria-hidden="true">
+                        {count > 99 ? "99+" : count}
+                      </span>
+                    )}
+                  </a>
+                );
+              })}
           </nav>
         </header>
         {hint && (
@@ -322,6 +334,50 @@ function useServerEvents(active: boolean) {
       clearInterval(fallback);
     };
   }, [active]);
+}
+
+/** Count of this person's queued or in-progress requests, for the nav badge. */
+function useActiveDownloads(active: boolean) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!active) {
+      setCount(0);
+      return;
+    }
+    let serial = 0;
+    let last = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = () => {
+      last = Date.now();
+      const mine = ++serial;
+      void api<{ active?: number }>("/v1/requests?offset=0&limit=1")
+        .then((data) => {
+          if (mine === serial) setCount(data.active ?? 0);
+        })
+        .catch(() => {
+          /* keep the last known count */
+        });
+    };
+    // SSE queue events can be frequent while downloading: refresh at most ~1/s.
+    const changed = () => {
+      if (timer) return;
+      timer = setTimeout(
+        () => {
+          timer = undefined;
+          load();
+        },
+        Math.max(0, 1000 - (Date.now() - last)),
+      );
+    };
+    load();
+    window.addEventListener("music-requests-changed", changed);
+    return () => {
+      ++serial;
+      clearTimeout(timer);
+      window.removeEventListener("music-requests-changed", changed);
+    };
+  }, [active]);
+  return count;
 }
 
 /** Phones: scrolling down folds the tab bar into a compact row beside the

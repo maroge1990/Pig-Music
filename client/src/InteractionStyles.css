@@ -321,3 +321,7 @@
 [hidden] {
   display: none !important;
 }
+.album-summary {
+  margin: 0 0 var(--space-12);
+  font-size: var(--type-caption);
+}

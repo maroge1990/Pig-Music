@@ -94,6 +94,24 @@
   text-decoration: none;
   font-weight: 600;
 }
+.app-nav a {
+  position: relative;
+}
+/* Count of queued or running downloads; the link carries the spoken label. */
+.nav-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-capsule);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--type-caption);
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
 @media (hover: hover) {
   .app-nav a:hover,
   .personal-tabs a:hover {
@@ -313,6 +331,15 @@
     justify-content: center;
     gap: 0.125rem;
     padding: var(--space-4);
+    font-size: var(--type-caption);
+  }
+  /* Tab bar: the badge sits on the icon's top-right corner. */
+  .app-nav .nav-badge {
+    position: absolute;
+    top: 0;
+    left: calc(50% + 0.25rem);
+    min-width: 1rem;
+    height: 1rem;
     font-size: var(--type-caption);
   }
 
