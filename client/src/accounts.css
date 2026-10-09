@@ -673,3 +673,51 @@ main h1[tabindex="-1"]:focus {
 .install-hint p {
   margin: 0;
 }
+
+/* Compact quality control on library artist and album pages. */
+.quality-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-8) var(--space-12);
+  margin: var(--space-12) 0;
+  font-size: var(--type-footnote);
+}
+.quality-inline label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+.quality-inline select {
+  background: var(--raised);
+  color: var(--text);
+  border: 1px solid var(--control-border);
+  padding: var(--space-8);
+  border-radius: var(--radius-compact);
+}
+.quality-inline small {
+  font-size: var(--type-caption);
+  color: var(--muted, inherit);
+}
+/* Queue / Settings switch inside Admin > Downloads. */
+.personal-tabs.segmented {
+  margin: var(--space-12) 0;
+}
+/* Help text sits directly under the control it describes. */
+.field-help {
+  margin: calc(-1 * var(--space-8)) 0 var(--space-12);
+  font-size: var(--type-footnote);
+  color: var(--muted, inherit);
+}
+.source-option small {
+  flex-basis: 100%;
+  margin-left: calc(var(--space-12) + 1rem);
+  font-size: var(--type-caption);
+  color: var(--muted, inherit);
+}
+.plex-note {
+  margin-top: var(--space-24);
+}
+.plex-note .field-help {
+  margin: 0;
+}

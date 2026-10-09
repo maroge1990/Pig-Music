@@ -1,5 +1,6 @@
 import { apiFetch } from "./api";
 import { useEffect, useState } from "react";
+import { QualitySelect, qualityLabel } from "./QualitySelect";
 export function AlbumQuality({
   id,
   notify,
@@ -61,9 +62,7 @@ export function AlbumQuality({
       {!embedded && (
         <summary>
           {kind === "album" ? "Album" : "Artist"} quality preference
-          {effective
-            ? ` · ${effective === "lossless" ? "FLAC" : effective.replace("_", " ")}`
-            : ""}
+          {effective ? ` · ${qualityLabel(effective)}` : ""}
         </summary>
       )}
       <p>
@@ -75,21 +74,16 @@ export function AlbumQuality({
       <div className="release-actions">
         <label>
           Preferred quality
-          <select
-            aria-label={`${kind === "album" ? "Album" : "Artist"} preferred quality`}
+          <QualitySelect
+            ariaLabel={`${kind === "album" ? "Album" : "Artist"} preferred quality`}
             value={profile}
-            onChange={(e) => setProfile(e.target.value)}
-          >
-            <option value="">
-              {kind === "album"
-                ? "Use artist / system preference"
-                : "Use system preference"}
-            </option>
-            <option value="lossless">FLAC lossless</option>
-            <option value="mp3_320">MP3 320 kbps</option>
-            <option value="aac_256">AAC 256 kbps</option>
-            <option value="mp3_128">MP3 128 kbps</option>
-          </select>
+            onChange={setProfile}
+            inheritLabel={
+              kind === "album"
+                ? "Use artist or household default"
+                : "Use household default"
+            }
+          />
         </label>
         <button className="secondary-button" disabled={busy} onClick={apply}>
           Apply preference &amp; re-download

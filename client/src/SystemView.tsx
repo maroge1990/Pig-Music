@@ -2,6 +2,8 @@ import { lazy, Suspense } from "react";
 import { HardDrive, CircleCheck, ShieldCheck } from "lucide-react";
 import type { Library } from "./types";
 import { QualitySettings } from "./QualitySettings";
+import { QualitySelect } from "./QualitySelect";
+import { sourceIds, sourceName, sources } from "./sources";
 import { LibraryScan } from "./LibraryScan";
 import { ToolBoundary } from "./ToolBoundary";
 const Organisation = lazy(() =>
@@ -150,25 +152,21 @@ export function DownloadSettingsPanel({
         Enable downloads
       </label>
       <label className="download-option">
-        Quality
-        <select
-          aria-label="Download quality"
+        Household default quality
+        <QualitySelect
+          ariaLabel="Download quality"
           value={downloadSettings.profile}
-          onChange={(e) =>
-            setDownloadSettings({
-              ...downloadSettings,
-              profile: e.target.value,
-            })
+          onChange={(profile) =>
+            setDownloadSettings({ ...downloadSettings, profile })
           }
-        >
-          <option value="mp3_320">MP3 320 kbps</option>
-          <option value="mp3_128">MP3 128 kbps</option>
-          <option value="aac_256">AAC 256 kbps or better</option>
-          <option value="lossless">FLAC lossless (Soulseek)</option>
-        </select>
+        />
       </label>
-      {["soulseek", "freemp3cloud", "zvu4no", "jiosaavn"].map((source) => (
-        <label className="download-option" key={source}>
+      <p className="status-text">
+        Lossless files are only available from Soulseek; other sources are used
+        for lower qualities.
+      </p>
+      {sourceIds.map((source) => (
+        <label className="download-option source-option" key={source}>
           <input
             type="checkbox"
             checked={downloadSettings.sources.includes(source)}
@@ -181,7 +179,8 @@ export function DownloadSettingsPanel({
               })
             }
           />
-          {source}
+          {sourceName(source)}
+          <small>{sources[source].description}</small>
         </label>
       ))}
       <QualitySettings

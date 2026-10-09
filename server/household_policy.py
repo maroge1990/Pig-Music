@@ -5,7 +5,7 @@ import time
 import uuid
 from .lifecycle import coordinated
 from .library import identifier, normalise
-from .quality import PROFILES, rank, actual_profile
+from .quality import PROFILES, rank, actual_profile, options
 from .user_library import bump, track_dto
 
 ACTIVE = {"waiting_for_sources", "searching", "downloading", "validating", "importing"}
@@ -196,7 +196,9 @@ class HouseholdPolicy:
                         "SELECT scope,item_id,preferred FROM quality_preferences WHERE user_id=? ORDER BY scope,item_id",
                         (user_id,),
                     )
-                ]
+                ],
+                "options": options(),
+                "household_default": self.store.download_settings()["profile"],
             }
 
     def refresh_inbox(self, conn):

@@ -101,7 +101,7 @@ export function MediaSettings() {
             />
             Experimental remote playback
           </label>
-          <p>
+          <p className="field-help">
             Remote listening depends on a third-party service. It does not add a
             song to your library, and audio quality and exact mastering remain
             unverified.
@@ -122,7 +122,7 @@ export function MediaSettings() {
               onChange={(e) => setKey(e.target.value)}
             />
           </label>
-          <p>
+          <p className="field-help">
             <a
               href="https://fanart.tv/get-an-api-key/"
               target="_blank"
@@ -149,7 +149,7 @@ export function MediaSettings() {
               onChange={(e) => setListenToken(e.target.value)}
             />
           </label>
-          <p>
+          <p className="field-help">
             <a
               href="https://listenbrainz.org/settings/"
               target="_blank"
@@ -207,6 +207,13 @@ export function MediaSettings() {
         </>
       )}
       {message && <p role="status">{message}</p>}
+      <section className="plex-note">
+        <h3>Plex</h3>
+        <p className="field-help">
+          Each person connects their own Plex account from{" "}
+          <a href="#/account">Account</a>.
+        </p>
+      </section>
     </section>
   );
 }

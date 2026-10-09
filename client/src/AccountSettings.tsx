@@ -1,4 +1,9 @@
 import { useEffect, useState } from "react";
+import {
+  QualitySelect,
+  qualityLabel,
+  type QualityOption,
+} from "./QualitySelect";
 import { api } from "./api";
 import type { Person } from "./AppShell";
 
@@ -16,6 +21,8 @@ export function AccountSettings({
   signOut: () => Promise<void>;
 }) {
   const [quality, setQuality] = useState("");
+  const [qualityOptions, setQualityOptions] = useState<QualityOption[]>();
+  const [household, setHousehold] = useState("");
   const [sessions, setSessions] = useState<Session[]>([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -25,7 +32,11 @@ export function AccountSettings({
   async function load() {
     const preferences = await api<{
       preferences: { scope: string; item_id: string; preferred: string }[];
+      options: QualityOption[];
+      household_default: string;
     }>("/v1/quality");
+    setQualityOptions(preferences.options);
+    setHousehold(preferences.household_default);
     setQuality(
       preferences.preferences.find((p) => p.scope === "system")?.preferred ||
         "",
@@ -163,29 +174,20 @@ export function AccountSettings({
           Shared files retain the highest quality wanted by anyone who holds
           them.
         </p>
-        <label>
-          Preferred quality
-          <select
-            value={quality}
-            onChange={(e) =>
-              void action(() =>
-                api("/v1/quality", {
-                  ...json({
-                    scope: "system",
-                    preferred: e.target.value || null,
-                  }),
-                  method: "PUT",
-                }),
-              )
-            }
-          >
-            <option value="">Use household default</option>
-            <option value="mp3_128">MP3 128</option>
-            <option value="mp3_320">MP3 320</option>
-            <option value="aac_256">AAC 256</option>
-            <option value="lossless">Lossless</option>
-          </select>
-        </label>
+        <QualitySelect
+          label="Preferred quality"
+          value={quality}
+          options={qualityOptions}
+          inheritLabel={`Use household default${household ? ` (${qualityLabel(household, qualityOptions)})` : ""}`}
+          onChange={(value) =>
+            void action(() =>
+              api("/v1/quality", {
+                ...json({ scope: "system", preferred: value || null }),
+                method: "PUT",
+              }),
+            )
+          }
+        />
       </section>
       <section className="account-section">
         <h2>Your Plex account</h2>

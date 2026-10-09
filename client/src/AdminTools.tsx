@@ -57,6 +57,7 @@ export function AdminTools({ route }: { route: Route }) {
   )
     ? (route.parts[0] as AdminSection)
     : "overview";
+  const downloadsView = route.parts[1] === "settings" ? "settings" : "queue";
   const [library, setLibrary] = useState<Library | null>(null);
   const [importLoaded, setImportLoaded] = useState(false);
   const [migration, setMigration] = useState<Migration | null>(null);
@@ -815,13 +816,29 @@ export function AdminTools({ route }: { route: Route }) {
       )}
       {section === "downloads" && (
         <>
-          <QueueView
-            queue={queue}
-            busy={busy}
-            clearQueue={clearQueue}
-            queueAction={queueAction}
-          />
-          {downloadSettings && (
+          <nav className="personal-tabs segmented" aria-label="Downloads views">
+            <a
+              href="#/admin/downloads"
+              aria-current={downloadsView === "queue" ? "page" : undefined}
+            >
+              Queue
+            </a>
+            <a
+              href="#/admin/downloads/settings"
+              aria-current={downloadsView === "settings" ? "page" : undefined}
+            >
+              Settings
+            </a>
+          </nav>
+          {downloadsView === "queue" && (
+            <QueueView
+              queue={queue}
+              busy={busy}
+              clearQueue={clearQueue}
+              queueAction={queueAction}
+            />
+          )}
+          {downloadsView === "settings" && downloadSettings && (
             <DownloadSettingsPanel
               downloadSettings={downloadSettings}
               setDownloadSettings={setDownloadSettings}

@@ -2,9 +2,24 @@
 
 PROFILES = {"mp3_128", "mp3_320", "aac_256", "lossless"}
 
+LABELS = {
+    "lossless": "Lossless (FLAC)",
+    "mp3_320": "MP3 320 kbps",
+    "mp3_128": "MP3 128 kbps",
+    "aac_256": "AAC 256 kbps",
+}
+
 
 def rank(profile):
     return {"aac_256": 1, "mp3_128": 2, "mp3_320": 3, "lossless": 4}.get(profile, 0)
+
+
+def options():
+    """Every selectable profile, best first, with its shared display label."""
+    return [
+        {"value": value, "label": LABELS[value], "rank": rank(value)}
+        for value in sorted(PROFILES, key=rank, reverse=True)
+    ]
 
 
 def actual_profile(track):
