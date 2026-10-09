@@ -5,6 +5,7 @@ type Scan = {
   files?: number;
   missing?: number;
   read_failures?: number;
+  completed_at?: string;
   error?: string;
 };
 export function LibraryScan({ refresh }: { refresh: () => void }) {
@@ -64,7 +65,13 @@ export function LibraryScan({ refresh }: { refresh: () => void }) {
       </button>
       {scan.status === "completed" && (
         <p>
-          {scan.files} files indexed
+          Last scan: {(scan.files || 0).toLocaleString("en-AU")} files
+          {scan.completed_at
+            ? ` · ${new Intl.DateTimeFormat("en-AU", {
+                dateStyle: "medium",
+                timeStyle: "short",
+              }).format(new Date(scan.completed_at))}`
+            : ""}
           {scan.missing ? ` · ${scan.missing} unavailable` : ""}
           {scan.read_failures ? ` · ${scan.read_failures} need attention` : ""}
         </p>

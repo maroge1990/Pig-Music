@@ -47,6 +47,11 @@
   color: var(--text-accent);
   border-color: var(--selected-fill);
 }
+.neutral-pill {
+  background: var(--raised);
+  color: var(--secondary);
+  border-color: var(--border);
+}
 .read-issues > div {
   border-bottom: 1px solid var(--border);
   padding: var(--space-12) 0;

@@ -5,8 +5,8 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#15111A",
-  "theme_color": "#15111A",
+  "background_color": "#FBF8FA",
+  "theme_color": "#FBF8FA",
   "icons": [
     {
       "src": "/brand/web-light-192.png",

@@ -26,10 +26,13 @@ export function SystemStatus({
   library,
   downloadSettings,
   soulseekHealth,
+  publicOrigin,
 }: {
   library: Library | null;
   downloadSettings: DownloadSettings | null;
   soulseekHealth: Health;
+  /** undefined while loading, null when none is configured. */
+  publicOrigin?: string | null;
 }) {
   return (
     <>
@@ -53,10 +56,13 @@ export function SystemStatus({
           <dl>
             <dt>Source</dt>
             <dd>{library?.snapshot.source || "No snapshot loaded"}</dd>
-            <dt>Captured</dt>
+            <dt>Last scan</dt>
             <dd>
               {library?.snapshot.captured_at
-                ? new Date(library.snapshot.captured_at).toLocaleString()
+                ? new Intl.DateTimeFormat("en-AU", {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  }).format(new Date(library.snapshot.captured_at))
                 : "Not yet"}
             </dd>
             <dt>Indexed tracks</dt>
@@ -72,7 +78,7 @@ export function SystemStatus({
         <section className="system-panel">
           <ShieldCheck />
           <h2>Library storage</h2>
-          <span className="status-pill preview-pill">Direct SMB storage</span>
+          <span className="status-pill neutral-pill">Direct SMB storage</span>
           <dl>
             <dt>Downloads</dt>
             <dd>{downloadSettings?.enabled ? "Enabled" : "Paused"}</dd>
@@ -80,8 +86,14 @@ export function SystemStatus({
             <dd>Existing artist / album folders</dd>
             <dt>Migration &amp; queue</dt>
             <dd>Saved locally</dd>
-            <dt>Remote access</dt>
-            <dd>Existing Tailscale connection</dd>
+            <dt>Public address</dt>
+            <dd>
+              {publicOrigin === undefined
+                ? "Checking…"
+                : publicOrigin
+                  ? new URL(publicOrigin).host
+                  : "Not configured"}
+            </dd>
           </dl>
           <p>
             Downloads are validated and tagged before publication into your SMB

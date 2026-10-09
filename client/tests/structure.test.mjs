@@ -33,3 +33,16 @@ test("text sizes come from the shared type roles", () => {
       );
   }
 });
+
+test("the library album page shows its cover and a library artist link", () => {
+  const text = read("PersonalLibrary.tsx");
+  assert.match(text, /IN YOUR LIBRARY/);
+  assert.match(text, /<Cover title=\{detail\.title\} src=\{detail\.cover\}/);
+  assert.match(text, /"#\/library\/artist\/" \+ info\.artistId/);
+});
+
+test("each section sets its own document title", () => {
+  const text = read("AppShell.tsx");
+  assert.match(text, /document\.title =/);
+  assert.match(text, /· Pig Music/);
+});

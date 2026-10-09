@@ -43,8 +43,12 @@
   .library-controls .tab-list {
     flex-wrap: nowrap;
     overflow-x: auto;
+    scrollbar-width: none;
     max-width: 100%;
     min-width: 0;
+  }
+  .library-controls .tab-list::-webkit-scrollbar {
+    display: none;
   }
   .library-controls .tab-list button {
     flex-shrink: 0;
