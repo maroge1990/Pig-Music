@@ -710,23 +710,32 @@ main h1[tabindex="-1"]:focus {
 }
 .quality-inline small {
   font-size: var(--type-caption);
-  color: var(--muted, inherit);
+  color: var(--secondary);
 }
 /* Queue / Settings switch inside Admin > Downloads. */
 .personal-tabs.segmented {
   margin: var(--space-12) 0;
 }
 /* Help text sits directly under the control it describes. */
+/* Help belongs to the control above it, so no panel divider in between. */
+.system-panel .field-help {
+  border-top: 0;
+  padding-top: 0;
+  line-height: 1.5;
+}
 .field-help {
   margin: calc(-1 * var(--space-8)) 0 var(--space-12);
   font-size: var(--type-footnote);
-  color: var(--muted, inherit);
+  color: var(--secondary);
+}
+.source-option .source-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 .source-option small {
-  flex-basis: 100%;
-  margin-left: calc(var(--space-12) + 1rem);
   font-size: var(--type-caption);
-  color: var(--muted, inherit);
+  color: var(--secondary);
 }
 .plex-note {
   margin-top: var(--space-24);

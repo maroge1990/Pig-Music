@@ -409,6 +409,53 @@ def test_popular_chart_skips_an_entry_when_musicbrainz_is_busy(tmp_path):
     assert result["artists"][0]["name"] == "Star"
 
 
+def test_popular_chart_prefers_the_studio_recording_over_a_live_one(tmp_path):
+    from server.catalogue import warming
+
+    studio, live = uid(60), uid(61)
+
+    class Versions(Matching):
+        async def get(self, client, path, **params):
+            if path != "recording/":
+                return await super().get(client, path, **params)
+            credit = [{"name": "Star", "artist": {"id": ARTIST, "name": "Star"}}]
+            return {
+                "recordings": [
+                    {
+                        "id": live,
+                        "title": "Hit",
+                        "disambiguation": "live, 2026-09-11: Phoenix Concert Theatre",
+                        "artist-credit": credit,
+                        "releases": [{"id": uid(62), "status": "Bootleg"}],
+                    },
+                    {
+                        "id": studio,
+                        "title": "Hit",
+                        "artist-credit": credit,
+                        "releases": [
+                            {
+                                "id": uid(63),
+                                "title": "Hit",
+                                "status": "Official",
+                                "release-group": {"primary-type": "Single"},
+                            }
+                        ],
+                    },
+                ]
+            }
+
+    store = Store(tmp_path)
+
+    async def run():
+        warming.set(True)
+        async with httpx.AsyncClient(transport=apple_transport([])) as client:
+            return await HomeDiscovery(store, Versions()).popular(client)
+
+    result = asyncio.run(run())
+    assert [s["id"] for s in result["songs"]] == [studio]
+    assert result["songs"][0]["release_id"] == uid(63)
+
+
 def test_popular_chart_failure_is_unavailable_and_retried_later(tmp_path):
     store = Store(tmp_path)
 

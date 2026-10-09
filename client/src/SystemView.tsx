@@ -176,8 +176,10 @@ export function DownloadSettingsPanel({
               })
             }
           />
-          {sourceName(source)}
-          <small>{sources[source].description}</small>
+          <span className="source-text">
+            {sourceName(source)}
+            <small>{sources[source].description}</small>
+          </span>
         </label>
       ))}
       <QualitySettings

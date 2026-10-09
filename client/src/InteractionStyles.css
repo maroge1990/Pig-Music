@@ -135,11 +135,12 @@
 .catalogue-heading > div:not(.cover) {
   min-width: 0;
 }
-.catalogue-heading p {
+.catalogue-heading p,
+.page-heading.catalogue-heading > div > p {
   color: var(--secondary);
-  font-size: var(--type-caption);
-  line-height: 1.8;
-  margin-top: 14px;
+  font-size: var(--type-subhead);
+  line-height: 1.5;
+  margin-top: var(--space-8);
 }
 @media (max-width: 600px) {
   .catalogue-heading {

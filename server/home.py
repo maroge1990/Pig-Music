@@ -79,15 +79,30 @@ def first_credit_artist(items):
 def release_choice(releases):
     def rank(release):
         group = release.get("release-group", {})
+        kind = group.get("primary-type", "").casefold()
         return (
             release.get("status") != "Official",
-            group.get("primary-type", "").casefold() != "album",
             bool(group.get("secondary-types")),
+            {"album": 0, "single": 1, "ep": 1}.get(kind, 2),
             release.get("date") or "9999",
         )
 
     ordered = sorted((r for r in releases if r.get("id")), key=rank)
     return ordered[0] if ordered else None
+
+
+VERSION_WORDS = {"live", "demo", "acoustic", "remix", "session", "instrumental"}
+
+
+def studio_rank(recording):
+    """Lower is better: the studio recording on an official, plain release."""
+    words = set(normalise(recording.get("disambiguation", "")).split())
+    plain = any(
+        r.get("status") == "Official"
+        and not r.get("release-group", {}).get("secondary-types")
+        for r in recording.get("releases", [])
+    )
+    return (bool(words & VERSION_WORDS), not plain)
 
 
 def renew_margin():
@@ -314,6 +329,9 @@ class HomeDiscovery:
                 limit=10,
             )
             candidates = data.get("release-groups", [])
+        if kind == "songs":
+            # A chart means the studio song, not a live session of the same name.
+            candidates = sorted(candidates, key=studio_rank)
         for found in candidates:
             credits = found.get("artist-credit", [])
             artist_id, artist_name = first_credit_artist(credits)
