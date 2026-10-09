@@ -3,21 +3,11 @@
   grid-template-columns: repeat(2, 1fr);
   gap: 22px;
 }
-.system-panel {
-  border: 1px solid var(--border);
-  background: var(--surface);
-  border-radius: var(--radius-control);
-  padding: 25px;
-}
 .system-panel > svg {
   color: var(--text-accent);
   width: 26px;
   height: 26px;
   margin-bottom: 18px;
-}
-.system-panel h2 {
-  font-size: var(--type-headline);
-  margin-bottom: 14px;
 }
 .system-panel dl {
   display: grid;
@@ -41,16 +31,6 @@
   line-height: 1.9;
   border-top: 1px solid var(--border);
   padding-top: 18px;
-}
-.preview-pill {
-  background: var(--selected-fill);
-  color: var(--text-accent);
-  border-color: var(--selected-fill);
-}
-.neutral-pill {
-  background: var(--raised);
-  color: var(--secondary);
-  border-color: var(--border);
 }
 .read-issues > div {
   border-bottom: 1px solid var(--border);
@@ -454,9 +434,6 @@
   }
   .track-name > span {
     font-size: var(--type-caption);
-  }
-  .system-panel {
-    padding: 22px;
   }
   .system-panel dl {
     font-size: var(--type-caption);

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import { formatDateTime } from "./format";
 import type { Person } from "./AppShell";
 import { InvitePanel, type Invite } from "./InvitePanel";
 
@@ -154,8 +155,7 @@ export function AdminPeople() {
         <h2>Account activity</h2>
         {events.map((e, i) => (
           <p key={i}>
-            {new Date(e.at * 1000).toLocaleString()} ·{" "}
-            {e.display_name || "Unknown account"} ·{" "}
+            {formatDateTime(e.at)} · {e.display_name || "Unknown account"} ·{" "}
             {e.event.replaceAll("_", " ")}
           </p>
         ))}

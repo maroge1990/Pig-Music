@@ -3,8 +3,10 @@ import { CatalogueBrowser } from "./CatalogueBrowser";
 import { Shuffle } from "lucide-react";
 import { shuffled } from "./shuffle";
 import { useEffect, useRef, useState } from "react";
-import { Play, ArrowLeft, ListMusic, CloudDownload } from "lucide-react";
+import { Play, ArrowLeft, ListMusic, Download } from "lucide-react";
 import { api } from "./api";
+import { formatCount } from "./format";
+import { PageHeader } from "./PageHeader";
 import { PersonalQuality } from "./PersonalQuality";
 import { SearchPage } from "./SearchPage";
 import { Cover } from "./Cover";
@@ -506,7 +508,10 @@ export function PersonalLibrary({
   return (
     <main className="personal-main">
       {searching ? (
-        <h1>Search</h1>
+        <PageHeader
+          title="Search"
+          subtitle="Your library, the server and the wider catalogue."
+        />
       ) : detail?.artist ? (
         <SavedArtistHeading artist={detail.artist} personal />
       ) : detail?.albumInfo ? (
@@ -518,13 +523,13 @@ export function PersonalLibrary({
             <p>{albumMeta(detail.albumInfo)}</p>
           </div>
         </div>
+      ) : detail ? (
+        <h1>{detail.title}</h1>
       ) : (
-        <h1>{detail?.title || "Your library"}</h1>
-      )}
-      {!searching && !detail && (
-        <p>
-          {user.display_name} · {library.stats.tracks} songs
-        </p>
+        <PageHeader
+          title="Your library"
+          subtitle={`${user.display_name} · ${formatCount(library.stats.tracks)} songs`}
+        />
       )}
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
@@ -586,7 +591,7 @@ export function PersonalLibrary({
                   disabled={!missing.length || downloading}
                   onClick={() => void downloadMissing(missing)}
                 >
-                  <CloudDownload size={18} /> Download missing
+                  <Download size={18} /> Download missing
                 </button>
               )}
             </div>

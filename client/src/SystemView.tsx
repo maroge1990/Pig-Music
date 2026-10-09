@@ -1,5 +1,7 @@
 import { lazy, Suspense } from "react";
-import { HardDrive, CircleCheck, ShieldCheck } from "lucide-react";
+import { HardDrive, ShieldCheck } from "lucide-react";
+import { formatCount, formatDateTime } from "./format";
+import { StateBadge } from "./StateBadge";
 import type { Library } from "./types";
 import { QualitySettings } from "./QualitySettings";
 import { LibraryScan } from "./LibraryScan";
@@ -50,23 +52,18 @@ export function SystemStatus({
         <section className="system-panel">
           <HardDrive />
           <h2>Synology library</h2>
-          <span className="status-pill">
-            <CircleCheck size={13} /> Local snapshot ready
-          </span>
+          <StateBadge state="library" label="Local snapshot ready" />
           <dl>
             <dt>Source</dt>
             <dd>{library?.snapshot.source || "No snapshot loaded"}</dd>
             <dt>Last scan</dt>
             <dd>
               {library?.snapshot.captured_at
-                ? new Intl.DateTimeFormat("en-AU", {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                  }).format(new Date(library.snapshot.captured_at))
+                ? formatDateTime(library.snapshot.captured_at)
                 : "Not yet"}
             </dd>
             <dt>Indexed tracks</dt>
-            <dd>{library?.stats.tracks.toLocaleString()}</dd>
+            <dd>{library ? formatCount(library.stats.tracks) : ""}</dd>
             <dt>Tag read issues</dt>
             <dd>{library?.snapshot.read_failures?.length || 0}</dd>
           </dl>
@@ -78,7 +75,7 @@ export function SystemStatus({
         <section className="system-panel">
           <ShieldCheck />
           <h2>Library storage</h2>
-          <span className="status-pill neutral-pill">Direct SMB storage</span>
+          <StateBadge state="neutral" label="Direct SMB storage" />
           <dl>
             <dt>Downloads</dt>
             <dd>{downloadSettings?.enabled ? "Enabled" : "Paused"}</dd>

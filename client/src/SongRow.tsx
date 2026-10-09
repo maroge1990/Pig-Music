@@ -1,16 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AudioLines,
-  CloudCheck,
-  CloudDownload,
   Disc3,
+  Download,
   Ellipsis,
   Heart,
   ListEnd,
   ListStart,
-  LoaderCircle,
   UserRound,
 } from "lucide-react";
+import { StateBadge } from "./StateBadge";
 import { api } from "./api";
 import { Cover } from "./Cover";
 import { PlaylistPicker } from "./PlaylistPicker";
@@ -104,17 +103,13 @@ export function SongRow({
       </button>
       <span className="song-state">
         {state === "saved" ? (
-          <span role="img" aria-label="In your library" title="In your library">
-            <CloudCheck size={20} />
-          </span>
+          <StateBadge state="library" iconOnly />
         ) : state === "pending" ? (
-          <span
-            role="img"
-            aria-label="Downloading to the server"
-            title="Downloading to the server"
-          >
-            <LoaderCircle size={20} className="spin" />
-          </span>
+          <StateBadge
+            state="active"
+            label="Downloading to the server"
+            iconOnly
+          />
         ) : (
           <button
             aria-label={
@@ -124,7 +119,7 @@ export function SongRow({
             }
             onClick={() => void download()}
           >
-            <CloudDownload size={20} />
+            <Download size={20} />
           </button>
         )}
       </span>
@@ -286,7 +281,7 @@ function SongMenu({
               state === "server"
                 ? "Add to my library"
                 : "Download to my library",
-              <CloudDownload size={18} />,
+              <Download size={18} />,
               () => void download(),
             )}
         </div>

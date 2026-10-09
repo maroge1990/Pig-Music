@@ -46,3 +46,40 @@ test("each section sets its own document title", () => {
   assert.match(text, /document\.title =/);
   assert.match(text, /· Pig Music/);
 });
+
+test("song and download state is shown by the shared badge, not clouds", () => {
+  for (const file of files)
+    assert.doesNotMatch(read(file), /Cloud(Check|Download)/, file);
+  for (const file of ["SongRow.tsx", "PersonalRequests.tsx", "ArtistHero.tsx"])
+    assert.match(read(file), /<StateBadge/, `${file} skips StateBadge`);
+  for (const file of readdirSync(source).filter((f) => f.endsWith(".css")))
+    assert.doesNotMatch(read(file), /\.(status-pill|request-status)\b/, file);
+});
+
+test("the six pages open with the shared PageHeader", () => {
+  for (const file of [
+    "Home.tsx",
+    "PersonalLibrary.tsx",
+    "AppShell.tsx",
+    "AccountSettings.tsx",
+    "AdminTools.tsx",
+  ])
+    assert.match(read(file), /<PageHeader\b/, `${file} skips PageHeader`);
+  // Search shares PersonalLibrary's header; Downloads lives in the shell.
+  assert.match(read("PersonalLibrary.tsx"), /title="Search"/);
+  assert.match(read("AppShell.tsx"), /title="Downloads"/);
+});
+
+test("dates and counts are formatted only by format.ts", () => {
+  for (const file of files.filter((f) => f !== "format.ts"))
+    assert.doesNotMatch(
+      read(file),
+      /\.toLocale(Date|Time)?String\(|Intl\.(DateTime|Number|RelativeTime)Format/,
+      `${file} formats dates or numbers inline`,
+    );
+});
+
+test("the interface font is the system stack, not an unshipped face", () => {
+  assert.doesNotMatch(read("Base.css"), /\bInter\b/);
+  assert.match(read("Base.css"), /system-ui/);
+});

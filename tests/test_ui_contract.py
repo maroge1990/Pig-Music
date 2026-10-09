@@ -173,3 +173,14 @@ def test_admin_access_without_configured_origin(tmp_path, monkeypatch):
     with TestClient(app, base_url="https://private.ts.net") as client:
         sign_in(client, "mark")
         assert client.get("/api/admin/access").json() == {"public_origin": None}
+
+
+def test_interface_uses_the_system_typeface_and_a_static_sign_in():
+    base = (CLIENT / "Base.css").read_text()
+    stack = re.search(r"font-family:([^;]+);", base).group(1)
+    assert "Inter" not in stack
+    assert stack.split(",")[0].strip() == "system-ui"
+    shell = (CLIENT / "AppShell.tsx").read_text()
+    assert shell.count("pig-splash") == 1
+    assert shell.index("pig-splash") < shell.index("if (!user && firstRun)")
+    assert "pig-splash" not in (CLIENT / "SignIn.tsx").read_text()

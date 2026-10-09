@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import { Cover, catalogueCover } from "./Cover";
 import { discoverUrl } from "./navigation";
+import { PageHeader } from "./PageHeader";
 import { SongRow } from "./SongRow";
 import { withLibrary, type Song } from "./songs";
 import { warmArtist, whenIdle } from "./prefetch";
@@ -202,8 +203,7 @@ function RecentlyAdded() {
 export function Home() {
   return (
     <main className="personal-main home-page">
-      <h1>Home</h1>
-      <p>Find your next favourite.</p>
+      <PageHeader title="Home" subtitle="Find your next favourite." />
       <RecentlyAdded />
       <HomeSection kind="recommended" />
       <HomeSection kind="popular" />

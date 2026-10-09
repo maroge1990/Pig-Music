@@ -1,5 +1,6 @@
 import { apiFetch, peekCatalogue } from "./api";
 import { useEffect, useRef, useState } from "react";
+import { formatDate } from "./format";
 import {
   ChevronLeft,
   ChevronRight,
@@ -442,8 +443,8 @@ export function CatalogueBrowser({
             <p>
               {release ? (
                 <>
-                  <MusicLink artist={release.artist} /> · {release.date}{" "}
-                  {release.description}
+                  <MusicLink artist={release.artist} /> ·{" "}
+                  {formatDate(release.date)} {release.description}
                 </>
               ) : (
                 "Albums first. Explore singles, EPs and other releases below."
@@ -477,7 +478,7 @@ export function CatalogueBrowser({
                 <strong>{e.title}</strong>
                 <span>
                   {[
-                    e.date,
+                    formatDate(e.date),
                     e.country,
                     e.formats.join(" / "),
                     `${e.track_count} tracks`,
@@ -675,7 +676,9 @@ export function CatalogueBrowser({
                 />
                 <div>
                   <strong>{g.title}</strong>
-                  <span>{[g.date, g.type].filter(Boolean).join(" · ")}</span>
+                  <span>
+                    {[formatDate(g.date), g.type].filter(Boolean).join(" · ")}
+                  </span>
                 </div>
                 {g.saved_album_id ? (
                   <span className="saved-icon discography-saved">
