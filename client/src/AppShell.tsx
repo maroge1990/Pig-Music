@@ -16,6 +16,7 @@ import { FirstRun } from "./FirstRun";
 import { SignIn } from "./SignIn";
 import { ToolBoundary } from "./ToolBoundary";
 import { useFixedHeight } from "./useFixedHeight";
+import { PageHeader } from "./PageHeader";
 import { PersonalRequests } from "./PersonalRequests";
 import { OwnerContext } from "./person";
 import { parseRoute, type Route, type Section } from "./routes";
@@ -291,8 +292,10 @@ export function AppShell() {
           <PersonalLibrary user={user} route={{ ...route, section }} />
         ) : section === "downloads" ? (
           <main className="personal-main">
-            <h1>Downloads</h1>
-            <p>Music you asked the server to get, newest first.</p>
+            <PageHeader
+              title="Downloads"
+              subtitle="Music you asked the server to get, newest first."
+            />
             <PersonalRequests />
           </main>
         ) : section === "account" ? (

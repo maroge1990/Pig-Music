@@ -10,6 +10,8 @@ import {
   X,
 } from "lucide-react";
 import { api, updateArtworkRevision } from "./api";
+import { formatCount } from "./format";
+import { PageHeader } from "./PageHeader";
 import { Cover } from "./Cover";
 import { Empty } from "./EmptyState";
 import { MediaSettings } from "./MediaSettings";
@@ -46,7 +48,7 @@ const formatTime = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, "0")}`;
 
 const plural = (count: number, noun: string) =>
-  `${count.toLocaleString()} ${noun}${count === 1 ? "" : "s"}`;
+  `${formatCount(count)} ${noun}${count === 1 ? "" : "s"}`;
 
 /** Owner-only server administration. Browsing, search and personal settings
  * stay in the shared sections; this view never renders its own navigation shell.
@@ -774,9 +776,10 @@ export function AdminTools({ route }: { route: Route }) {
         accept=".xml,application/xml,text/xml"
         onChange={(e) => importFile(e.target.files?.[0])}
       />
-      <h1>
-        <ShieldCheck size={26} aria-hidden="true" /> Admin
-      </h1>
+      <PageHeader
+        title="Admin"
+        subtitle="Manage people, music and the server."
+      />
       <nav className="personal-tabs" aria-label="Admin sections">
         {adminSections.map((s) => (
           <a

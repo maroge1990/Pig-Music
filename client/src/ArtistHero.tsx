@@ -1,6 +1,7 @@
 import { cachedLibrary, peekLibrary } from "./api";
 import { useEffect, useRef, useState } from "react";
-import { ChevronLeft, CircleCheck } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
+import { StateBadge } from "./StateBadge";
 import { Cover } from "./Cover";
 import type { Artist, Library } from "./types";
 export function ArtistHero({
@@ -175,12 +176,7 @@ export function ArtistHero({
               {artist.track_count} saved tracks
             </p>
           )}
-          {!discovered && (
-            <span className="status-pill">
-              <CircleCheck size={14} />
-              In your library
-            </span>
-          )}
+          {!discovered && <StateBadge state="library" />}
         </div>
       </div>
     </div>

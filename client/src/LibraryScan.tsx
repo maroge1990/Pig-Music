@@ -1,5 +1,6 @@
 import { apiFetch } from "./api";
 import { useEffect, useState } from "react";
+import { formatCount, formatDateTime } from "./format";
 type Scan = {
   status?: string;
   files?: number;
@@ -65,13 +66,8 @@ export function LibraryScan({ refresh }: { refresh: () => void }) {
       </button>
       {scan.status === "completed" && (
         <p>
-          Last scan: {(scan.files || 0).toLocaleString("en-AU")} files
-          {scan.completed_at
-            ? ` · ${new Intl.DateTimeFormat("en-AU", {
-                dateStyle: "medium",
-                timeStyle: "short",
-              }).format(new Date(scan.completed_at))}`
-            : ""}
+          Last scan: {formatCount(scan.files)} files
+          {scan.completed_at ? ` · ${formatDateTime(scan.completed_at)}` : ""}
           {scan.missing ? ` · ${scan.missing} unavailable` : ""}
           {scan.read_failures ? ` · ${scan.read_failures} need attention` : ""}
         </p>

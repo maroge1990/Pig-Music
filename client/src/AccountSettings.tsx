@@ -6,6 +6,7 @@ import {
 } from "./QualitySelect";
 import { api } from "./api";
 import type { Person } from "./AppShell";
+import { PageHeader } from "./PageHeader";
 
 type Session = {
   id: string;
@@ -68,7 +69,10 @@ export function AccountSettings({
   }
   return (
     <main className="personal-main">
-      <h1>Your account</h1>
+      <PageHeader
+        title="Your account"
+        subtitle="Appearance, password, devices and your music settings."
+      />
       {message && <p role="status">{message}</p>}
       {error && <p role="alert">{error}</p>}
       <section className="account-section">

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { friendlyRequestError } from "./requestError";
+import { StateBadge } from "./StateBadge";
 
 type Request = {
   id: string;
@@ -32,6 +33,13 @@ const labels: Record<
   cancelled: ["Cancelled", "failed"],
   failed: ["Couldn't get this song", "failed"],
 };
+
+const badge = {
+  waiting: "requested",
+  active: "active",
+  done: "library",
+  failed: "failed",
+} as const;
 
 export function PersonalRequests() {
   const readSerial = useRef(0);
@@ -168,7 +176,7 @@ export function PersonalRequests() {
                     </p>
                   )}
                 </div>
-                <span className={`request-status ${tone}`}>{label}</span>
+                <StateBadge state={badge[tone]} label={label} />
                 {(r.status === "failed" || r.status === "cancelled") && (
                   <button
                     className="small-button"

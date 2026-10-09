@@ -180,16 +180,41 @@
   padding: 0 5px;
   color: var(--control-border);
 }
-.status-pill {
-  font-size: var(--type-caption);
-  color: var(--success);
+/* One state badge for every "where is this song" answer: icon plus words. */
+.state-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-8);
+  padding: var(--space-4) var(--space-12);
+  border-radius: var(--radius-capsule);
+  font-size: var(--type-footnote);
+  font-weight: 600;
+  line-height: 1.4;
+  background: var(--raised);
+  color: var(--secondary);
+}
+.state-badge[data-state="library"] {
   background: var(--success-fill);
-  padding: 6px 9px;
-  border: 1px solid var(--success-fill);
-  border-radius: var(--radius-compact);
+  color: var(--success);
+}
+.state-badge[data-state="requested"] {
+  background: var(--raised);
+  color: var(--secondary);
+}
+.state-badge[data-state="active"] {
+  background: var(--raised);
+  color: var(--text-accent);
+}
+.state-badge[data-state="failed"] {
+  background: var(--danger-fill);
+  color: var(--danger);
+}
+.state-badge.icon-only {
+  padding: 0;
+  background: none;
+}
+.state-badge > svg {
+  flex-shrink: 0;
 }
 .track-position {
   font-size: var(--type-caption);
