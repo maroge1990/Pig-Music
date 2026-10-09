@@ -1082,23 +1082,6 @@
         "title": "Membership",
         "type": "object"
       },
-      "MembershipBatch": {
-        "properties": {
-          "songs": {
-            "items": {
-              "$ref": "#/components/schemas/SongReference"
-            },
-            "maxItems": 200,
-            "title": "Songs",
-            "type": "array"
-          }
-        },
-        "required": [
-          "songs"
-        ],
-        "title": "MembershipBatch",
-        "type": "object"
-      },
       "OrganiseRequest": {
         "properties": {
           "tags": {
