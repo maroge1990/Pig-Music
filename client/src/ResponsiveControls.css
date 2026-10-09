@@ -143,3 +143,19 @@
   flex: 0 0 88px;
   border-radius: 50%;
 }
+.artist-choice ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.artist-choice li {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+.artist-choice small {
+  color: var(--muted, inherit);
+}

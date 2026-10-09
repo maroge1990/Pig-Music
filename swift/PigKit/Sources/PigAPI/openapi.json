@@ -448,6 +448,19 @@
         "title": "ArtistDetail",
         "type": "object"
       },
+      "ArtistLink": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "ArtistLink",
+        "type": "object"
+      },
       "ArtistPage": {
         "properties": {
           "items": {
@@ -834,6 +847,22 @@
             "title": "Source",
             "type": "string"
           },
+          "state": {
+            "enum": [
+              "ready",
+              "no_seeds",
+              "unavailable",
+              "preparing"
+            ],
+            "nullable": true,
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "nullable": true,
+            "title": "Title",
+            "type": "string"
+          },
           "unavailable": {
             "title": "Unavailable",
             "type": "boolean"
@@ -1001,6 +1030,12 @@
       },
       "MediaSettings": {
         "properties": {
+          "chart_region": {
+            "maxLength": 2,
+            "nullable": true,
+            "title": "Chart Region",
+            "type": "string"
+          },
           "fanart_key": {
             "maxLength": 128,
             "nullable": true,
@@ -4334,6 +4369,139 @@
           }
         ],
         "summary": "Saved Identity",
+        "tags": [
+          "personal-library"
+        ]
+      },
+      "put": {
+        "operationId": "link_identity_api_v1_catalogue_library_artists__artist_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "artist_id",
+            "required": true,
+            "schema": {
+              "title": "Artist Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArtistLink"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Link Identity",
         "tags": [
           "personal-library"
         ]

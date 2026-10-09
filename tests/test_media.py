@@ -103,7 +103,13 @@ def test_settings_never_return_key_and_blank_preserves_it(tmp_path):
             "remote_playback": False,
             "fanart_configured": True,
             "listenbrainz_configured": False,
+            "chart_region": "au",
         }
+        saved = client.put("/api/settings/media", json={**body, "chart_region": "nz"})
+        assert saved.json()["chart_region"] == "nz"
+        invalid = client.put("/api/settings/media", json={**body, "chart_region": "n1"})
+        assert invalid.status_code == 400
+        assert client.get("/api/settings/media").json()["chart_region"] == "nz"
         assert client.put(
             "/api/settings/media", json={**body, "fanart_key": None}
         ).json()["fanart_configured"]

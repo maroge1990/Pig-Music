@@ -5,7 +5,16 @@ type Settings = {
   remote_playback: boolean;
   fanart_configured: boolean;
   listenbrainz_configured: boolean;
+  chart_region: string;
 };
+const regions: [string, string][] = [
+  ["au", "Australia"],
+  ["nz", "New Zealand"],
+  ["us", "United States"],
+  ["gb", "United Kingdom"],
+  ["ca", "Canada"],
+  ["ie", "Ireland"],
+];
 export function MediaSettings() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [key, setKey] = useState("");
@@ -43,6 +52,7 @@ export function MediaSettings() {
           fanart_key: clear === "fanart" ? "" : key || null,
           listenbrainz_token:
             clear === "listenbrainz" ? "" : listenToken || null,
+          chart_region: settings.chart_region,
         }),
       });
       const body = await response.json();
@@ -147,9 +157,26 @@ export function MediaSettings() {
             >
               Get your ListenBrainz token
             </a>{" "}
-            to show popular songs and albums. Leave blank to keep an existing
+            to show each artist&rsquo;s popular songs and albums.
+            Recommendations work without it. Leave blank to keep an existing
             token. Tokens stay on your server.
           </p>
+          <label className="download-option">
+            Popular chart region
+            <select
+              aria-label="Popular chart region"
+              value={settings.chart_region}
+              onChange={(e) =>
+                setSettings({ ...settings, chart_region: e.target.value })
+              }
+            >
+              {regions.map(([code, name]) => (
+                <option key={code} value={code}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="import-actions">
             <button
               className="primary-button"

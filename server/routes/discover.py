@@ -4,10 +4,11 @@ import asyncio
 from uuid import UUID
 import httpx
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from ..artist_identity import Ambiguous, resolve_artist
 from ..catalogue import release_tracks, credit
 from ..releases import release_query
-from ..library import normalise
-from ..artwork import quoted
 from ..api_models import TrackDTO
 
 ACTIVE = {"waiting_for_sources", "searching", "downloading", "validating", "importing"}
@@ -97,82 +98,49 @@ def discover_router(store, catalogue, popularity=None, warmer=None):
         artist = next((a for a in projection["artists"] if a["id"] == artist_id), None)
         if artist is None:
             raise HTTPException(404, "Artist not found")
-        # Reuse the identity already established by the full catalogue/artwork.
-        known = store.read_document("library-artist:" + artist_id)
-        if known and normalise(known.get("name", "")) == normalise(artist["name"]):
-            return {"id": valid(known["id"]), "name": artist["name"]}
         albums = [a for a in projection["albums"] if a["id"] in artist["album_ids"]]
-        identities = {}
-
-        def credits(items):
-            for item in items:
-                candidate = item.get("artist", {})
-                if candidate.get("id") and normalise(
-                    candidate.get("name", "")
-                ) == normalise(artist["name"]):
-                    identities[candidate["id"]] = {
-                        "id": candidate["id"],
-                        "name": candidate["name"],
-                    }
-
-        # Release credits distinguish namesakes without guessing from popularity.
-        release_ids = list(
-            dict.fromkeys(
-                a.get("musicbrainz_release_id")
-                for a in albums
-                if a.get("musicbrainz_release_id")
+        try:
+            return await resolve_artist(
+                store, catalogue, request.app.state.http, artist, albums
             )
+        except Ambiguous as exc:
+            return JSONResponse(
+                {
+                    "detail": "Choose this artist in catalogue search to distinguish matching names.",
+                    "code": "conflict",
+                    "candidates": exc.candidates,
+                },
+                status_code=409,
+            )
+        except (httpx.HTTPError, ValueError, KeyError):
+            raise HTTPException(502, "catalogue_unavailable")
+
+    class ArtistLink(BaseModel):
+        id: str
+
+    @router.put("/library-artists/{artist_id}")
+    async def link_identity(artist_id: str, body: ArtistLink, request: Request):
+        # The household owner chooses once; every member then shares the link.
+        if request.state.user["role"] != "owner":
+            raise HTTPException(403, "owner_only")
+        projection = await asyncio.to_thread(
+            store.user_libraries.projection, request.state.user["id"]
         )
-        for release_id in release_ids[:3]:
-            release = await metadata(
-                request, "release/" + valid(release_id), inc="artist-credits"
-            )
-            credits(release.get("artist-credit", []))
-        if not identities:
-            result = await metadata(
-                request, "artist/", query="artist:" + quoted(artist["name"]), limit=100
-            )
-            matches = [
-                a
-                for a in result.get("artists", [])
-                if normalise(a["name"]) == normalise(artist["name"])
-            ]
-            if len(matches) == 1 and result.get("count", len(matches)) <= 100:
-                identities[matches[0]["id"]] = {
-                    "id": matches[0]["id"],
-                    "name": matches[0]["name"],
-                }
-            elif len(matches) > 1:
-                candidates = {a["id"] for a in matches}
-                for album in albums[:3]:
-                    found = await metadata(
-                        request,
-                        "release-group/",
-                        query="releasegroup:"
-                        + quoted(album["title"])
-                        + " AND artist:"
-                        + quoted(artist["name"]),
-                        limit=100,
-                    )
-                    if found.get("count", 0) > 100:
-                        continue
-                    for group in found.get("release-groups", []):
-                        if normalise(group.get("title", "")) == normalise(
-                            album["title"]
-                        ):
-                            credits(
-                                [
-                                    c
-                                    for c in group.get("artist-credit", [])
-                                    if c.get("artist", {}).get("id") in candidates
-                                ]
-                            )
-        if len(identities) != 1:
-            raise HTTPException(
-                409,
-                "Choose this artist in catalogue search to distinguish matching names.",
-            )
-        identity = next(iter(identities.values()))
+        artist = next((a for a in projection["artists"] if a["id"] == artist_id), None)
+        if artist is None:
+            raise HTTPException(404, "Artist not found")
+        chosen = valid(body.id)
+        try:
+            found = await catalogue.get(request.app.state.http, "artist/" + chosen)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in {400, 404}:
+                raise HTTPException(400, "invalid_catalogue_id")
+            raise HTTPException(502, "catalogue_unavailable")
+        except (httpx.HTTPError, ValueError, KeyError):
+            raise HTTPException(502, "catalogue_unavailable")
+        if found.get("id") != chosen or not found.get("name"):
+            raise HTTPException(400, "invalid_catalogue_id")
+        identity = {"id": chosen, "name": artist["name"]}
         store.write_document("library-artist:" + artist_id, identity)
         return identity
 

@@ -230,3 +230,5 @@ class HomeFeedDTO(BaseModel):
     songs: list[HomeItemDTO]
     source: str
     unavailable: bool
+    title: str | None = None
+    state: Literal["ready", "no_seeds", "unavailable", "preparing"] | None = None

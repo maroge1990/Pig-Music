@@ -34,7 +34,16 @@ type Feed = {
   albums: Item[];
   songs: Item[];
   source: string;
+  title?: string;
+  state?: "ready" | "no_seeds" | "unavailable" | "preparing";
   unavailable: boolean;
+};
+const emptyMessages: Record<string, string> = {
+  "recommended:no_seeds":
+    "Recommendations appear once Pig Music has matched artists in your library.",
+  "recommended:unavailable": "Recommendations are temporarily unavailable.",
+  "popular:preparing": "Finding what\u2019s popular\u2026",
+  "popular:unavailable": "Charts are temporarily unavailable.",
 };
 function HomeSection({ kind }: { kind: "popular" | "recommended" }) {
   const [feed, setFeed] = useState<Feed | null>(null);
@@ -42,102 +51,107 @@ function HomeSection({ kind }: { kind: "popular" | "recommended" }) {
   const [error, setError] = useState("");
   useEffect(() => {
     const controller = new AbortController();
-    void api<Feed>("/v1/home/" + kind, { signal: controller.signal })
-      .then((value) => {
-        setFeed(value);
-        // Every artist here opens instantly; the first two are fully ready.
-        whenIdle(() =>
-          [
-            ...new Set(
-              [...value.artists, ...value.albums, ...value.songs].map(
-                (item) => item.artist_id,
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = (attempt: number) =>
+      api<Feed>("/v1/home/" + kind, { signal: controller.signal })
+        .then((value) => {
+          setFeed(value);
+          // The chart is built in the background; keep looking for two minutes.
+          if (value.state === "preparing" && attempt < 6)
+            timer = setTimeout(() => void load(attempt + 1), 20000);
+          // Every artist here opens instantly; the first two are fully ready.
+          whenIdle(() =>
+            [
+              ...new Set(
+                [...value.artists, ...value.albums, ...value.songs].map(
+                  (item) => item.artist_id,
+                ),
               ),
-            ),
-          ]
-            .slice(0, 12)
-            .forEach((id, i) => warmArtist(id, i < 2)),
-        );
-        const plain = songRows(value.songs);
-        setSongs(plain);
-        return withLibrary(plain).then((found) => {
-          if (!controller.signal.aborted) setSongs(found);
+            ]
+              .slice(0, 12)
+              .forEach((id, i) => warmArtist(id, i < 2)),
+          );
+          const plain = songRows(value.songs);
+          setSongs(plain);
+          return withLibrary(plain).then((found) => {
+            if (!controller.signal.aborted) setSongs(found);
+          });
+        })
+        .catch((e) => {
+          if (!controller.signal.aborted) setError(e.message);
         });
-      })
-      .catch((e) => {
-        if (!controller.signal.aborted) setError(e.message);
-      });
-    return () => controller.abort();
+    void load(0);
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
   }, [kind]);
+  const collections = (["artists", "albums", "songs"] as const).filter(
+    (collection) => feed?.[collection].length,
+  );
+  const heading =
+    kind === "popular"
+      ? feed?.title || "Popular in Australia"
+      : "Recommended for you";
+  const caption =
+    feed?.source ||
+    (kind === "popular"
+      ? "Apple Music · Australia"
+      : "Similar to artists in your library");
+  const empty = feed
+    ? emptyMessages[kind + ":" + (feed.state || "")] ||
+      (feed.unavailable || kind === "recommended"
+        ? emptyMessages[kind + ":unavailable"]
+        : "")
+    : "";
   return (
     <section className="home-section">
-      <h2>
-        {kind === "popular" ? "Popular this week" : "Recommended for you"}
-      </h2>
-      <p>
-        {feed?.source ||
-          (kind === "popular"
-            ? "ListenBrainz listeners"
-            : "Based on artists saved in your library")}
-      </p>
-      {!feed && <p role="status">{error || "Finding music…"}</p>}
-      {feed &&
-        ["artists", "albums", "songs"].map((collection) => (
-          <section key={collection}>
-            <h3>{collection[0].toUpperCase() + collection.slice(1)}</h3>
-            {collection === "songs" ? (
-              <div className="song-list home-songs">
-                {songs.map((song, i) => (
-                  <SongRow key={song.key} song={song} queue={songs} index={i} />
-                ))}
-              </div>
-            ) : (
-              <div className="home-grid">
-                {feed[collection as "artists"].map((item) => (
-                  <button
-                    className="album-card"
-                    key={item.id}
-                    onClick={() => {
-                      location.hash =
-                        discoverUrl(
-                          {
-                            id: item.artist_id,
-                            name: item.artist || item.name,
-                          },
-                          collection === "songs" ? item.release_id : undefined,
-                        ) +
-                        (collection === "albums" ? "&group=" + item.id : "");
-                    }}
-                  >
-                    <Cover
-                      title={item.name}
-                      artist={collection === "artists"}
-                      src={
-                        collection === "artists"
-                          ? `/api/catalogue/artists/${item.id}/artwork`
-                          : collection === "albums"
-                            ? catalogueCover("release-group", item.id)
-                            : item.release_id
-                              ? catalogueCover("release", item.release_id)
-                              : undefined
-                      }
-                    />
-                    <strong>{item.name}</strong>
-                    <p>{collection !== "artists" && item.artist}</p>
-                    {item.reason && <small>{item.reason}</small>}
-                  </button>
-                ))}
-              </div>
-            )}
-            {!feed[collection as "artists"].length && (
-              <p className="muted">
-                {kind === "recommended"
-                  ? "Save artists to your library to find related music. Some artists do not yet have similarity data."
-                  : "This feed is temporarily unavailable."}
-              </p>
-            )}
-          </section>
-        ))}
-      {feed?.unavailable && (
+      <h2>{heading}</h2>
+      {(!feed || collections.length > 0) && <p>{caption}</p>}
+      {!feed && <p role="status">{error || "Finding music\u2026"}</p>}
+      {feed && !collections.length && empty && <p role="status">{empty}</p>}
+      {collections.map((collection) => (
+        <section key={collection}>
+          <h3>{collection[0].toUpperCase() + collection.slice(1)}</h3>
+          {collection === "songs" ? (
+            <div className="song-list home-songs">
+              {songs.map((song, i) => (
+                <SongRow key={song.key} song={song} queue={songs} index={i} />
+              ))}
+            </div>
+          ) : (
+            <div className="home-grid">
+              {feed![collection].map((item) => (
+                <button
+                  className="album-card"
+                  key={item.id}
+                  onClick={() => {
+                    location.hash =
+                      discoverUrl({
+                        id: item.artist_id,
+                        name: item.artist || item.name,
+                      }) + (collection === "albums" ? "&group=" + item.id : "");
+                  }}
+                >
+                  <Cover
+                    title={item.name}
+                    artist={collection === "artists"}
+                    src={
+                      collection === "artists"
+                        ? `/api/catalogue/artists/${item.id}/artwork`
+                        : catalogueCover("release-group", item.id)
+                    }
+                  />
+                  <strong>{item.name}</strong>
+                  <p>{collection !== "artists" && item.artist}</p>
+                  {item.reason && <small>{item.reason}</small>}
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      ))}
+      {feed && collections.length > 0 && feed.unavailable && (
         <p role="status">
           Some discovery feeds are unavailable. Your library is still available.
         </p>
@@ -191,8 +205,8 @@ export function Home() {
       <h1>Home</h1>
       <p>Find your next favourite.</p>
       <RecentlyAdded />
-      <HomeSection kind="popular" />
       <HomeSection kind="recommended" />
+      <HomeSection kind="popular" />
     </main>
   );
 }
