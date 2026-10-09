@@ -154,6 +154,10 @@
   gap: 0.5rem;
   overflow-x: auto;
   padding-bottom: 0.75rem;
+  scrollbar-width: none;
+}
+.personal-tabs::-webkit-scrollbar {
+  display: none;
 }
 .personal-tabs button {
   flex-shrink: 0;

@@ -73,6 +73,7 @@ export function AdminTools({ route }: { route: Route }) {
     configured: boolean;
     connected: boolean;
   } | null>(null);
+  const [publicOrigin, setPublicOrigin] = useState<string | null | undefined>();
   const fileInput = useRef<HTMLInputElement>(null);
   const queueSignature = useRef("");
 
@@ -92,6 +93,9 @@ export function AdminTools({ route }: { route: Route }) {
     api<{ configured: boolean; connected: boolean }>("/settings/soulseek")
       .then(setSoulseekHealth)
       .catch(() => {});
+    api<{ public_origin: string | null }>("/admin/access")
+      .then((v) => setPublicOrigin(v.public_origin))
+      .catch(() => setPublicOrigin(null));
   }, []);
 
   useEffect(() => {
@@ -806,6 +810,7 @@ export function AdminTools({ route }: { route: Route }) {
           library={library}
           downloadSettings={downloadSettings}
           soulseekHealth={soulseekHealth}
+          publicOrigin={publicOrigin}
         />
       )}
       {section === "downloads" && (

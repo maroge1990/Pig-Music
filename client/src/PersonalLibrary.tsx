@@ -69,6 +69,36 @@ type Section = keyof typeof sectionCategory;
 type LibraryTab = (typeof libraryTabs)[number];
 const tabLabel = (id: string) => id[0].toUpperCase() + id.slice(1);
 
+function albumMeta(info: {
+  artist?: string;
+  artistId?: string;
+  year?: number;
+  trackCount?: number;
+}) {
+  const rest = [
+    info.year ? String(info.year) : "",
+    info.trackCount
+      ? `${info.trackCount} ${info.trackCount === 1 ? "song" : "songs"}`
+      : "",
+  ].filter(Boolean);
+  return (
+    <>
+      {info.artist &&
+        (info.artistId ? (
+          <a href={"#/library/artist/" + info.artistId}>{info.artist}</a>
+        ) : (
+          info.artist
+        ))}
+      {rest.map((part, i) => (
+        <span key={part}>
+          {i > 0 || info.artist ? " · " : ""}
+          {part}
+        </span>
+      ))}
+    </>
+  );
+}
+
 export function PersonalLibrary({
   user,
   route,
@@ -95,6 +125,12 @@ export function PersonalLibrary({
     albums?: Album[];
     playlist?: Playlist;
     releaseId?: string;
+    albumInfo?: {
+      artist?: string;
+      artistId?: string;
+      year?: number;
+      trackCount?: number;
+    };
   } | null>(null);
   // The full tracklist of the open album's release, when it could be read.
   const [release, setRelease] = useState<{
@@ -229,6 +265,12 @@ export function PersonalLibrary({
         tracks: data.tracks,
         quality: { scope: "album", itemId: data.id },
         releaseId,
+        albumInfo: {
+          artist: data.artist,
+          artistId: data.artist_id,
+          year: data.year,
+          trackCount: data.track_count ?? data.tracks.length,
+        },
       });
       // The rest of the tracklist arrives after the page is already usable.
       if (releaseId) void loadRelease(album.id, releaseId);
@@ -467,6 +509,15 @@ export function PersonalLibrary({
         <h1>Search</h1>
       ) : detail?.artist ? (
         <SavedArtistHeading artist={detail.artist} personal />
+      ) : detail?.albumInfo ? (
+        <div className="page-heading catalogue-heading">
+          <Cover title={detail.title} src={detail.cover} />
+          <div>
+            <div className="eyebrow">IN YOUR LIBRARY</div>
+            <h1>{detail.title}</h1>
+            <p>{albumMeta(detail.albumInfo)}</p>
+          </div>
+        </div>
       ) : (
         <h1>{detail?.title || "Your library"}</h1>
       )}
@@ -698,8 +749,8 @@ export function PersonalLibrary({
               )
             ) : (
               <p className="muted">
-                Tap the heart on any song to keep it here. Favourites never
-                download anything by themselves.
+                Choose Favourite from a song&apos;s … menu to keep it here.
+                Favourites never download anything by themselves.
               </p>
             ))}
           {tab === "playlists" && (

@@ -615,36 +615,6 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     async def favourite_song(body: SongReference):
         return playlists.favourite(await resolve_song(body), body.favourite)
 
-    class MembershipBatch(BaseModel):
-        songs: list[SongReference] = Field(max_length=200)
-
-    @app.post("/api/membership")
-    async def song_membership(body: MembershipBatch):
-        # Resolve catalogue data through the shared provider cache and build the
-        # favourite index once, rather than acquiring a transaction for each row.
-        try:
-            favourites = playlists.raw("pig-favourites")["tracks"]
-        except ValueError:
-            favourites = []
-        from .matching import LibraryIndex, context, same_song
-
-        index = LibraryIndex({"albums": [{"id": "favourites", "tracks": favourites}]})
-        result = []
-        for reference in body.songs:
-            try:
-                track = await resolve_song(reference)
-                result.append(
-                    {
-                        "favourited": any(
-                            same_song(t, track)
-                            for t in index.by_context.get(context(track), ())
-                        )
-                    }
-                )
-            except HTTPException as exc:
-                result.append({"favourited": False, "error": exc.detail})
-        return {"songs": result}
-
     @app.get("/api/settings/plex")
     def plex_status():
         return plex.status()
@@ -911,6 +881,11 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     @app.get("/api/settings/downloads")
     def download_settings():
         return store.download_settings()
+
+    @app.get("/api/admin/access")
+    def admin_access():
+        # Owner-only by default: members only reach routes tagged personal-library.
+        return {"public_origin": https_origin or None}
 
     @app.get("/api/settings/soulseek")
     async def soulseek_health():

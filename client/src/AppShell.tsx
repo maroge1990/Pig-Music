@@ -76,13 +76,36 @@ export function AppShell() {
       if (chosen === "light" || chosen === "dark") return;
       const theme = media.matches ? "dark" : "light";
       document.documentElement.dataset.theme = theme;
+    };
+    // The browser chrome follows whatever theme is applied, whether the device
+    // changed or the person picked System, Light or Dark in Account.
+    const paint = () =>
       document
         .querySelector('meta[name="theme-color"]')
-        ?.setAttribute("content", theme === "dark" ? "#15111A" : "#FBF8FA");
-    };
+        ?.setAttribute(
+          "content",
+          document.documentElement.dataset.theme === "dark"
+            ? "#15111A"
+            : "#FBF8FA",
+        );
+    const observer = new MutationObserver(paint);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    paint();
     media.addEventListener("change", follow);
-    return () => media.removeEventListener("change", follow);
+    return () => {
+      observer.disconnect();
+      media.removeEventListener("change", follow);
+    };
   }, []);
+
+  useEffect(() => {
+    document.title = user
+      ? `${sections.find((s) => s.id === route.section)?.label || "Home"} · Pig Music`
+      : "Pig Music";
+  }, [user, route.section]);
 
   useEffect(() => {
     const changed = () => {

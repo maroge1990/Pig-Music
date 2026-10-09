@@ -97,6 +97,7 @@ export function SearchPage({
             key={query}
             name="q"
             type="search"
+            aria-label="Search artists, albums or songs"
             defaultValue={query}
             required
             maxLength={150}
