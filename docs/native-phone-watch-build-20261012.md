@@ -1,6 +1,6 @@
 # iPhone/iPad parity candidate and production Watch app
 
-Branding follow-up: build **0.2.0 (3)** adopts the official Pig family 1.7.0 assets and native presentation. See [the branding integration](native-branding-20261012.md). Functional acceptance gates below remain open.
+Branding follow-up: build **0.2.0 (3)** adopts the official Pig family 1.7.0 assets and native presentation. See [the branding integration](native-branding-20261012.md). GitHub Actions minutes were restored for this follow-up; current run links are in that integration record. Functional acceptance gates below remain open.
 
 12 October 2026, Australia/Melbourne. Build 0.2.0 (2). This milestone extends the October 11 testing candidate. The owner requested completion of everyday iPhone features and a working Watch app, including independent downloads, gapless playback and crossfade. Publishing to main is authorized; live Unraid deployment is separate. Software delivery and physical acceptance are recorded separately below.
 
