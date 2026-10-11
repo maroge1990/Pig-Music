@@ -42,9 +42,13 @@ import UIKit
   }
 
   func restore() async {
-    guard !restoring, person == nil else { return }
+    guard !restoring, !busy, person == nil else { return }
     restoring = true
-    defer { restoring = false }
+    busy = true
+    defer {
+      restoring = false
+      busy = false
+    }
     #if DEBUG
       if ProcessInfo.processInfo.arguments.contains("--demo") {
         await loadDemo()
@@ -87,9 +91,11 @@ import UIKit
   }
   private func attach(_ user: Person, service: NativeService) async throws {
     generation += 1
+    let stamp = generation
     let base = try FileManager.default.url(
       for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-    let origin = try ServerAddress.validate(server)
+    let origin = await service.server
+    guard generation == stamp else { throw CancellationError() }
     let directory = base.appendingPathComponent("PigMusic").appendingPathComponent(
       LibraryNamespace.key(server: origin, personId: user.id))
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -98,9 +104,17 @@ import UIKit
     values.isExcludedFromBackup = true
     try excluded.setResourceValues(values)
     let database = try LibraryStore(path: directory.appendingPathComponent("library.sqlite").path)
+    let cacheBase = try FileManager.default.url(
+      for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+    try await player.configureSources(
+      directory: cacheBase.appendingPathComponent("PigMusic").appendingPathComponent(
+        LibraryNamespace.key(server: origin, personId: user.id)
+      ).appendingPathComponent("audio"))
+    guard generation == stamp else { throw CancellationError() }
     artworkCache = try? ArtworkCache(directory: directory.appendingPathComponent("artwork"))
     artworkNamespace = LibraryNamespace.key(server: origin, personId: user.id)
     artworkMemory.removeAllObjects()
+    server = origin.absoluteString
     self.service = service
     store = database
     sync = SyncCoordinator(source: service, store: database)
@@ -123,7 +137,21 @@ import UIKit
       try await sync.refresh()
       guard generation == stamp else { return }
       try await loadCache()
-      message = nil
+      let revisions = await player.cachedRevisions()
+      guard generation == stamp else { return }
+      var invalid = false
+      for (id, revision) in revisions {
+        let track = try await store?.track(id: id)
+        if track == nil || track?.sourceRevision != revision {
+          invalid = true
+          break
+        }
+      }
+      guard generation == stamp else { return }
+      if invalid { await player.invalidateSources() }
+      guard generation == stamp else { return }
+      message =
+        invalid ? "Playback stopped because the server changed or removed cached music." : nil
     } catch NativeFailure.authentication {
       guard generation == stamp else { return }
       revoked(generation: stamp)
@@ -264,7 +292,7 @@ import UIKit
   }
   private func detach() {
     generation += 1
-    player.stop()
+    player.clearAccount()
     person = nil
     service = nil
     store = nil
@@ -310,6 +338,7 @@ import UIKit
           for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true
         )
         .appendingPathComponent("PigMusicDemoArtwork-v1")
+        try await player.configureSources(directory: demoDirectory.appendingPathComponent("audio"))
         artworkCache = try ArtworkCache(directory: demoDirectory)
         artworkNamespace = "synthetic-demo"
         store = database

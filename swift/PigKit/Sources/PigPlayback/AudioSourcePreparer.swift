@@ -167,6 +167,46 @@ public actor AudioSourcePreparer {
     return result
   }
 
+  /// Stage a trusted local file (for the synthetic demo or a future offline repository).
+  /// Remote source resolution still goes through the HTTPS-only prepare operation.
+  public func stageLocalFile(_ source: URL) throws -> PreparedAudioSource {
+    try Task.checkCancellation()
+    guard source.isFileURL else { throw AudioSourceFailure.invalidURL }
+    guard transfer == nil else { throw AudioSourceFailure.busy }
+    let retained = leases.values.reduce(0) { $0 + $1.byteCount }
+    guard retained <= maximumTotalBytes - maximumFileBytes else {
+      throw AudioSourceFailure.storageLimit
+    }
+    let input = try FileHandle(forReadingFrom: source)
+    defer { try? input.close() }
+    let id = UUID()
+    let extensions = ["wav", "aiff", "aif", "m4a", "mp3", "flac", "ogg", "opus", "aac"]
+    let suffix = source.pathExtension.lowercased()
+    let destination = directory.appendingPathComponent(id.uuidString)
+      .appendingPathExtension(extensions.contains(suffix) ? suffix : "media")
+    let partial = destination.appendingPathExtension("partial")
+    guard FileManager.default.createFile(atPath: partial.path, contents: nil) else {
+      throw AudioSourceFailure.storageLimit
+    }
+    defer { try? FileManager.default.removeItem(at: partial) }
+    let handle = try FileHandle(forWritingTo: partial)
+    defer { try? handle.close() }
+    var count = 0
+    while let chunk = try input.read(upToCount: 65536), !chunk.isEmpty {
+      try Task.checkCancellation()
+      guard chunk.count <= maximumFileBytes - count else { throw AudioSourceFailure.tooLarge }
+      count += chunk.count
+      try handle.write(contentsOf: chunk)
+    }
+    guard count > 0 else { throw AudioSourceFailure.invalidBody }
+    try Task.checkCancellation()
+    try handle.close()
+    try FileManager.default.moveItem(at: partial, to: destination)
+    let result = PreparedAudioSource(id: id, file: destination, byteCount: count)
+    leases[id] = result
+    return result
+  }
+
   public func release(_ source: PreparedAudioSource) {
     guard let owned = leases.removeValue(forKey: source.id) else { return }
     try? FileManager.default.removeItem(at: owned.file)

@@ -5,6 +5,7 @@ Start with [blueprint.md](../blueprint.md), the primary engineering/agent handov
 - [Internet access and invites](internet-access.md): public origin, Cloudflare Tunnel deployment, invite model and protections.
 - [Operations and recovery](operations.md): current local setup, private configuration, candidate deployment and rollback.
 - [Testing](testing.md): isolation, verification journeys and performance measurement.
+- [Integrated native testing handoff](native-testing-handoff-20261011.md): free-account installation, streaming/seamless comparison and server migration/provider acceptance.
 - [Native uplift scope](native-uplift-scope-20261011.md) and [first connected alpha](native-uplift-delivery-20261011.md): current iPhone/iPad requirements, implementation evidence and remaining parity work; Watch follows, then Mac.
 - [Download-source parity assessment](download-source-parity-assessment-20261011.md): current provider evidence, shared adapter/quality design, ordered build packages and acceptance gates; implementation and remaining acceptance are recorded in the adapter delivery below.
 - [Source-parity foundations](source-parity-foundations-20261011.md): first local implementation increment, native audio/migration verification and the server contract handoff to concurrent Swift work.

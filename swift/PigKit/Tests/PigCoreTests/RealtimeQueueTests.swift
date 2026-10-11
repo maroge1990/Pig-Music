@@ -379,6 +379,39 @@ private func queueRoot() throws -> URL {
     await session.stopAndWait()
     #expect(await sources.active.isEmpty)
   }
+  @Test @MainActor func clockContinuesDuringUpcomingBufferingAndRecoveryPreservesPause()
+    async throws
+  {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(
+      files: ["a": try queueFixture(root, id: "a", value: 0.2)], delayed: "b")
+    let output = SilentQueueOutput()
+    let session = try RealtimeQueueSession(output: output)
+    session.replace(
+      [queueTrack("a"), queueTrack("b")], acquire: { try await sources.get($0) },
+      release: { await sources.release($0) })
+    try await waitQueue { session.snapshot.state == .playing }
+    let deadline = ContinuousClock.now + .seconds(5)
+    while session.snapshot.state != .buffering {
+      guard ContinuousClock.now < deadline else {
+        await session.stopAndWait()
+        throw AudioPipelineFailure.stalled
+      }
+      output.consume()
+      try await Task.sleep(for: .milliseconds(10))
+    }
+    #expect(session.snapshot.elapsed > 0.9)
+    session.pause()
+    session.seek(0)
+    try await waitQueue { session.snapshot.state == .paused }
+    session.recoverOutput()
+    try await waitQueue { session.snapshot.state == .paused }
+    #expect(!session.snapshot.wantsPlayback)
+    #expect(!output.playing)
+    await session.stopAndWait()
+    #expect(await sources.active.isEmpty)
+  }
   @Test @MainActor func sourceFailureDrainsOutgoingAudioBeforeReportingFallback() async throws {
     let root = try queueRoot()
     defer { try? FileManager.default.removeItem(at: root) }

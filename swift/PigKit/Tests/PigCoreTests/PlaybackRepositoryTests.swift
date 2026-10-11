@@ -1,0 +1,90 @@
+import Foundation
+import PigDomain
+import PigPlayback
+import Testing
+
+struct PlaybackRepositoryTests {
+  @Test func leasesReuseFilesProtectReadersAndEvictOnlyInactiveSources() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let input = root.appendingPathComponent("input.wav")
+    try Data(repeating: 7, count: 12).write(to: input)
+    let repository = PlaybackSourceRepository(
+      preparer: try AudioSourcePreparer(root: root, maximumFileBytes: 20, maximumTotalBytes: 40))
+    let a = Track(id: "a", title: "A", artist: "Fixture")
+    let b = Track(id: "b", title: "B", artist: "Fixture")
+    let c = Track(id: "c", title: "C", artist: "Fixture")
+    let first = try await repository.acquireLocal(a, file: input)
+    let duplicate = try await repository.acquireLocal(a, file: input)
+    #expect(first.id != duplicate.id)
+    #expect(first.file == duplicate.file)
+    let second = try await repository.acquireLocal(b, file: input)
+    await repository.release(first)
+    await #expect(throws: AudioSourceFailure.storageLimit) {
+      try await repository.acquireLocal(c, file: input)
+    }
+    #expect(FileManager.default.fileExists(atPath: duplicate.file.path))
+    await repository.release(duplicate)
+    let third = try await repository.acquireLocal(c, file: input)
+    #expect(!FileManager.default.fileExists(atPath: first.file.path))
+    #expect(FileManager.default.fileExists(atPath: second.file.path))
+    await repository.release(second)
+    await repository.release(third)
+    let reused = try await repository.acquireLocal(c, file: input)
+    #expect(reused.file == third.file)
+    let revisions = await repository.savedRevisions()
+    #expect(Set(revisions.keys) == ["b", "c"])
+    await repository.release(reused)
+    await repository.reset()
+    #expect(!FileManager.default.fileExists(atPath: reused.file.path))
+    #expect(try Data(contentsOf: input) == Data(repeating: 7, count: 12))
+  }
+
+  @Test func changedRevisionCreatesDistinctSourceAndLocalStagingIsBounded() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let input = root.appendingPathComponent("input.wav")
+    try Data(repeating: 7, count: 12).write(to: input)
+    let preparer = try AudioSourcePreparer(root: root, maximumFileBytes: 20, maximumTotalBytes: 40)
+    let repository = PlaybackSourceRepository(preparer: preparer)
+    var track = Track(id: "a", title: "A", artist: "Fixture")
+    track.sourceRevision = "first"
+    let first = try await repository.acquireLocal(track, file: input)
+    await repository.release(first)
+    track.sourceRevision = "second"
+    let second = try await repository.acquireLocal(track, file: input)
+    #expect(first.file != second.file)
+    await repository.release(second)
+    await repository.reset()
+    try Data(repeating: 7, count: 21).write(to: input)
+    await #expect(throws: AudioSourceFailure.tooLarge) { try await preparer.stageLocalFile(input) }
+    await #expect(throws: AudioSourceFailure.invalidURL) {
+      try await preparer.stageLocalFile(URL(string: "https://media.invalid/song.wav")!)
+    }
+    let files =
+      (FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?.allObjects
+      as? [URL] ?? []).filter {
+        (try? $0.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true
+      }
+    #expect(files.map { $0.resolvingSymlinksInPath() } == [input.resolvingSymlinksInPath()])
+  }
+
+  @Test func interruptionPreservesIntentButManualPauseAndDeniedResumeWin() {
+    var intent = PlaybackIntent()
+    intent.play()
+    intent.beginInterruption()
+    #expect(intent.wantsPlayback && !intent.canPlay)
+    intent.endInterruption(shouldResume: true)
+    #expect(intent.canPlay)
+    intent.beginInterruption()
+    intent.pause()
+    intent.endInterruption(shouldResume: true)
+    #expect(!intent.canPlay)
+    intent.play()
+    intent.beginInterruption()
+    intent.endInterruption(shouldResume: false)
+    #expect(!intent.wantsPlayback && !intent.interrupted)
+  }
+}

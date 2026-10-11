@@ -195,7 +195,17 @@ def test_recommendations_bound_new_resolutions_per_request(tmp_path):
     assert catalogue.paths.count("artist/") == 4
 
 
-def test_recommendations_exclude_owned_ids_and_interleave_seeds(tmp_path):
+def test_recommendations_exclude_owned_ids_and_interleave_seeds(tmp_path, monkeypatch):
+    # Pin the daily seed rotation so this order assertion is stable on every date.
+    class FixedDate:
+        @staticmethod
+        def today():
+            return FixedDate()
+
+        def toordinal(self):
+            return 0
+
+    monkeypatch.setattr("server.home.date", FixedDate)
     store = Store(tmp_path)
     store.write_document("library-artist:one", {"id": uid(1), "name": "One"})
     store.write_document("library-artist:two", {"id": uid(2), "name": "Two"})

@@ -3,7 +3,7 @@ import Foundation
 import PigDomain
 
 public enum QueuePlaybackState: Sendable, Equatable {
-  case idle, preparing, playing, paused, ended, failed
+  case idle, preparing, buffering, playing, paused, ended, failed
 }
 public struct QueuePlaybackSnapshot: Sendable, Equatable {
   public var state: QueuePlaybackState = .idle
@@ -30,12 +30,25 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
   private let engine = AVAudioEngine()
   private let node = AVAudioPlayerNode()
   private var connected = false
+  private var generation = 0
+  private var scheduledFrames: Int64 = 0
+  private var completedFrames: Int64 = 0
+  private var segmentOrigin: Int64 = 0
+  private var nodeOrigin: Int64 = 0
+  private var pausedPosition: Int64 = 0
   public init() { engine.attach(node) }
-  public var positionFrames: Int64 {
+  public var engineIdentity: ObjectIdentifier { ObjectIdentifier(engine) }
+  public var requiresRecovery: Bool { connected && !engine.isRunning }
+  private var nodePosition: Int64 {
     guard let time = node.lastRenderTime, let player = node.playerTime(forNodeTime: time) else {
       return 0
     }
     return max(0, player.sampleTime)
+  }
+  public var positionFrames: Int64 {
+    guard node.isPlaying else { return pausedPosition }
+    return min(
+      scheduledFrames, max(completedFrames, segmentOrigin + max(0, nodePosition - nodeOrigin)))
   }
   public func configure(sampleRate: Double, blockFrames: Int) throws {
     stop()
@@ -49,19 +62,42 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
     try engine.start()
   }
   public func schedule(_ block: PCMBlock, completion: @escaping @Sendable () -> Void) throws {
-    node.scheduleBuffer(try block.audioBuffer(), completionCallbackType: .dataPlayedBack) { _ in
-      completion()
+    if scheduledFrames == completedFrames, node.isPlaying {
+      // Remove starvation silence from the music timeline when scheduling resumes.
+      segmentOrigin = completedFrames
+      nodeOrigin = nodePosition
+    }
+    let frames = Int64(block.frameCount)
+    scheduledFrames += frames
+    let stamp = generation
+    node.scheduleBuffer(try block.audioBuffer(), completionCallbackType: .dataPlayedBack) {
+      [weak self] _ in
+      Task { @MainActor in
+        guard let self, self.generation == stamp else { return }
+        self.completedFrames += frames
+        completion()
+      }
     }
   }
   public func resume() { node.play() }
-  public func pause() { node.pause() }
+  public func pause() {
+    pausedPosition = positionFrames
+    node.pause()
+  }
   public func stop() {
+    generation += 1
     node.stop()
     engine.stop()
+    scheduledFrames = 0
+    completedFrames = 0
+    segmentOrigin = 0
+    nodeOrigin = 0
+    pausedPosition = 0
   }
+
 }
 
-/// Realtime scheduling candidate. No public UI is switched to it until network/device acceptance.
+/// Realtime scheduling candidate, exposed only through the app’s opt-in testing setting.
 @MainActor public final class RealtimeQueueSession {
   public private(set) var snapshot = QueuePlaybackSnapshot()
   public var onUpdate: (@MainActor (QueuePlaybackSnapshot) -> Void)?
@@ -79,6 +115,8 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
   private var pendingFrames: Int64 = 0
   private var timeline: [QueueAudioMarker] = []
   private var ready = false
+  private var clock: Task<Void, Never>?
+  private var sourceWaiting = false
 
   public init(output: any QueueAudioOutput, sampleRate: Double = 48000, blockFrames: Int = 2048)
     throws
@@ -159,11 +197,14 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
     let index = snapshot.elapsed > 3 ? snapshot.index : max(0, snapshot.index - 1)
     restart(index: index, seconds: 0, autoplay: snapshot.wantsPlayback)
   }
-  public func stop() {
+  @discardableResult public func stop() -> Task<Void, Never>? {
     generation += 1
     pump?.cancel()
+    clock?.cancel()
+    clock = nil
     output.stop()
     ready = false
+    sourceWaiting = false
     pendingFrames = 0
     timeline = []
     snapshot = QueuePlaybackSnapshot()
@@ -171,6 +212,7 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
     acquire = nil
     release = nil
     publish()
+    return pump
   }
   /// Waits for cancelled decoders and acquired/prefetched source leases to be released.
   public func stopAndWait() async {
@@ -186,8 +228,11 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
     let stamp = generation
     let old = pump
     old?.cancel()
+    clock?.cancel()
+    clock = nil
     output.stop()
     ready = false
+    sourceWaiting = false
     pendingFrames = 0
     peakScheduledFrames = 0
     timeline = []
@@ -216,18 +261,21 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
         try output.configure(sampleRate: rate, blockFrames: blockFrames)
         var exhausted = false
         var sourceFailure: Error?
-        var tick = 0
+        startClock(generation: stamp)
         while !exhausted || pendingFrames > 0 {
           try Task.checkCancellation()
           guard generation == stamp else { throw CancellationError() }
           while !exhausted && pendingFrames <= Int64(blockFrames * 3) {
             let decoded: QueuePCMBlock?
+            sourceWaiting = true
             do { decoded = try await current.next() } catch {
+              sourceWaiting = false
               try Task.checkCancellation()
               sourceFailure = error
               exhausted = true
               break
             }
+            sourceWaiting = false
             try Task.checkCancellation()
             guard generation == stamp else { throw CancellationError() }
             guard let block = decoded else {
@@ -258,11 +306,6 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
             refreshPosition()
             publish()
           }
-          tick += 1
-          if tick % 5 == 0 {
-            refreshPosition()
-            publish()
-          }
           if exhausted && pendingFrames == 0 { break }
           try await Task.sleep(for: .milliseconds(20))
         }
@@ -284,7 +327,35 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
           publish()
         }
       }
+      if generation == stamp {
+        clock?.cancel()
+        clock = nil
+      }
       if let stream { await stream.close() }
+    }
+  }
+  /// Rebuild after an interrupted/stopped engine or a route configuration change.
+  public func recoverOutput() {
+    guard ready, !items.isEmpty, snapshot.state != .ended, snapshot.state != .failed else { return }
+    refreshPosition()
+    restart(index: snapshot.index, seconds: snapshot.elapsed, autoplay: snapshot.wantsPlayback)
+  }
+  private func startClock(generation stamp: Int) {
+    clock?.cancel()
+    clock = Task { [weak self] in
+      while !Task.isCancelled {
+        guard let self, generation == stamp else { return }
+        if ready {
+          if snapshot.wantsPlayback, sourceWaiting, pendingFrames == 0 {
+            snapshot.state = .buffering
+          } else if snapshot.wantsPlayback, pendingFrames > 0 {
+            snapshot.state = .playing
+          }
+          refreshPosition()
+          publish()
+        }
+        do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+      }
     }
   }
   private func refreshPosition() {

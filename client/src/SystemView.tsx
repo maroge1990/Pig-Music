@@ -191,19 +191,9 @@ export function DownloadSettingsPanel({
       <ol aria-label="Download source order">
         {downloadSettings.sources.map((source, index) => (
           <li key={source}>
-            {(
-              {
-                soulseek: "Soulseek",
-                freemp3cloud: "FreeMp3Cloud",
-                zvu4no: "zvu4no",
-                jiosaavn: "JioSaavn",
-                youtube: "YouTube",
-                soundcloud: "SoundCloud",
-                monochrome: "Monochrome",
-              } as Record<string, string>
-            )[source] || source}
+            {sourceName(source)}
             <button
-              aria-label={`Move ${source} earlier`}
+              aria-label={`Move ${sourceName(source)} earlier`}
               disabled={index === 0}
               onClick={() => {
                 const sources = [...downloadSettings.sources];
@@ -217,7 +207,7 @@ export function DownloadSettingsPanel({
               Earlier
             </button>
             <button
-              aria-label={`Move ${source} later`}
+              aria-label={`Move ${sourceName(source)} later`}
               disabled={index === downloadSettings.sources.length - 1}
               onClick={() => {
                 const sources = [...downloadSettings.sources];

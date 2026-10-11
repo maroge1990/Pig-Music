@@ -405,3 +405,5 @@ The first preflight caught a quoting error in the release state probe before any
 - Real artist photos and logos.
 - Folding navigation and safe areas on the iPhone.
 - Admin → Overview "Artist pages ready".
+
+- **11 October 2026 — integrated native/download-source testing candidate:** Current main is merged with the iPhone/iPad connected alpha and three additional server source adapters. Streaming stays the default; Account exposes opt-in seamless playback/crossfade, bounded temporary audio reuse, buffering status and lifecycle/system-controls integration. Local combined validation passes 347 backend, 38 web and 61 PigKit tests, the unsigned Debug iPhone/iPad build and existing NativeSpike core tests. Both schema copies match. Initial device signing uses a free Xcode Personal Team. Full everyday parity, physical-device audio and live provider/Unraid acceptance remain pending; see [testing handoff](docs/native-testing-handoff-20261011.md).

@@ -51,6 +51,15 @@ public actor LibraryStore {
       try Int.fetchOne($0, sql: "SELECT count(*) FROM \(collection.rawValue)") ?? 0
     }
   }
+  public func track(id: String) throws -> Track? {
+    try database.read { db in
+      guard
+        let data = try Data.fetchOne(
+          db, sql: "SELECT payload FROM tracks WHERE id=?", arguments: [id])
+      else { return nil }
+      return try LibraryCodec.decoder().decode(Track.self, from: data)
+    }
+  }
   public func tracks(query: String = "", albumId: String? = nil, offset: Int = 0, limit: Int = 100)
     throws -> [Track]
   {

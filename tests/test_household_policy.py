@@ -126,5 +126,6 @@ def test_quality_listing_offers_shared_options_and_household_default(
         ("mp3_320", "MP3 320 kbps", 3),
         ("mp3_128", "MP3 128 kbps", 2),
         ("aac_256", "AAC 256 kbps", 1),
+        ("native_standard", "Native audio (standard or better)", 0.5),
     ]
     assert listing["household_default"] == store.download_settings()["profile"]

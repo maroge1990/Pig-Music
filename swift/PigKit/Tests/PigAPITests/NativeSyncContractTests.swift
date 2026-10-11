@@ -64,6 +64,19 @@ final class NativeSyncContractTests: XCTestCase {
     XCTAssertEqual(media.host, url.host)
     XCTAssertEqual(media.port, url.port)
     XCTAssertTrue(media.path.contains("playback/files"))
+    // Verify the signed server/file handoff, including byte-range delivery.
+    var mediaRequest = URLRequest(url: media)
+    mediaRequest.setValue("bytes=0-63", forHTTPHeaderField: "Range")
+    mediaRequest.setValue("https", forHTTPHeaderField: "X-Forwarded-Proto")
+    let (mediaBytes, mediaResponse) = try await URLSession.shared.data(for: mediaRequest)
+    XCTAssertEqual((mediaResponse as? HTTPURLResponse)?.statusCode, 206)
+    XCTAssertEqual(mediaBytes.count, 64)
+    XCTAssertEqual(String(data: mediaBytes.prefix(4), encoding: .ascii), "RIFF")
+    XCTAssertTrue(
+      (mediaResponse as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Range")?.hasPrefix(
+        "bytes 0-63/") == true)
+    let cachedTrack = try await store.track(id: tracks[0].id)
+    XCTAssertEqual(cachedTrack?.id, tracks[0].id)
     // The fixture is deliberately HTTP-only. Read its real binary response directly here;
     // production HTTPS/bearer/error handling is covered separately by ArtworkTransportTests.
     let sha = try XCTUnwrap(tracks[0].coverSha)

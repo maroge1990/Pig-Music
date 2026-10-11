@@ -1,6 +1,6 @@
 # Native uplift: first connected alpha
 
-11 October 2026, Australia/Melbourne. Local implementation only. No server deployment, signed IPA, account enrollment or physical-device acceptance is claimed. Existing uncommitted web/server fixes were preserved.
+11 October 2026, Australia/Melbourne. Testing candidate implementation. No server deployment, signed IPA, account enrollment or physical-device acceptance is claimed. Current main and the server download-client work have been integrated.
 
 ## Delivered in source
 
@@ -12,7 +12,7 @@
 - Saved signed-URL and experimental cloud playlist source resolution. Queues preserve repeated occurrences; Previous restarts after three seconds or selects the previous occurrence. Basic AVPlayer playback, seek/next/pause, system media commands, interruption/route handling and Now Playing metadata are implemented. Cloud failure does not acquire music.
 - A separate decoded-PCM transition renderer and command-line PigAudioProbe for measuring direct joins/linear crossfades. This is not the production live transition engine.
 - A realtime queue scheduling candidate with one-occurrence source prefetch, source lease cleanup, per-transition decoder continuity, audible-position markers, seek/skip/pause intent and stale-callback rejection. [Realtime queue evidence and app/device gates](native-realtime-queue-20261011.md). The default app player remains AVPlayer.
-- A temporary signed-audio preparation layer with explicit file leases, bounded chunk writes/storage, one expired-link refresh and cancellation fencing. It is connected to the bounded engine in synthetic capture tests; [source preparation evidence and remaining gates](native-source-preparation-20261011.md). The live app is not wired to complete-file preparation yet.
+- A temporary signed-audio preparation layer with explicit file leases, bounded chunk writes/storage, one expired-link refresh and cancellation fencing. It is connected to the bounded engine in synthetic capture tests; [source preparation evidence and remaining gates](native-source-preparation-20261011.md). The app now exposes complete-file preparation through its opt-in seamless playback setting, backed by a two-file account cache and independent reader leases.
 - A bounded block decoder/transition stream and AVAudioEngine output-capture prototype, with immutable PCM transfer across actor boundaries, mixed-rate conversion and fixed-size tail/head storage. See [audio prototype evidence and gates](native-audio-prototype-20261011.md). The app's live player remains AVPlayer.
 - Authenticated saved-library artwork in song rows, album previews/details, mini-player, Now Playing and system media metadata. Encoded disk cache is isolated by server/person, capped at 64 MiB per account, with coalesced fetches, persistence, corruption recovery and least-recently-used eviction. Decoded thumbnails use NSCache with 24 MiB/128-entry eviction targets, background decoding and 2 MiB/per-variant pixel bounds. Missing/failed artwork falls back to a music symbol and retries on the next library refresh; sign-out clears memory and cancels pending artwork work.
 - Native fixture tests and a 50k cache regression; CI now also builds the production iPhone/iPad target. A Debug-only synthetic demo supports UI inspection without real credentials or server access.
@@ -41,7 +41,7 @@ Build/test logs, audio exports and simulator screenshots are under ignored `swif
 
 ## Remaining before everyday parity
 
-The live player still uses an initial AVPlayer implementation. It does not yet guarantee true gapless or implement live crossfade. The offline probe proves sample manipulation/decoding only. Streaming decode/prebuffering, format/sample-rate transitions, encoder trimming and actual audio output must drive the N01 architecture choice and N05 implementation.
+The default live player uses AVPlayer. An opt-in AVAudioEngine candidate implements direct album joins and crossfades, but device gaplessness and lifecycle acceptance remain pending. The offline probe proves sample manipulation/decoding only. Streaming decode/prebuffering, format/sample-rate transitions, encoder trimming and actual audio output must drive the N01 architecture choice and N05 implementation.
 
 The client has no offline audio downloader/AAC service, persisted playback queue/history outbox, SSE subscription, full catalogue search/Home feeds, artist catalogue/details, playlist/favourite/request mutations/import review, removal/undo, personal quality/Plex/password/device management, or full accessibility/device acceptance. Library metadata caching does not imply downloaded audio playback. Experimental provider availability was not tested live. Artwork support currently covers content-addressed saved-library covers; catalogue portraits, logos and catalogue-only covers remain future work.
 
@@ -59,4 +59,14 @@ Image downsampling follows Apple's [Image I/O thumbnail pixel bound](https://dev
 
 The download-source assessment proposes retained Opus/Vorbis formats. Native original playback/download compatibility must be tested for the actual formats that implementation enables. Codec-specific preferences are not exposed by this native slice; future quality UI must consume the final server contract and keep acquisition separate from remote listening.
 
-Next development slice: add an opt-in app integration for the realtime queue with audio-session lifecycle and system playback controls; complete live network/device acceptance, then expand the personal typed contract and Home/catalogue discovery with replay-safe personal actions against the same cached domain/store. Preserve the web-only administrative boundary.
+Next development slice: complete live network/device acceptance for the integrated playback modes, then expand the personal typed contract and Home/catalogue discovery with replay-safe personal actions against the same cached domain/store. Preserve the web-only administrative boundary.
+
+## Integrated testing candidate
+
+The server download clients and latest main were merged before testing, retaining current web navigation/shared controls, account onboarding/invites and legacy quality ranks. The flexible native target ranks below strict AAC/MP3 targets; unknown scanned quality remains protected. Both OpenAPI copies are synchronized.
+
+Combined local validation: **347 backend tests passed**, **38 web tests passed**, strict TypeScript/production build and formatting passed, **61 PigKit tests passed** (17 XCTest and 44 Swift Testing) with the real disposable-server journeys enabled, and the unsigned Debug iPhone/iPad simulator app build passed. The existing NativeSpike core suite passed three tests. OpenAPI/brand/project generation checks, Python formatting, dependency consistency and whitespace checks passed. The 50k local cache case took 7.2 seconds in the final native run; shared-machine timing remains uncontrolled.
+
+The opt-in app integration now includes temporary source caching/reuse with independent leases, account teardown and crash-leftover cleanup, successful-sync invalidation, on-demand audio sessions, interruption intent, route/configuration recovery and system playback/artwork controls. A separate clock continues metadata/buffering updates while source preparation waits. Four additional tests cover source-cache reader protection/eviction, source revision/local staging bounds, interruption intent, and buffering/recovery while paused. The signed server media test now verifies HTTP 206 range delivery.
+
+No physical-device, live provider acquisition, live Unraid rollout or durable offline audio acceptance is claimed. The [testing handoff](native-testing-handoff-20261011.md) uses a free Apple account with Personal Team signing and lists the acceptance gates. Container build/runtime checks run in the existing GitHub workflow; Docker is unavailable on this Mac.

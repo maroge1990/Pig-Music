@@ -19,6 +19,10 @@ public struct PlaybackQueue: Sendable {
     items = tracks.map { PlaybackOccurrence(track: $0) }
     index = min(max(0, startingAt), max(0, items.count - 1))
   }
+  public mutating func select(index: Int) {
+    guard items.indices.contains(index) else { return }
+    self.index = index
+  }
   @discardableResult public mutating func next() -> Bool {
     guard index + 1 < items.count else { return false }
     index += 1
@@ -41,7 +45,8 @@ public enum TransitionPlanner {
   /// Stable album identity and sequential numbering preserve continuous albums, including discs.
   public static func albumOrder(outgoing: Track, incoming: Track) -> Bool {
     guard let album = outgoing.albumId, !album.isEmpty, incoming.albumId == album,
-      let track = outgoing.trackNumber, let next = incoming.trackNumber, track > 0, track < Int.max, next > 0,
+      let track = outgoing.trackNumber, let next = incoming.trackNumber, track > 0, track < Int.max,
+      next > 0,
       outgoing.id != incoming.id
     else { return false }
     let disc = outgoing.discNumber ?? 1

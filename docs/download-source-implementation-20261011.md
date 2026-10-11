@@ -69,7 +69,7 @@ Final local verification:
 - Web: **11 tests passed**, TypeScript/Vite production build passed, Prettier check passed. Existing nonfatal lucide module-directive build warnings remain.
 - Black check passed across **154 files**; server-only OpenAPI freshness, `git diff --check`, dependency consistency (`pip check`) and documentation links/fences passed.
 - The new acceptance CLI completed an isolated Monochrome metadata-only run, returned one matching candidate and wrote zero audio. No production appdata or source configuration was used.
-- The default combined contract check identifies the Swift schema copy as stale. This is the explicit concurrent-agent handoff; the server-only check passes and Swift files were not overwritten.
+- At the adapter milestone, the Swift schema copy was stale. The subsequent integrated testing candidate synchronizes both copies and passes the combined drift check.
 
 Public metadata-only checks on this Mac found:
 
@@ -97,3 +97,7 @@ Still required before claiming full production parity:
 4. Synchronize the Swift contract, run backed-up-state migration/candidate checks, then perform the separately authorized production rollout and rollback preparation.
 
 Full source parity is an operational acceptance claim. Registered sources, synthetic transfer tests and metadata-only probes are recorded separately so partial external acceptance is not reported as complete.
+
+## Native/main integration follow-up
+
+The native task incorporated this implementation and current main into the combined testing candidate. Both OpenAPI copies now match; 347 backend and 38 web tests pass locally after integration, with the TypeScript/production build and formatting checks passing. The native suite passes 61 tests including signed saved-media range delivery against an isolated fixture. Live Unraid/provider acquisitions and Apple-device codec acceptance remain pending. See the [integrated testing handoff](native-testing-handoff-20261011.md).

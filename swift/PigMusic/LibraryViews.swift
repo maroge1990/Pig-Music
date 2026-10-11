@@ -227,6 +227,24 @@ struct AccountView: View {
         Text("\(model.songCount) cached songs")
         Button("Sync now") { Task { await model.refresh() } }.disabled(model.syncing)
       }
+      Section("Playback testing") {
+        Toggle(
+          "Seamless playback",
+          isOn: Binding(
+            get: { model.player.seamlessEnabled }, set: { model.player.seamlessEnabled = $0 }))
+        if model.player.seamlessEnabled {
+          Toggle(
+            "Crossfade",
+            isOn: Binding(
+              get: { model.player.crossfadeEnabled }, set: { model.player.crossfadeEnabled = $0 }))
+          Text(
+            "Blends unrelated songs for three seconds and preserves continuous album order. Changes apply to the next queue."
+          ).font(PigType.footnote)
+        }
+        Text(
+          "Seamless playback prepares temporary audio files. Turn it off to use streaming if preparation fails. Changing modes stops playback."
+        ).font(PigType.footnote)
+      }
       Section {
         Button("Sign out", role: .destructive) { Task { await model.signOut() } }.disabled(
           model.busy)
@@ -251,10 +269,11 @@ struct MiniPlayer: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
       }
+      if player.preparing { ProgressView().accessibilityLabel("Preparing audio") }
       Button(action: player.toggle) {
-        Image(systemName: player.playing ? "pause.fill" : "play.fill").frame(
+        Image(systemName: player.wantsPlayback ? "pause.fill" : "play.fill").frame(
           minWidth: 44, minHeight: 44)
-      }.accessibilityLabel(player.playing ? "Pause" : "Play")
+      }.accessibilityLabel(player.wantsPlayback ? "Pause" : "Play")
       Button(action: player.next) {
         Image(systemName: "forward.end.fill").frame(minWidth: 44, minHeight: 44)
       }.accessibilityLabel("Next song")
@@ -288,14 +307,16 @@ struct NowPlayingView: View {
               Image(systemName: "backward.end.fill").frame(minWidth: 44, minHeight: 44)
             }.accessibilityLabel("Previous song")
             Button(action: player.toggle) {
-              Image(systemName: player.playing ? "pause.circle.fill" : "play.circle.fill").font(
-                .largeTitle
-              ).frame(minWidth: 60, minHeight: 60)
-            }.accessibilityLabel(player.playing ? "Pause" : "Play")
+              Image(systemName: player.wantsPlayback ? "pause.circle.fill" : "play.circle.fill")
+                .font(
+                  .largeTitle
+                ).frame(minWidth: 60, minHeight: 60)
+            }.accessibilityLabel(player.wantsPlayback ? "Pause" : "Play")
             Button(action: player.next) {
               Image(systemName: "forward.end.fill").frame(minWidth: 44, minHeight: 44)
             }.accessibilityLabel("Next song")
           }
+          if player.preparing { ProgressView("Preparing audio…").font(PigType.footnote) }
           if let error = player.error { Text(error).font(PigType.footnote).foregroundStyle(.red) }
           Text("Up next").font(PigType.headline).frame(maxWidth: .infinity, alignment: .leading)
           ForEach(player.queue.items.dropFirst(player.queue.index + 1)) { item in

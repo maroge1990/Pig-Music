@@ -12,7 +12,7 @@ Confirmed in this scoping conversation:
 - Downloads default to original quality, with optional smaller AAC copies and compatibility conversions where necessary.
 - Downloaded music remains playable while offline. Revocation and membership removals reconcile when the device next connects.
 - True gapless playback and crossfade are first-release requirements. CarPlay is outside this release.
-- Distribution will likely move to a paid developer account; that is a direction to evaluate, not a completed account/distribution decision.
+- Initial phone/tablet testing will use a free Apple account with Xcode Personal Team signing. Paid distribution remains a later decision.
 - Watch follows iPhone/iPad and precedes Mac.
 
 Recommended crossfade UX, still a proposal: a simple on/off control, a short duration selected through listening tests, and gapless album-order playback preserved by default. A duration slider is not needed for initial parity. Crossfade and gapless are different modes: gapless preserves the original boundary; crossfade intentionally overlaps it.
@@ -35,7 +35,7 @@ This section records the baseline before build authorization. For subsequent imp
 | Distribution/device proof | Unsigned spike builds documented; physical installation/refresh/network/Watch audio remain unverified in the recorded evidence | Compilation cannot close device acceptance gates |
 | Source versus release | Existing working tree is dirty; 9 October music fixes are recorded as local and not deployed | Freeze and release a known baseline before native integration acceptance |
 
-The older [multi-user/native roadmap](roadmap-multiuser-native.md) is useful background, but it does not satisfy the present scope unchanged. It excludes experimental remote playback, places personal device management on the web, describes an older navigation structure, and allows playback gaps up to 0.5 seconds. Those assumptions are superseded by this scope. Its free-account distribution assumption is under reconsideration.
+The older [multi-user/native roadmap](roadmap-multiuser-native.md) is useful background, but it does not satisfy the present scope unchanged. It excludes experimental remote playback, places personal device management on the web, describes an older navigation structure, and allows playback gaps up to 0.5 seconds. Those assumptions are superseded by this scope. Initial testing now explicitly uses a free Xcode Personal Team; the earlier Sideloadly workflow is not required for this handoff.
 
 The recorded 9 October fixes matter to parity: complete cloud/repeated-entry playlist playback, Previous behaviour, request clearing, catalogue navigation, artist identity resolution and album request formatting. Use [music-bug-fixes-20261009.md](music-bug-fixes-20261009.md) as release input. Do not assume the running server already includes them.
 
@@ -285,7 +285,7 @@ Avoid prematurely adding public accounts, cross-household sharing or multi-tenan
 
 Remaining decision points do not prevent this scope from being actionable:
 
-1. Paid developer enrollment and Ad Hoc versus TestFlight; confirm devices/OS, especially iPads.
+1. Complete free-account Xcode device installation for initial testing; confirm devices/OS, especially iPads. Revisit paid enrollment and Ad Hoc versus TestFlight for sustained distribution.
 2. Accept simple crossfade on/off with a tested default and album-order exception, or specify another interaction. This is a recommendation, not a recorded approval.
 3. Agree media matrix and remote transition guarantees after N01. Saved/downloaded gapless is required; experimental stream guarantees need evidence.
 4. Choose local download cleanup on explicit sign-out, cellular default, quotas and pinned-download rules during UX design.

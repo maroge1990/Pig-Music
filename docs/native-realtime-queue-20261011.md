@@ -1,6 +1,6 @@
 # Native realtime queue candidate — 11 October 2026
 
-This slice adds a realtime scheduling candidate and connects it to temporary source preparation. The app's production player remains AVPlayer. Hardware output, interruptions/routes/background playback and live networking have not been accepted. This is N01/N05 implementation evidence, not completion of native playback parity.
+This slice adds a realtime scheduling candidate and connects it to temporary source preparation. Streaming remains the default; Account → Playback testing now exposes the opt-in seamless candidate. Hardware output, interruptions/routes/background playback and live networking have not been accepted. This is N01/N05 implementation evidence, not completion of native playback parity.
 
 ## Implemented
 
@@ -12,7 +12,7 @@ The stream emits timeline markers: incoming audio origin, principal-metadata swi
 
 `RealtimeQueueSession` owns preparation/pumping and exposes snapshots plus play/pause/seek/next/previous/stop controls. Pause intent is independent of preparation: late completion cannot start music the user paused. Queue replacement and seek cancel previous work, stop its output, invalidate old callbacks and wait for old lease cleanup before reserving new sources. Cancellation propagates into an awaited upcoming transfer. Previous restarts after three seconds; otherwise it selects the prior occurrence. Stop-and-wait guards against clearing a replacement session created while cleanup was suspended.
 
-The scheduler keeps no more than four full blocks' worth of PCM outstanding (8,192 frames at the default 2,048-frame block size). Consumption callbacks do only a bounded main-actor counter update. Decoding/file transfer never executes in an audio render callback. Obsolete timeline markers are pruned; snapshots are refreshed about ten times a second when the pump is progressing.
+The scheduler keeps no more than four full blocks' worth of PCM outstanding (8,192 frames at the default 2,048-frame block size). Consumption callbacks do only a bounded main-actor counter update. Decoding/file transfer never executes in an audio render callback. Obsolete timeline markers are pruned; an independent clock refreshes snapshots about ten times a second, including while the pump awaits the next source, and reports buffering when scheduled audio drains.
 
 `EngineQueueOutput` is the AVAudioEngine/AVAudioPlayerNode live adapter. It schedules buffers using `.dataPlayedBack` completions, exposes the player's sample clock and supports pause/resume/stop. The app must own AVAudioSession activation, interruptions and route/configuration changes. The output protocol also permits silent deterministic lifecycle tests.
 
@@ -41,10 +41,10 @@ Build/test logs are ignored local artifacts: `swift/build/realtime-queue-tests.l
 
 ## Remaining before app replacement
 
-1. Add an opt-in app integration using this session and the existing media commands/artwork/Now Playing publishing. Activate audio sessions on demand, preserve interruption resume intent and reset/rebuild on route or engine-configuration changes. Owner teardown must call stop-and-wait; a paused active pump intentionally remains alive until its owner stops it.
+1. Accept the new opt-in app integration on physical devices. Media commands/artwork/Now Playing publishing, on-demand audio sessions, interruption intent and route/configuration recovery are implemented. Teardown awaits decoder cleanup before resetting source storage; paused pumps intentionally remain alive until stopped. Hardware lifecycle behavior remains unverified.
 2. Measure live source readiness/startup latency and actual output on iPhone/iPad, including locked/background output and Bluetooth/wired route changes. The current transport prepares complete files. If the upcoming file is late, awaiting it can underrun scheduled PCM; no seamless streaming claim or underrun recovery is made. A short first song can also wait for its upcoming source during initial prebuffering. Design buffering feedback and progressive/range or stream-first fallback from these observations.
-3. Confirm `.dataPlayedBack` callback timing and scheduling lead under CPU/network load, and correlate the node clock with device output latency. Current midpoint metadata policy uses that clock; hardware timing has not been measured. The pump's metadata refresh also pauses while it awaits source readiness; a separate clock observer belongs in the app integration.
+3. Confirm `.dataPlayedBack` callback timing and scheduling lead under CPU/network load, and correlate the node clock with device output latency. Current midpoint metadata policy uses that clock; hardware timing has not been measured. The independent clock observer removes the pump-readiness dependency, but output timing remains a hardware gate.
 4. Measure compressed-file seek accuracy, encoder delay/padding, real Opus/Vorbis/FLAC inputs and resampler filter history across album boundaries. Existing synthetic codec observations are in the earlier audio evidence record, not blanket format/device acceptance.
-5. Finish account-scoped temporary storage startup cleanup/quota ownership and original/AAC offline storage/reconciliation. Per-preparer encoded storage limits remain 128 MiB/file and 256 MiB total, while queue PCM storage is bounded separately by fade and block size.
+5. Accept the account-scoped two-file temporary cache, startup cleanup and successful-refresh invalidation on device, then implement durable original/AAC offline storage/reconciliation. Per-preparer encoded storage limits remain 128 MiB/file and 256 MiB total, while queue PCM storage is bounded separately by fade and block size.
 
-The live adapter compiles for the app's provisional iOS 18 target; runtime observations so far use the installed Mac toolchain. This slice changes native package code and documentation only and preserves concurrent server download-client work.
+The live adapter compiles for the app's provisional iOS 18 target; runtime observations so far use the installed Mac toolchain. The app integration preserves the server download-client work and consumes the synchronized contract. See the [combined testing handoff](native-testing-handoff-20261011.md).

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import { formatDateTime } from "./format";
 
 type Status = {
   id: string;
@@ -72,10 +73,7 @@ export function SourceDiagnostics() {
           </p>
           {source.reason && <p>{source.reason}</p>}
           {!!source.next_retry_at && (
-            <p>
-              Retry after{" "}
-              {new Date(source.next_retry_at * 1000).toLocaleString()}
-            </p>
+            <p>Retry after {formatDateTime(source.next_retry_at)}</p>
           )}
           <button
             disabled={busy || !source.configured}
