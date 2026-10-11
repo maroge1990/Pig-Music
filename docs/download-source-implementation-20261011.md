@@ -101,3 +101,11 @@ Full source parity is an operational acceptance claim. Registered sources, synth
 ## Native/main integration follow-up
 
 The native task incorporated this implementation and current main into the combined testing candidate. Both OpenAPI copies now match; 347 backend and 38 web tests pass locally after integration, with the TypeScript/production build and formatting checks passing. The native suite passes 61 tests including signed saved-media range delivery against an isolated fixture. Live Unraid/provider acquisitions and Apple-device codec acceptance remain pending. See the [integrated testing handoff](native-testing-handoff-20261011.md).
+
+## Linux Opus timing correction
+
+The first integrated Linux candidate passed 346 tests and failed the Opus remux timing regression; its image was not published. The container's FFmpeg stream copy retained compressed packets but lost WebM terminal DiscardPadding, adding 648 stereo frames (13.5 ms) to decoded output. The Mac FFmpeg behavior had passed the earlier tolerance, so this required exact-container verification.
+
+The remux now reads bounded packet skip/discard metadata, verifies packet count and initial padding, and corrects only the final Ogg granule/checksum when terminal padding differs. It reads one Ogg page at a time, checks cancellation, validates the corrected metadata and then publishes atomically. No compressed packets are encoded or changed. [Ogg Opus end-trimming rules](https://www.rfc-editor.org/rfc/rfc7845.html#section-4.4) describe the terminal granule mechanism.
+
+The regression simulates the older muxer on every platform and now requires exact decoded PCM equality, alongside exact compressed packet hashes and overwrite protection. All 63 focused source/provider cases pass locally; the combined Linux image must pass its rerun before publication.

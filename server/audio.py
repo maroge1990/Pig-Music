@@ -7,6 +7,8 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from mutagen.ogg import OggPage
+
 from .providers.process import run_checked
 from .vendor.audio_probe import probe_file as vendor_probe
 
@@ -58,6 +60,90 @@ def probe_file(path, check=lambda: None):
     return probe
 
 
+def _opus_padding(path, ffprobe, check):
+    """Read sample discard metadata, independent of rounded WebM timestamps."""
+    result = run_checked(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-protocol_whitelist",
+            "file,pipe",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "packet=side_data_list:packet_side_data=skip_samples,discard_padding",
+            "-of",
+            "json",
+            str(path),
+        ],
+        check,
+        timeout=30,
+        max_output_bytes=10_000_000,
+    )
+    if result.returncode:
+        raise ValueError("Cannot read native Opus sample padding")
+    packets = json.loads(result.stdout).get("packets", [])
+    if not packets:
+        raise ValueError("Native Opus has no audio packets")
+
+    def samples(packet, key):
+        return sum(int(side.get(key, 0)) for side in packet.get("side_data_list", []))
+
+    start = samples(packets[0], "skip_samples")
+    end = samples(packets[-1], "discard_padding")
+    if not 0 <= start <= 65535 or not 0 <= end <= 5760:
+        raise ValueError("Unsupported native Opus sample padding")
+    return len(packets), start, end
+
+
+def _preserve_opus_padding(source_padding, output, ffprobe, check):
+    """Older FFmpeg Ogg muxers drop WebM DiscardPadding during stream copy.
+
+    Correct only the final Ogg granule/checksum; compressed packets stay exact.
+    Mutagen serializes at most one Ogg page and recalculates its checksum.
+    """
+    count, start, end = source_padding
+    copied_count, copied_start, copied_end = _opus_padding(output, ffprobe, check)
+    if count != copied_count or start != copied_start:
+        raise ValueError(
+            "Native Opus stream copy changed packet count or initial padding"
+        )
+    difference = end - copied_end
+    if not difference:
+        return
+    check()
+    with output.open("r+b") as handle:
+        first = OggPage(handle)
+        if not first.first or not first.packets[0].startswith(b"OpusHead"):
+            raise ValueError("Native Opus stream copy has no identification header")
+        pre_skip = int.from_bytes(first.packets[0][10:12], "little")
+        last = first
+        previous_position = 0
+        # find_last() can report offsets relative to its internal tail buffer;
+        # sequential page reads keep the real file offset and one-page memory.
+        while not last.last:
+            check()
+            previous_position = max(previous_position, last.position)
+            last = OggPage(handle)
+            if last.serial != first.serial:
+                raise ValueError("Native Opus stream copy has multiple logical streams")
+        if not last.complete:
+            raise ValueError("Native Opus stream copy has no complete terminal page")
+        if last.position - difference < max(pre_skip, previous_position):
+            raise ValueError("Native Opus terminal padding exceeds its audio")
+        last.position -= difference
+        encoded = last.write()
+        if len(encoded) != last.size:
+            raise ValueError("Native Opus padding correction changed page size")
+        check()
+        handle.seek(last.offset)
+        handle.write(encoded)
+    # Validate the corrected discard metadata before atomically publishing.
+    if _opus_padding(output, ffprobe, check) != source_padding:
+        raise ValueError("Native Opus sample padding was not retained")
+
+
 def remux_opus(source, destination, check=lambda: None):
     """Copy a single Opus stream into Ogg without encoding or overwriting.
 
@@ -95,6 +181,7 @@ def remux_opus(source, destination, check=lambda: None):
         or streams[0].get("codec_name") != "opus"
     ):
         raise ValueError("Native Opus requires one audio stream and no video")
+    source_padding = _opus_padding(source, ffprobe, check)
     with tempfile.TemporaryDirectory(
         prefix=".remux-", dir=destination.parent
     ) as temporary:
@@ -121,6 +208,7 @@ def remux_opus(source, destination, check=lambda: None):
         )
         if result.returncode or not output.is_file() or not output.stat().st_size:
             raise ValueError("Native Opus stream copy failed")
+        _preserve_opus_padding(source_padding, output, ffprobe, check)
         check()
         os.link(output, destination)
     return destination

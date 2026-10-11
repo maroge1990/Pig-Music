@@ -398,8 +398,9 @@ def test_native_preference_migration_preserves_rows_constraints_and_rollback(
         )
 
 
+@pytest.mark.parametrize("drop_terminal_padding", [False, True])
 def test_opus_remux_preserves_audio_packets_and_cannot_overwrite(
-    tmp_path, native_audio
+    tmp_path, native_audio, monkeypatch, drop_terminal_padding
 ):
     ffmpeg = shutil.which("ffmpeg")
     webm = tmp_path / "source.webm"
@@ -417,6 +418,31 @@ def test_opus_remux_preserves_audio_packets_and_cannot_overwrite(
         check=True,
         timeout=20,
     )
+    if drop_terminal_padding:
+        # Reproduce the old Linux muxer's lost DiscardPadding on every FFmpeg.
+        from mutagen.ogg import OggPage
+        import server.audio as audio_module
+
+        original_run = audio_module.run_checked
+
+        def legacy_muxer(argv, *args, **kwargs):
+            result = original_run(argv, *args, **kwargs)
+            if argv[0] == ffmpeg and result.returncode == 0 and argv[-2] == "opus":
+                with open(argv[-1], "r+b") as handle:
+                    first = OggPage(handle)
+                    last = first
+                    while not last.last:
+                        last = OggPage(handle)
+                    # The 3 s / 20 ms Opus fixture has 312 pre-skip samples;
+                    # its terminal packet contains 648 samples of padding.
+                    last.position = 3 * 48000 + 312 + 648
+                    encoded = last.write()
+                    assert len(encoded) == last.size
+                    handle.seek(last.offset)
+                    handle.write(encoded)
+            return result
+
+        monkeypatch.setattr(audio_module, "run_checked", legacy_muxer)
     output = remux_opus(webm, tmp_path / "copied.opus")
 
     def pcm(path):
@@ -448,10 +474,9 @@ def test_opus_remux_preserves_audio_packets_and_cannot_overwrite(
         )
         return [packet["data_hash"] for packet in json.loads(result.stdout)["packets"]]
 
-    # WebM timestamps round to milliseconds; Ogg sample granules can change
-    # terminal padding by less than 1 ms. Compressed audio packets must be exact.
+    # Preserve both compressed packets and sample trimming across FFmpeg versions.
     assert packet_hashes(webm) == packet_hashes(output)
-    assert abs(len(pcm(webm)) - len(pcm(output))) <= 48 * 2 * 2
+    assert pcm(webm) == pcm(output)
     before = output.read_bytes()
     with pytest.raises(ValueError, match="new Opus"):
         remux_opus(webm, output)
