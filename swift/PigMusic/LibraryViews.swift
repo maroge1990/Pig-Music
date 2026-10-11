@@ -138,7 +138,9 @@ struct LibraryView: View {
       }
     }
   }
-  private func sort(_ collection: LibraryCollection, selected: LibrarySort, artistOption: Bool = true)
+  private func sort(
+    _ collection: LibraryCollection, selected: LibrarySort, artistOption: Bool = true
+  )
     -> some View
   {
     LibrarySortPicker(
@@ -352,140 +354,161 @@ struct NowPlayingView: View {
   @Environment(\.colorScheme) private var scheme
   /// Dragging updates only this value; one seek happens when the drag ends.
   @State private var scrubbing: Double?
+  // Sections are separate properties so each type-checks quickly.
   var body: some View {
     NavigationStack {
       ScrollView {
         VStack(spacing: 20) {
-          Artwork(
-            model: model, source: player.queue.current?.track.artworkSource,
-            title: player.queue.current?.track.title ?? "", width: 1024
-          )
-          .pigContentCorners().frame(maxWidth: 340).padding(.top, 12)
-          .shadow(color: .black.opacity(0.18), radius: 16, y: 8)
-          VStack(spacing: 4) {
-            Text(player.queue.current?.track.title ?? "").font(.title2.weight(.bold))
-              .multilineTextAlignment(.center)
-            Text(player.queue.current?.track.artist ?? "").font(.headline)
-              .foregroundStyle(PigBrand.textAccent(scheme))
-          }
-          VStack(spacing: 2) {
-            Slider(
-              value: Binding(
-                get: { scrubbing ?? min(player.elapsed, max(1, player.duration)) },
-                set: { scrubbing = $0 }),
-              in: 0...max(1, player.duration)
-            ) { editing in
-              if !editing, let target = scrubbing {
-                player.seek(target)
-                scrubbing = nil
-              }
-            }
-            .accessibilityLabel("Playback position")
-            .accessibilityValue(time(scrubbing ?? player.elapsed))
-            HStack {
-              Text(time(scrubbing ?? player.elapsed))
-              Spacer()
-              Text("-" + time(max(0, player.duration - (scrubbing ?? player.elapsed))))
-            }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-          }
-          HStack(spacing: 40) {
-            Button(action: player.previous) {
-              Image(systemName: "backward.fill").font(.title).frame(minWidth: 44, minHeight: 44)
-            }.accessibilityLabel("Previous song")
-            Button(action: player.toggle) {
-              Image(systemName: player.wantsPlayback ? "pause.circle.fill" : "play.circle.fill")
-                .font(.system(size: 64)).frame(minWidth: 64, minHeight: 64)
-            }.accessibilityLabel(player.wantsPlayback ? "Pause" : "Play")
-            Button(action: player.next) {
-              Image(systemName: "forward.fill").font(.title).frame(minWidth: 44, minHeight: 44)
-            }.accessibilityLabel("Next song")
-          }.buttonStyle(.plain)
+          artwork
+          titles
+          progress
+          transport
           if player.preparing { ProgressView("Preparing audio…").font(PigType.footnote) }
-          HStack(spacing: 12) {
-            Button {
-              player.toggleShuffle()
-            } label: {
-              RoundIconLabel(systemImage: "shuffle")
-                .overlay(
-                  Circle().strokeBorder(
-                    player.shuffled ? PigBrand.accent(scheme) : .clear, lineWidth: 2))
-            }.buttonStyle(.plain).accessibilityLabel("Shuffle")
-              .accessibilityValue(player.shuffled ? "On" : "Off")
-            Button {
-              player.repeatMode =
-                switch player.repeatMode {
-                case .off: .all
-                case .all: .one
-                case .one: .off
-                }
-            } label: {
-              RoundIconLabel(systemImage: player.repeatMode == .one ? "repeat.1" : "repeat")
-                .overlay(
-                  Circle().strokeBorder(
-                    player.repeatMode == .off ? .clear : PigBrand.accent(scheme), lineWidth: 2))
-            }.buttonStyle(.plain).accessibilityLabel("Repeat")
-              .accessibilityValue(
-                player.repeatMode == .off ? "Off" : player.repeatMode == .all ? "All" : "One")
-            if let track = player.queue.current?.track {
-              RoundIcon(label: "Song actions", systemImage: "ellipsis") {
-                model.actionTrack = track
-              }
-            }
-            AirPlayButton().frame(width: 40, height: 40)
-          }
-          if let error = player.error {
-            VStack(spacing: 8) {
-              Text(error).font(PigType.footnote).foregroundStyle(PigBrand.danger(scheme))
-                .multilineTextAlignment(.center)
-              HStack {
-                Button("Retry") { player.retry() }
-                Button("Skip song") { player.next() }
-                if player.seamlessEnabled {
-                  Button("Use streaming") { player.retry(streaming: true) }
-                }
-              }.buttonStyle(.bordered)
-            }
-          }
-          VStack(alignment: .leading, spacing: 0) {
-            HStack {
-              Text("Up next").font(.headline)
-              Spacer()
-              NavigationLink("Edit") { QueueEditorView(player: player) }
-            }.padding(.bottom, 6)
-            ForEach(player.queue.items.dropFirst(player.queue.index + 1).prefix(50)) { item in
-              HStack(spacing: 12) {
-                ArtworkThumb(
-                  model: model, source: item.track.artworkSource, title: item.track.title,
-                  size: 40)
-                VStack(alignment: .leading) {
-                  Text(item.track.title).lineLimit(1)
-                  Text(item.track.artist).font(PigType.footnote).foregroundStyle(.secondary)
-                    .lineLimit(1)
-                }
-                Spacer()
-                Menu {
-                  Button("Move earlier") { player.moveUpcoming(item.id, by: -1) }
-                  Button("Move later") { player.moveUpcoming(item.id, by: 1) }
-                  Button("Remove from queue", role: .destructive) {
-                    player.removeUpcoming(item.id)
-                  }
-                } label: {
-                  Image(systemName: "ellipsis").frame(width: 32, height: 44)
-                }.accessibilityLabel("Queue actions for \(item.track.title)")
-              }
-              Divider()
-            }
-          }
+          options
+          if let error = player.error { failure(error) }
+          upNext
         }.padding(.horizontal, 24).padding(.bottom, 24)
       }
       .navigationTitle("Now playing").navigationBarTitleDisplayMode(.inline)
       .toolbar { Button("Done") { dismiss() } }
     }.pigBrandedCanvas()
   }
+  private var current: Track? { player.queue.current?.track }
+  private var position: Double { scrubbing ?? player.elapsed }
+  private var artwork: some View {
+    Artwork(
+      model: model, source: current?.artworkSource, title: current?.title ?? "", width: 1024
+    )
+    .pigContentCorners().frame(maxWidth: 340).padding(.top, 12)
+    .shadow(color: .black.opacity(0.18), radius: 16, y: 8)
+  }
+  private var titles: some View {
+    VStack(spacing: 4) {
+      Text(current?.title ?? "").font(.title2.weight(.bold)).multilineTextAlignment(.center)
+      Text(current?.artist ?? "").font(.headline).foregroundStyle(PigBrand.textAccent(scheme))
+    }
+  }
+  private var progress: some View {
+    let upper = max(1, player.duration)
+    let value = Binding<Double>(
+      get: { min(position, upper) }, set: { scrubbing = $0 })
+    return VStack(spacing: 2) {
+      Slider(value: value, in: 0...upper) { editing in
+        if !editing, let target = scrubbing {
+          player.seek(target)
+          scrubbing = nil
+        }
+      }
+      .accessibilityLabel("Playback position").accessibilityValue(time(position))
+      HStack {
+        Text(time(position))
+        Spacer()
+        Text("-" + time(max(0, player.duration - position)))
+      }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+    }
+  }
+  private var transport: some View {
+    HStack(spacing: 40) {
+      Button(action: player.previous) {
+        Image(systemName: "backward.fill").font(.title).frame(minWidth: 44, minHeight: 44)
+      }.accessibilityLabel("Previous song")
+      Button(action: player.toggle) {
+        Image(systemName: player.wantsPlayback ? "pause.circle.fill" : "play.circle.fill")
+          .font(.system(size: 64)).frame(minWidth: 64, minHeight: 64)
+      }.accessibilityLabel(player.wantsPlayback ? "Pause" : "Play")
+      Button(action: player.next) {
+        Image(systemName: "forward.fill").font(.title).frame(minWidth: 44, minHeight: 44)
+      }.accessibilityLabel("Next song")
+    }.buttonStyle(.plain)
+  }
+  private var options: some View {
+    HStack(spacing: 12) {
+      Button {
+        player.toggleShuffle()
+      } label: {
+        RoundIconLabel(systemImage: "shuffle").overlay(ring(player.shuffled))
+      }.buttonStyle(.plain).accessibilityLabel("Shuffle")
+        .accessibilityValue(player.shuffled ? "On" : "Off")
+      Button(action: cycleRepeat) {
+        RoundIconLabel(systemImage: player.repeatMode == .one ? "repeat.1" : "repeat")
+          .overlay(ring(player.repeatMode != .off))
+      }.buttonStyle(.plain).accessibilityLabel("Repeat").accessibilityValue(repeatLabel)
+      if let track = current {
+        RoundIcon(label: "Song actions", systemImage: "ellipsis") { model.actionTrack = track }
+      }
+      AirPlayButton().frame(width: 40, height: 40)
+    }
+  }
+  private func ring(_ on: Bool) -> some View {
+    Circle().strokeBorder(on ? PigBrand.accent(scheme) : .clear, lineWidth: 2)
+  }
+  private var repeatLabel: String {
+    switch player.repeatMode {
+    case .off: "Off"
+    case .all: "All"
+    case .one: "One"
+    }
+  }
+  private func cycleRepeat() {
+    switch player.repeatMode {
+    case .off: player.repeatMode = .all
+    case .all: player.repeatMode = .one
+    case .one: player.repeatMode = .off
+    }
+  }
+  private func failure(_ error: String) -> some View {
+    VStack(spacing: 8) {
+      Text(error).font(PigType.footnote).foregroundStyle(PigBrand.danger(scheme))
+        .multilineTextAlignment(.center)
+      HStack {
+        Button("Retry") { player.retry() }
+        Button("Skip song") { player.next() }
+        if player.seamlessEnabled {
+          Button("Use streaming") { player.retry(streaming: true) }
+        }
+      }.buttonStyle(.bordered)
+    }
+  }
+  private var upNext: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack {
+        Text("Up next").font(.headline)
+        Spacer()
+        NavigationLink("Edit") { QueueEditorView(player: player) }
+      }.padding(.bottom, 6)
+      ForEach(player.queue.items.dropFirst(player.queue.index + 1).prefix(50)) { item in
+        UpNextRow(model: model, item: item)
+        Divider()
+      }
+    }
+  }
   private func time(_ seconds: Double) -> String {
     guard seconds.isFinite else { return "0:00" }
     let value = Int(seconds.rounded(.down))
     return String(format: "%d:%02d", value / 60, value % 60)
+  }
+}
+
+private struct UpNextRow: View {
+  let model: AppModel
+  let item: PlaybackOccurrence
+  var body: some View {
+    HStack(spacing: 12) {
+      ArtworkThumb(
+        model: model, source: item.track.artworkSource, title: item.track.title, size: 40)
+      VStack(alignment: .leading) {
+        Text(item.track.title).lineLimit(1)
+        Text(item.track.artist).font(PigType.footnote).foregroundStyle(.secondary).lineLimit(1)
+      }
+      Spacer()
+      Menu {
+        Button("Move earlier") { model.player.moveUpcoming(item.id, by: -1) }
+        Button("Move later") { model.player.moveUpcoming(item.id, by: 1) }
+        Button("Remove from queue", role: .destructive) { model.player.removeUpcoming(item.id) }
+      } label: {
+        Image(systemName: "ellipsis").frame(width: 32, height: 44)
+      }.accessibilityLabel("Queue actions for \(item.track.title)")
+    }
   }
 }
 

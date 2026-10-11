@@ -30,20 +30,7 @@ private struct WatchLibraryView: View {
       List {
         Image("PigLockup").resizable().scaledToFit().frame(height: 40)
           .frame(maxWidth: .infinity).accessibilityHidden(true).listRowBackground(Color.clear)
-        if model.queue.indices.contains(model.playback.index) {
-          NavigationLink {
-            WatchNowPlaying(model: model)
-          } label: {
-            Label {
-              VStack(alignment: .leading) {
-                Text("Now playing").font(.caption).foregroundStyle(.secondary)
-                Text(model.queue[model.playback.index].track.title).lineLimit(1)
-              }
-            } icon: {
-              Image(systemName: model.playback.state == .playing ? "waveform" : "pause.fill")
-            }
-          }
-        }
+        WatchNowPlayingRow(model: model)
         NavigationLink("Songs on Watch") {
           WatchSongs(model: model, ids: model.manifest.songs.map(\.id), title: "Songs")
         }
@@ -114,6 +101,25 @@ private struct WatchLibraryView: View {
         }
       }.pigBrandedCanvas().navigationTitle("Pig Music")
     }.pigBrandedCanvas()
+  }
+}
+private struct WatchNowPlayingRow: View {
+  @Bindable var model: WatchModel
+  var body: some View {
+    if model.queue.indices.contains(model.playback.index) {
+      NavigationLink {
+        WatchNowPlaying(model: model)
+      } label: {
+        Label {
+          VStack(alignment: .leading) {
+            Text("Now playing").font(.caption).foregroundStyle(.secondary)
+            Text(model.queue[model.playback.index].track.title).lineLimit(1)
+          }
+        } icon: {
+          Image(systemName: model.playback.state == .playing ? "waveform" : "pause.fill")
+        }
+      }
+    }
   }
 }
 private struct WatchSongs: View {
