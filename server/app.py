@@ -38,6 +38,8 @@ from .fanart import Fanart, best as best_fanart, download as fanart_download
 from .storage import download_root
 from .store import Store
 from .downloader import Downloader
+from .providers.runtime import Runtime as SourceRuntime
+from .routes.download_sources import download_sources_router
 from .catalogue import (
     Catalogue,
     mbid,
@@ -84,6 +86,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     backgrounds = Backgrounds(store, artwork, fanart)
     logos = Logos(store, fanart)
     remote_audio = RemoteAudio()
+    source_runtime = SourceRuntime(store)
     scanner = LibraryScanner(store)
     playlists = Playlists(store)
     plex = Plex(store, playlists)
@@ -149,7 +152,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             change_feed.start()
             await asyncio.to_thread(recovery.recover)
             await asyncio.to_thread(organisation.recover)
-            downloader = Downloader(store)
+            downloader = Downloader(store, runtime=source_runtime)
             task = asyncio.create_task(downloader.run())
             plex_task = asyncio.create_task(plex.run())
             export_task = asyncio.create_task(exporter.run())
@@ -227,6 +230,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     app.include_router(personal_router(store, artist_jobs, recovery))
     install_validation_redaction(app)
     app.state.store = store
+    app.state.source_runtime = source_runtime
     app.state.enrichment = enrichment
     app.state.change_feed = change_feed
     app.add_middleware(GZipMiddleware, minimum_size=1000)
@@ -904,6 +908,8 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     def clear_queue():
         return store.clear_queue()
 
+    app.include_router(download_sources_router(source_runtime))
+
     @app.get("/api/settings/downloads")
     def download_settings():
         return store.download_settings()
@@ -1105,6 +1111,15 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             raise HTTPException(404, "Song not found in this release.")
         if track.get("saved_id"):
             return playback_saved(track["saved_id"])
+        return await remote_playback(track)
+
+    from .routes.personal import TrackInput
+
+    @app.post("/api/v1/remote-playback", tags=["personal-library"])
+    async def playback_remote(body: TrackInput):
+        return await remote_playback(body.model_dump(exclude_none=True))
+
+    async def remote_playback(track):
         if not public_settings(store)["remote_playback"]:
             raise HTTPException(
                 409, "Experimental remote playback is disabled in Settings."

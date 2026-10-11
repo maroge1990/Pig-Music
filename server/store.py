@@ -21,7 +21,8 @@ from .library import (
     parse_apple,
 )
 from .media import settings as media_settings, public_settings
-from .quality import policy, actual_profile, rank, PROFILES
+from .quality import policy, actual_profile, rank, PROFILES, satisfies
+from .providers import REGISTRY, supports
 from .storage import library_root
 from .matching import LibraryIndex, exclusion_key, same_song
 
@@ -144,7 +145,12 @@ class Store:
     def save_download_settings(self, settings):
         previous = self.download_settings()
         settings = {**self.download_settings(), **settings}
-        if settings.get("fallback_profile") not in {"none", "mp3_320", "mp3_128"}:
+        if settings.get("fallback_profile") not in {
+            "none",
+            "mp3_320",
+            "mp3_128",
+            "native_standard",
+        }:
             raise ValueError("Choose a valid fallback quality")
         for key, minimum, maximum in (
             ("concurrent_downloads", 1, 6),
@@ -156,17 +162,15 @@ class Store:
                 or not minimum <= settings[key] <= maximum
             ):
                 raise ValueError(f"Choose {key} between {minimum} and {maximum}")
-        if settings.get("profile") not in {
-            "mp3_320",
-            "mp3_128",
-            "aac_256",
-            "lossless",
-        } or not isinstance(settings.get("enabled"), bool):
+        if settings.get("profile") not in PROFILES or not isinstance(
+            settings.get("enabled"), bool
+        ):
             raise ValueError("Choose a valid quality profile and enabled state")
         if not isinstance(settings.get("sources"), list) or not set(
             settings["sources"]
-        ).issubset({"freemp3cloud", "zvu4no", "jiosaavn", "soulseek"}):
+        ).issubset(REGISTRY):
             raise ValueError("Choose supported download sources")
+        settings["sources"] = list(dict.fromkeys(settings["sources"]))
         if settings["enabled"] and not settings["sources"]:
             raise ValueError("Enable at least one source")
         soulseek = (
@@ -177,24 +181,14 @@ class Store:
             raise ValueError(
                 "Configure the Soulseek engine connection before enabling this source"
             )
-        if settings["enabled"] and settings["profile"] == "lossless" and not soulseek:
-            raise ValueError(
-                "A lossless-capable source must be connected before enabling this profile"
-            )
-        if (
-            settings["enabled"]
-            and settings["profile"] == "aac_256"
-            and "jiosaavn" not in settings["sources"]
-            and not soulseek
+        if settings["enabled"] and not any(
+            supports(source, settings["profile"]) for source in settings["sources"]
         ):
-            raise ValueError("Enable JioSaavn or Soulseek for the AAC profile")
-        if (
-            settings["enabled"]
-            and settings["profile"].startswith("mp3_")
-            and not set(settings["sources"]) & {"freemp3cloud", "zvu4no"}
-            and not soulseek
-        ):
-            raise ValueError("Enable an MP3 source for the selected profile")
+            message = {
+                "lossless": "A lossless-capable source must be connected before enabling this profile",
+                "aac_256": "Enable an AAC-capable source for this profile",
+            }.get(settings["profile"], "Enable an MP3 source for the selected profile")
+            raise ValueError(message)
         with self.connect() as conn:
             conn.execute(
                 "INSERT INTO documents VALUES ('downloads',?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
@@ -315,6 +309,8 @@ class Store:
             sha256=sha,
             relative_path=target.relative_to(root).as_posix(),
         )
+        if probe.get("acquisition"):
+            metadata["acquisition"] = probe["acquisition"]
         metadata["_request_id"] = job["id"]
         metadata["_claim_token"] = job.get("claim_token")
         metadata["quality_policy"] = job.get(
@@ -695,6 +691,8 @@ class Store:
         current = actual_profile(track)
         if (
             current == preferred
+            or preferred == "native_standard"
+            and satisfies(preferred, track)
             or automatic
             and (current == "unknown" or rank(current) >= rank(preferred))
         ):
@@ -1009,6 +1007,17 @@ class Store:
                         "duration",
                     )
                 }
+                payload.update(
+                    {
+                        k: track[k]
+                        for k in (
+                            "musicbrainz_release_id",
+                            "musicbrainz_recording_id",
+                            "isrcs",
+                        )
+                        if track.get(k)
+                    }
+                )
                 payload["quality_profile"] = settings["profile"]
                 payload["quality_policy"] = self.quality_policy(payload)
                 payload["quality_profile"] = payload["quality_policy"]["preferred"]

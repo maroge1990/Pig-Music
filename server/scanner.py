@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from mutagen import File
+from .audio import measured_bitrate
 
 EXTENSIONS = {
     ".mp3",
@@ -71,7 +72,7 @@ def inspect_file(path, relative):
         "MP3": "mp3",
         "FLAC": "flac",
         "MP4": "aac",
-        "OggVorbis": "ogg",
+        "OggVorbis": "vorbis",
         "OggOpus": "opus",
         "WAVE": "wav",
     }.get(type(audio).__name__, path.suffix.lstrip(".").lower())
@@ -81,6 +82,9 @@ def inspect_file(path, relative):
     ):
         codec = "alac"
     stat = path.stat()
+    bitrate = round(getattr(audio.info, "bitrate", 0) / 1000)
+    if codec in {"opus", "vorbis"} and not bitrate:
+        bitrate = measured_bitrate(path, audio.info.length)
     track = {
         "id": hashlib.sha256(relative.encode()).hexdigest()[:24],
         "title": tag(tags, "TIT2", "title", "\xa9nam", default=path.stem),
@@ -99,7 +103,7 @@ def inspect_file(path, relative):
         "disc_number": number(tag(tags, "TPOS", "discnumber", "disk"), 1) or 1,
         "duration": round(audio.info.length, 3),
         "codec": codec,
-        "bitrate": round(getattr(audio.info, "bitrate", 0) / 1000),
+        "bitrate": bitrate,
         "relative_path": relative,
         "size_bytes": stat.st_size,
         "mtime_ns": stat.st_mtime_ns,

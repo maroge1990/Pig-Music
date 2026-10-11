@@ -1,0 +1,76 @@
+import Foundation
+import PigDomain
+
+public struct PlaybackOccurrence: Identifiable, Sendable, Equatable {
+  public let id: UUID
+  public let track: Track
+  public init(track: Track, id: UUID = UUID()) {
+    self.id = id
+    self.track = track
+  }
+}
+
+public struct PlaybackQueue: Sendable {
+  public private(set) var items: [PlaybackOccurrence] = []
+  public private(set) var index: Int = 0
+  public var current: PlaybackOccurrence? { items.indices.contains(index) ? items[index] : nil }
+  public init() {}
+  public mutating func replace(_ tracks: [Track], startingAt: Int = 0) {
+    items = tracks.map { PlaybackOccurrence(track: $0) }
+    index = min(max(0, startingAt), max(0, items.count - 1))
+  }
+  @discardableResult public mutating func next() -> Bool {
+    guard index + 1 < items.count else { return false }
+    index += 1
+    return true
+  }
+  /// Returns true when Previous should restart the current occurrence.
+  public mutating func previous(elapsed: TimeInterval) -> Bool {
+    if elapsed > 3 || index == 0 { return true }
+    index -= 1
+    return false
+  }
+}
+
+public enum TransitionMode: Sendable, Equatable {
+  case gapless
+  case crossfade(seconds: Double)
+}
+
+public enum TransitionPlanner {
+  /// Stable album identity and sequential numbering preserve continuous albums, including discs.
+  public static func albumOrder(outgoing: Track, incoming: Track) -> Bool {
+    guard let album = outgoing.albumId, !album.isEmpty, incoming.albumId == album,
+      let track = outgoing.trackNumber, let next = incoming.trackNumber, track > 0, track < Int.max, next > 0,
+      outgoing.id != incoming.id
+    else { return false }
+    let disc = outgoing.discNumber ?? 1
+    let nextDisc = incoming.discNumber ?? 1
+    guard disc > 0, disc < Int.max, nextDisc > 0 else { return false }
+    return (disc == nextDisc && next == track + 1) || (nextDisc == disc + 1 && next == 1)
+  }
+  public static func mode(crossfade: Bool, albumOrder: Bool, duration: Double = 3) -> TransitionMode
+  {
+    crossfade && !albumOrder ? .crossfade(seconds: min(12, max(0, duration))) : .gapless
+  }
+  /// Linear complementary gains avoid amplifying correlated signals above unity.
+  public static func gains(progress: Double) -> (outgoing: Float, incoming: Float) {
+    let value = min(1, max(0, progress))
+    return (Float(1 - value), Float(value))
+  }
+  /// Offline reference renderer used to measure boundaries and overlap before choosing a live engine.
+  public static func render(_ outgoing: [Float], _ incoming: [Float], overlapFrames: Int) -> [Float]
+  {
+    let overlap = min(max(0, overlapFrames), min(outgoing.count, incoming.count))
+    guard overlap > 0 else { return outgoing + incoming }
+    var result = Array(outgoing.dropLast(overlap))
+    for frame in 0..<overlap {
+      let gain = gains(progress: overlap == 1 ? 0.5 : Double(frame) / Double(overlap - 1))
+      result.append(
+        outgoing[outgoing.count - overlap + frame] * gain.outgoing + incoming[frame] * gain.incoming
+      )
+    }
+    result.append(contentsOf: incoming.dropFirst(overlap))
+    return result
+  }
+}

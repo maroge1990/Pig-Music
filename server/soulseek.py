@@ -9,6 +9,7 @@ from pathlib import Path, PureWindowsPath
 from urllib.parse import quote
 
 import httpx
+from .quality import satisfies
 
 
 def words(value):
@@ -29,7 +30,10 @@ def candidate_for(job, response, file):
     path = PureWindowsPath(name.replace("/", "\\"))
     codec = path.suffix.lower()
     profile = job["quality_profile"]
-    if codec != {"lossless": ".flac", "aac_256": ".m4a"}.get(profile, ".mp3"):
+    if profile == "native_standard":
+        if codec not in {".mp3", ".m4a", ".flac", ".opus", ".ogg"}:
+            return None
+    elif codec != {"lossless": ".flac", "aac_256": ".m4a"}.get(profile, ".mp3"):
         return None
     size = file.get("size", 0)
     if not isinstance(size, int) or not 0 < size <= 256_000_000:
@@ -69,6 +73,14 @@ def candidate_for(job, response, file):
     ):
         return None
     bitrate = file.get("bitRate", 0) or 0
+    if profile == "native_standard" and not satisfies(
+        profile,
+        {
+            "codec": {".m4a": "aac", ".ogg": "vorbis"}.get(codec, codec.lstrip(".")),
+            "bitrate": bitrate,
+        },
+    ):
+        return None
     minimum = {"mp3_320": 300, "mp3_128": 120, "aac_256": 240}.get(profile, 0)
     if codec != ".flac" and bitrate < minimum:
         return None

@@ -60,3 +60,32 @@ test("a previous account's delayed library response cannot enter the next accoun
   await late;
   assert.deepEqual(events, []);
 });
+
+test("warmed catalogue data is immediately readable and isolated across sessions", async () => {
+  const { apiFetch, peekCatalogue, clearSessionReads } = await import(
+    "../src/api.ts"
+  );
+  clearSessionReads();
+  let calls = 0;
+  const path = "/api/v1/catalogue/artists/fixture/popularity";
+  globalThis.fetch = async () => {
+    calls++;
+    return Response.json({ songs: [{ id: "one" }], albums: [] });
+  };
+  await apiFetch(path);
+  assert.equal(peekCatalogue(path).songs[0].id, "one");
+  await apiFetch(path, { signal: new AbortController().signal });
+  assert.equal(calls, 1);
+  clearSessionReads();
+  assert.equal(peekCatalogue(path), undefined);
+  let complete;
+  globalThis.fetch = () =>
+    new Promise((resolve) => {
+      complete = resolve;
+    });
+  const late = apiFetch(path);
+  clearSessionReads();
+  complete(Response.json({ songs: [], albums: [] }));
+  await late;
+  assert.equal(peekCatalogue(path), undefined);
+});

@@ -157,7 +157,15 @@ def main():
             if r[0] != "album-edition-anchors" and r[0] not in added_images
         ]
     ledger = after.pop("schema_migrations", [])
-    assert [r[0] for r in ledger] == [1, 2, 3, 4, 5, 6], "Unexpected migration versions"
+    assert [r[0] for r in ledger] == [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+    ], "Unexpected migration versions"
     assert all(
         isinstance(r[1], str) and r[1] for r in ledger
     ), "Missing migration timestamps"

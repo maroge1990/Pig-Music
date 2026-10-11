@@ -122,7 +122,22 @@ export function SearchPage({
                   <a
                     key={a.id}
                     className="album-card"
-                    href={"#/library/artist/" + a.id}
+                    href={"#/search?q=" + encodeURIComponent(a.name)}
+                    onClick={(event) => {
+                      if (
+                        event.metaKey ||
+                        event.ctrlKey ||
+                        event.shiftKey ||
+                        event.altKey
+                      )
+                        return;
+                      event.preventDefault();
+                      void api<CatalogueArtist>(
+                        `/v1/catalogue/library-artists/${a.id}`,
+                      )
+                        .then((identity) => go(discoverUrl(identity)))
+                        .catch((e) => setError(e.message));
+                    }}
                   >
                     <Cover title={a.name} src={a.cover_url} artist />
                     <h3>{a.name}</h3>

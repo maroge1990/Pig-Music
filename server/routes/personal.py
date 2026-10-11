@@ -34,6 +34,7 @@ class TrackInput(BaseModel):
     duration: float = Field(default=0, ge=0, le=86400)
     musicbrainz_release_id: str | None = Field(default=None, max_length=36)
     musicbrainz_recording_id: str | None = Field(default=None, max_length=36)
+    isrcs: list[str] = Field(default_factory=list, max_length=50)
 
 
 class Tracks(BaseModel):
@@ -61,7 +62,9 @@ class Removal(Membership):
 class QualityPreference(BaseModel):
     scope: Literal["system", "artist", "album"]
     item_id: str = Field(default="*", max_length=128)
-    preferred: Literal["mp3_128", "mp3_320", "aac_256", "lossless"] | None = None
+    preferred: (
+        Literal["mp3_128", "mp3_320", "aac_256", "lossless", "native_standard"] | None
+    ) = None
 
 
 class PlexAccount(BaseModel):
@@ -388,6 +391,10 @@ def personal_router(store, artist_jobs, recovery):
             identity(request),
             [t.model_dump(exclude_none=True) for t in body.tracks],
         )
+
+    @router.delete("/requests")
+    async def clear_requests(request: Request):
+        return await run(users.clear_requests, identity(request))
 
     @router.get("/requests", response_model=RequestList)
     async def requests(request: Request, offset: int = 0, limit: int = 200):

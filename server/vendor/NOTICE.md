@@ -7,3 +7,9 @@ The upstream Unlicense is retained in `MUSICGRABBER-LICENSE`. Source parser impo
 `compat.py` is Pig Music code. It provides duration formatting, source timeouts and a neutral search scorer; candidate identity/version matching and file-quality gates are handled by the Pig Music worker.
 
 The JioSaavn search parser also retains upstream album and ISRC fields to check release context before remote playback.
+
+The audio probe reads Pig Music source tags as well as legacy Music Grabber provenance. Native bitrate fallback and stream-copy remux orchestration are application-owned under `server/audio.py`.
+
+## Extractor runtime
+
+Pig Music uses the official PyPI Python distributions `yt-dlp==2026.8.19` (Unlicense) and `yt-dlp-ejs==0.8.0` (Unlicense AND MIT AND ISC), with their pinned default dependencies. Their distribution metadata retains upstream licensing and notices. Upstream: https://github.com/yt-dlp/yt-dlp and https://github.com/yt-dlp/ejs. The final image uses Node 24 from the existing digest-pinned official frontend image; The Node distribution licence is retained at `/opt/node/LICENSE` in the image. Node and its bundled components are covered by the official distribution licence at https://github.com/nodejs/node/blob/main/LICENSE. Extractor orchestration, network handler, identity rules and source health are Pig Music code. No Music Grabber YouTube/Monochrome adapter code was copied into the new adapters.

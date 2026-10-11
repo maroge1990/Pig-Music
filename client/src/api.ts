@@ -2,6 +2,16 @@
  * and invalidate reads after successful mutations. No browser credential cache.
  */
 const reads = new Map<string, Promise<Response>>();
+let librarySnapshot: unknown;
+const cataloguePages = new Map<string, { value: unknown; time: number }>();
+export function peekLibrary<T>() {
+  return librarySnapshot as T | undefined;
+}
+export function peekCatalogue<T>(path: string): T | undefined {
+  const hit = cataloguePages.get(path);
+  return hit && Date.now() - hit.time < 60000 ? (hit.value as T) : undefined;
+}
+
 let libraryRead: Promise<unknown> | undefined;
 const libraryResponses = new Map<string, Response>();
 let sessionGeneration = 0;
@@ -55,6 +65,7 @@ function readOnlyPost(path: string, options?: RequestInit) {
     options?.method?.toUpperCase() === "POST" &&
     (path === "/api/v1/library/lookup" ||
       path === "/api/playback/catalogue" ||
+      path === "/api/v1/remote-playback" ||
       /^\/api\/v1\/playback\/[^/]+\/url$/.test(path))
   );
 }
@@ -105,14 +116,21 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export function cachedLibrary<T>(): Promise<T> {
-  libraryRead ||= api("/v1/library").catch((error) => {
-    libraryRead = undefined;
-    throw error;
-  });
+  const generation = sessionGeneration;
+  libraryRead ||= api("/v1/library")
+    .then((library) => {
+      if (generation === sessionGeneration) librarySnapshot = library;
+      return library;
+    })
+    .catch((error) => {
+      libraryRead = undefined;
+      throw error;
+    });
   return libraryRead as Promise<T>;
 }
 
 export function rememberLibrary(library: unknown) {
+  librarySnapshot = library;
   libraryRead = Promise.resolve(library);
 }
 
@@ -137,8 +155,13 @@ async function readResponse(
   const response = await transport(path, { ...options, headers });
   if (response.status === 304 && remembered && generation === sessionGeneration)
     return remembered.clone();
-  if (response.ok && generation === sessionGeneration)
+  if (response.ok && generation === sessionGeneration) {
     libraryResponses.set(path, response.clone());
+    if (path === "/api/v1/library") {
+      const library = await response.clone().json();
+      if (generation === sessionGeneration) rememberLibrary(library);
+    }
+  }
   return response;
 }
 
@@ -161,12 +184,33 @@ export function clearSessionReads() {
   reads.clear();
   libraryRead = undefined;
   libraryResponses.clear();
+  librarySnapshot = undefined;
+  cataloguePages.clear();
   ++sessionGeneration;
 }
 
 async function transport(path: string, options?: RequestInit) {
   const generation = sessionGeneration;
+  const catalogue =
+    (!options?.method || options.method === "GET") &&
+    /^\/api\/v1\/catalogue\/artists\/[^/]+\/(popularity|releases)(\?|$)/.test(
+      path,
+    );
+  if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+  const hit = catalogue && peekCatalogue(path);
+  if (hit)
+    return new Response(JSON.stringify(hit), {
+      headers: { "Content-Type": "application/json" },
+    });
   const response = await fetch(path, options);
+  if (catalogue && response.ok && generation === sessionGeneration) {
+    const value = await response.clone().json();
+    if (generation === sessionGeneration) {
+      if (cataloguePages.size >= 80)
+        cataloguePages.delete(cataloguePages.keys().next().value!);
+      cataloguePages.set(path, { value, time: Date.now() });
+    }
+  }
   if (response.status === 401 && generation === sessionGeneration) {
     clearSessionReads();
     window.dispatchEvent(new Event("music-auth-required"));

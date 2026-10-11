@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { HardDrive, CircleCheck, ShieldCheck } from "lucide-react";
 import type { Library } from "./types";
+import { SourceDiagnostics } from "./SourceDiagnostics";
 import { QualitySettings } from "./QualitySettings";
 import { LibraryScan } from "./LibraryScan";
 import { ToolBoundary } from "./ToolBoundary";
@@ -152,10 +153,21 @@ export function DownloadSettingsPanel({
           <option value="mp3_320">MP3 320 kbps</option>
           <option value="mp3_128">MP3 128 kbps</option>
           <option value="aac_256">AAC 256 kbps or better</option>
-          <option value="lossless">FLAC lossless (Soulseek)</option>
+          <option value="lossless">FLAC lossless</option>
+          <option value="native_standard">
+            Native audio — standard or better
+          </option>
         </select>
       </label>
-      {["soulseek", "freemp3cloud", "zvu4no", "jiosaavn"].map((source) => (
+      {[
+        "soulseek",
+        "freemp3cloud",
+        "zvu4no",
+        "jiosaavn",
+        "youtube",
+        "soundcloud",
+        "monochrome",
+      ].map((source) => (
         <label className="download-option" key={source}>
           <input
             type="checkbox"
@@ -169,9 +181,70 @@ export function DownloadSettingsPanel({
               })
             }
           />
-          {source}
+          {
+            {
+              soulseek: "Soulseek",
+              freemp3cloud: "FreeMp3Cloud",
+              zvu4no: "zvu4no",
+              jiosaavn: "JioSaavn",
+              youtube: "YouTube",
+              soundcloud: "SoundCloud",
+              monochrome: "Monochrome",
+            }[source]
+          }
         </label>
       ))}
+      <p>
+        Sources are tried in the saved order. YouTube usually needs native audio
+        quality; SoundCloud formats depend on each upload. Monochrome supplies
+        FLAC. Opus and Ogg playback depends on your player.
+      </p>
+      <ol aria-label="Download source order">
+        {downloadSettings.sources.map((source, index) => (
+          <li key={source}>
+            {(
+              {
+                soulseek: "Soulseek",
+                freemp3cloud: "FreeMp3Cloud",
+                zvu4no: "zvu4no",
+                jiosaavn: "JioSaavn",
+                youtube: "YouTube",
+                soundcloud: "SoundCloud",
+                monochrome: "Monochrome",
+              } as Record<string, string>
+            )[source] || source}
+            <button
+              aria-label={`Move ${source} earlier`}
+              disabled={index === 0}
+              onClick={() => {
+                const sources = [...downloadSettings.sources];
+                [sources[index - 1], sources[index]] = [
+                  sources[index],
+                  sources[index - 1],
+                ];
+                setDownloadSettings({ ...downloadSettings, sources });
+              }}
+            >
+              Earlier
+            </button>
+            <button
+              aria-label={`Move ${source} later`}
+              disabled={index === downloadSettings.sources.length - 1}
+              onClick={() => {
+                const sources = [...downloadSettings.sources];
+                [sources[index], sources[index + 1]] = [
+                  sources[index + 1],
+                  sources[index],
+                ];
+                setDownloadSettings({ ...downloadSettings, sources });
+              }}
+            >
+              Later
+            </button>
+          </li>
+        ))}
+      </ol>
+      <SourceDiagnostics />
       <QualitySettings
         value={downloadSettings}
         onChange={(value) =>

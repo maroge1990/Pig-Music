@@ -125,7 +125,7 @@ def probe_file(path: Path) -> dict | None:
 
     source = source_quality = title = artist = album = album_artist = file_id = source_codec = source_bitrate = None
     if tags is not None:
-        source = _read_tag(tags, "SOURCE", "----:com.musicgrabber:SOURCE")
+        source = _read_tag(tags, "PIG_MUSIC_SOURCE", "----:com.apple.iTunes:PIG_MUSIC_SOURCE") or _read_tag(tags, "SOURCE", "----:com.musicgrabber:SOURCE")
         source_quality = _read_tag(
             tags, "SOURCE_QUALITY", "----:com.musicgrabber:SOURCE_QUALITY"
         )

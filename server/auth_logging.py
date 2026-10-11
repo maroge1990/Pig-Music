@@ -10,6 +10,7 @@ SENSITIVE = frozenset(
     {
         "authorization",
         "cookie",
+        "cookies",
         "password",
         "current_password",
         "token",
@@ -31,7 +32,7 @@ def redact(value):
     if isinstance(value, str):
         value = re.sub(r'(?i)\b(Bearer)\s+[^\s,;"\']+', r"\1 [redacted]", value)
         value = re.sub(
-            r"""(?ix)(["']?(?:authorization|cookie|password|current_password|token|code|sig|signature)["']?\s*[:=]\s*)(["'][^"']*["']|[^\s,;&}]+)""",
+            r"""(?ix)(["']?(?:authorization|cookies?|password|current_password|token|code|sig|signature)["']?\s*[:=]\s*)(["'][^"']*["']|[^\s,;&}]+)""",
             r"\1[redacted]",
             value,
         )

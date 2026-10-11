@@ -57,6 +57,9 @@ export function PersonalQuality({
           <option value="mp3_320">MP3 320</option>
           <option value="aac_256">AAC 256</option>
           <option value="lossless">Lossless</option>
+          <option value="native_standard">
+            Native audio — standard or better
+          </option>
         </select>
       </label>
       {message && <p role="status">{message}</p>}

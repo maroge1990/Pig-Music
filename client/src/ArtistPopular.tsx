@@ -1,4 +1,4 @@
-import { apiFetch } from "./api";
+import { apiFetch, peekCatalogue } from "./api";
 import { useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Cover, catalogueCover } from "./Cover";
@@ -21,15 +21,30 @@ export function ArtistPopular({
   openAlbum: (album: Group) => void;
   songsOnly?: boolean;
 }) {
+  const path = `/api/v1/catalogue/artists/${id}/popularity`;
+  const cached = peekCatalogue<{ songs: Song[]; albums: Group[] }>(path);
+  const toRows = (songs: Song[]): Row[] =>
+    songs.map((song) => ({
+      key: "popular:" + song.id,
+      title: song.title,
+      artist: song.artist,
+      album: song.album,
+      cover: catalogueCover("release", song.release_id),
+      state: "missing",
+      release_id: song.release_id,
+      recording_id: song.id,
+      artist_id: id,
+    }));
   const [data, setData] = useState<{ songs: Song[]; albums: Group[] } | null>(
-    null,
+    cached || null,
   );
-  const [rows, setRows] = useState<Row[]>([]);
+  const [rows, setRows] = useState<Row[]>(() => toRows(cached?.songs || []));
   const [songPage, setSongPage] = useState(0);
   const [albumPage, setAlbumPage] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
-    setData(null);
+    setData(cached || null);
+    setRows(toRows(cached?.songs || []));
     setSongPage(0);
     setAlbumPage(0);
     void (async () => {
@@ -42,17 +57,7 @@ export function ArtistPopular({
           const body = await response.json();
           if (controller.signal.aborted) return;
           setData(body);
-          const plain: Row[] = body.songs.map((song: Song) => ({
-            key: "popular:" + song.id,
-            title: song.title,
-            artist: song.artist,
-            album: song.album,
-            cover: catalogueCover("release", song.release_id),
-            state: "missing",
-            release_id: song.release_id,
-            recording_id: song.id,
-            artist_id: id,
-          }));
+          const plain = toRows(body.songs);
           setRows(plain);
           const found = await withLibrary(plain);
           if (!controller.signal.aborted) setRows(found);

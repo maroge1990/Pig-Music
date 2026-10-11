@@ -9,6 +9,7 @@ MIGRATIONS = (
     (4, "0004_shared_policy"),
     (5, "0005_plex_accounts"),
     (6, "0006_native_sync"),
+    (7, "0007_native_audio"),
 )
 
 

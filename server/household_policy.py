@@ -78,6 +78,8 @@ class HouseholdPolicy:
             return fallback
         highest = max(rank(t) for t in targets)
         choices = {t for t in targets if rank(t) == highest}
+        if "mp3_128" in choices:
+            choices.discard("native_standard")
         current = actual_profile(track)
         return current if current in choices else max(choices)
 

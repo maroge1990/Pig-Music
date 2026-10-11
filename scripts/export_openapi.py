@@ -88,14 +88,19 @@ def encoded():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
+    parser.add_argument(
+        "--server-only",
+        action="store_true",
+        help="Leave the Swift agent's schema copy untouched",
+    )
     args = parser.parse_args()
     content = encoded()
     if args.check:
         assert TARGET.read_text() == content, "Native OpenAPI contract is stale"
-        if SWIFT.exists():
+        if not args.server_only and SWIFT.exists():
             assert SWIFT.read_text() == content, "Swift schema copy is stale"
     else:
         TARGET.parent.mkdir(exist_ok=True)
         TARGET.write_text(content)
-        if SWIFT.parent.exists():
+        if not args.server_only and SWIFT.parent.exists():
             SWIFT.write_text(content)

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from ..catalogue import release_tracks, credit
 from ..releases import release_query
 from ..library import normalise
+from ..artwork import quoted
 from ..api_models import TrackDTO
 
 
@@ -94,23 +95,84 @@ def discover_router(store, catalogue, popularity=None, warmer=None):
         artist = next((a for a in projection["artists"] if a["id"] == artist_id), None)
         if artist is None:
             raise HTTPException(404, "Artist not found")
-        result = await metadata(
-            request,
-            "artist/",
-            query='artist:"' + artist["name"].replace('"', '"') + '"',
-            limit=100,
+        # Reuse the identity already established by the full catalogue/artwork.
+        known = store.read_document("library-artist:" + artist_id)
+        if known and normalise(known.get("name", "")) == normalise(artist["name"]):
+            return {"id": valid(known["id"]), "name": artist["name"]}
+        albums = [a for a in projection["albums"] if a["id"] in artist["album_ids"]]
+        identities = {}
+
+        def credits(items):
+            for item in items:
+                candidate = item.get("artist", {})
+                if candidate.get("id") and normalise(
+                    candidate.get("name", "")
+                ) == normalise(artist["name"]):
+                    identities[candidate["id"]] = {
+                        "id": candidate["id"],
+                        "name": candidate["name"],
+                    }
+
+        # Release credits distinguish namesakes without guessing from popularity.
+        release_ids = list(
+            dict.fromkeys(
+                a.get("musicbrainz_release_id")
+                for a in albums
+                if a.get("musicbrainz_release_id")
+            )
         )
-        matches = [
-            a
-            for a in result.get("artists", [])
-            if normalise(a["name"]) == normalise(artist["name"])
-        ]
-        if len(matches) != 1 or result.get("count", 0) > 100:
+        for release_id in release_ids[:3]:
+            release = await metadata(
+                request, "release/" + valid(release_id), inc="artist-credits"
+            )
+            credits(release.get("artist-credit", []))
+        if not identities:
+            result = await metadata(
+                request, "artist/", query="artist:" + quoted(artist["name"]), limit=100
+            )
+            matches = [
+                a
+                for a in result.get("artists", [])
+                if normalise(a["name"]) == normalise(artist["name"])
+            ]
+            if len(matches) == 1 and result.get("count", len(matches)) <= 100:
+                identities[matches[0]["id"]] = {
+                    "id": matches[0]["id"],
+                    "name": matches[0]["name"],
+                }
+            elif len(matches) > 1:
+                candidates = {a["id"] for a in matches}
+                for album in albums[:3]:
+                    found = await metadata(
+                        request,
+                        "release-group/",
+                        query="releasegroup:"
+                        + quoted(album["title"])
+                        + " AND artist:"
+                        + quoted(artist["name"]),
+                        limit=100,
+                    )
+                    if found.get("count", 0) > 100:
+                        continue
+                    for group in found.get("release-groups", []):
+                        if normalise(group.get("title", "")) == normalise(
+                            album["title"]
+                        ):
+                            credits(
+                                [
+                                    c
+                                    for c in group.get("artist-credit", [])
+                                    if c.get("artist", {}).get("id") in candidates
+                                ]
+                            )
+        if len(identities) != 1:
             raise HTTPException(
                 409,
                 "Choose this artist in catalogue search to distinguish matching names.",
             )
-        return {"id": matches[0]["id"], "name": matches[0]["name"]}
+        identity = next(iter(identities.values()))
+        store.write_document("library-artist:" + artist_id, identity)
+        return identity
 
     @router.get("/groups/{group_id}/editions")
     async def editions(group_id: str, request: Request, offset: int = 0):

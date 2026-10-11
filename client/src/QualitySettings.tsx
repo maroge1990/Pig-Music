@@ -31,6 +31,9 @@ export function QualitySettings({
           <option value="mp3_320">Allow MP3 320 kbps</option>
           <option value="mp3_128">Allow MP3 128 kbps or better</option>
           <option value="none">Wait for lossless</option>
+          <option value="native_standard">
+            Allow native audio — standard or better
+          </option>
         </select>
       </label>
       {[
@@ -58,6 +61,10 @@ export function QualitySettings({
           />
         </label>
       ))}
+      <p>
+        Native audio keeps the source codec. Check that your player supports
+        Opus and Ogg Vorbis before choosing this profile.
+      </p>
       <p>
         Fallback begins when preferred sources are exhausted or their time limit
         is reached. Upgrade checks never replace a saved song with a

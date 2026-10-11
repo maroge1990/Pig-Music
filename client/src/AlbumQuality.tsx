@@ -89,6 +89,9 @@ export function AlbumQuality({
             <option value="mp3_320">MP3 320 kbps</option>
             <option value="aac_256">AAC 256 kbps</option>
             <option value="mp3_128">MP3 128 kbps</option>
+            <option value="native_standard">
+              Native audio — standard or better
+            </option>
           </select>
         </label>
         <button className="secondary-button" disabled={busy} onClick={apply}>

@@ -1,4 +1,4 @@
-import { cachedLibrary } from "./api";
+import { cachedLibrary, peekLibrary } from "./api";
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, CircleCheck } from "lucide-react";
 import { Cover } from "./Cover";
@@ -21,14 +21,22 @@ export function ArtistHero({
   const [loadedLogo, setLoadedLogo] = useState("");
   const logo = loadedLogo === logoSrc;
   const scene = useRef<HTMLDivElement>(null);
-  const [enabled, setEnabled] = useState(false);
+  const [enabled, setEnabled] = useState<boolean | null>(() => {
+    const library = peekLibrary<Library>();
+    return library
+      ? Boolean(library.media?.fanart_configured && library.media?.portraits)
+      : null;
+  });
+  const [failedBackground, setFailedBackground] = useState("");
+  // Reserve the final layout while cached artwork is decoded; fallback only on failure.
+  const immersive = enabled !== false && failedBackground !== background;
   const [loaded, setLoaded] = useState(false);
   // The photograph runs edge to edge from the top of the screen.
   useEffect(() => {
-    if (!loaded) return;
+    if (!immersive) return;
     document.documentElement.classList.add("immersive-hero");
     return () => document.documentElement.classList.remove("immersive-hero");
-  }, [loaded]);
+  }, [immersive]);
   useEffect(() => {
     let active = true;
     setLoaded(false);
@@ -41,7 +49,9 @@ export function ArtistHero({
             ),
           );
       })
-      .catch(() => {});
+      .catch(() => {
+        if (active) setEnabled(false);
+      });
     return () => {
       active = false;
     };
@@ -111,7 +121,7 @@ export function ArtistHero({
   return (
     <div
       ref={scene}
-      className={`artist-scene ${loaded ? "has-background" : ""}`}
+      className={`artist-scene ${immersive ? "has-background" : ""}`}
     >
       {back && (
         <button className="hero-back" onClick={back.go}>
@@ -128,7 +138,10 @@ export function ArtistHero({
             srcSet={`${background}&w=512 512w, ${background}&w=1024 1024w`}
             sizes="100vw"
             onLoad={() => setLoaded(true)}
-            onError={() => setLoaded(false)}
+            onError={() => {
+              setLoaded(false);
+              setFailedBackground(background);
+            }}
           />
           <img
             className="artist-photo artist-photo-soft"

@@ -111,14 +111,14 @@ def test_upgrade_and_downgrade_download_sources_keep_stable_identity_and_remove_
     track = acquire(store, worker)
     track_id = track["id"]
     old = worker.library_root / track["relative_path"]
-    original_run = subprocess.run
+    original_run = subprocess.Popen
 
     def validation_only(command, *args, **kwargs):
         # Runtime FFmpeg may decode for validation, but must never encode a replacement.
         assert "-codec:a" not in command and "-b:a" not in command
         return original_run(command, *args, **kwargs)
 
-    monkeypatch.setattr(subprocess, "run", validation_only)
+    monkeypatch.setattr(subprocess, "Popen", validation_only)
     album_id = store.library["albums"][0]["id"]
     assert store.quality_override("album", album_id, "lossless")["created"] == 1
     assert old.exists()

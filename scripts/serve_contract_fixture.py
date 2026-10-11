@@ -1,6 +1,7 @@
 """Disposable loopback-only server for generated native-client contract tests."""
 
 import json
+import io
 import os
 import tempfile
 import wave
@@ -8,6 +9,8 @@ from pathlib import Path
 import uvicorn
 from server.store import Store
 from server.auth import Auth
+from server.cover_store import CoverStore
+from PIL import Image
 
 
 def main():
@@ -16,6 +19,9 @@ def main():
     os.environ["PIG_MUSIC_EMBEDDED_ENGINE"] = "false"
     with tempfile.TemporaryDirectory(prefix="pig-swift-contract-") as temporary:
         root = Path(temporary)
+        image = io.BytesIO()
+        Image.new("RGB", (256, 256), "#ef7aae").save(image, "PNG")
+        cover_sha = CoverStore(root / "covers").save(image.getvalue())
         os.environ["PIG_MUSIC_LIBRARY"] = str(root)
         for i in range(3):
             with wave.open(str(root / f"song-{i}.wav"), "wb") as audio:
@@ -35,6 +41,7 @@ def main():
                             "album": "Fixture Album",
                             "duration": 120,
                             "available": True,
+                            "cover_sha": cover_sha,
                             "relative_path": f"song-{i}.wav",
                         }
                         for i in range(3)

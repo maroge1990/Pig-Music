@@ -1,0 +1,408 @@
+import AVFoundation
+import Foundation
+import PigDomain
+import Testing
+
+@testable import PigPlayback
+
+private actor QueueSources {
+  let files: [String: URL]
+  var active: Set<UUID> = []
+  var peak = 0
+  var acquired: [String] = []
+  var failed: String?
+  var delayed: String?
+  var gate: CheckedContinuation<Void, Never>?
+  var gated = false
+  var entered = false
+  init(files: [String: URL], gated: Bool = false, failed: String? = nil, delayed: String? = nil) {
+    self.files = files
+    self.gated = gated
+    self.failed = failed
+    self.delayed = delayed
+  }
+  func get(_ item: PlaybackOccurrence) async throws -> PreparedAudioSource {
+    acquired.append(item.track.id)
+    if gated {
+      entered = true
+      await withCheckedContinuation { gate = $0 }
+      gated = false
+    }
+    if item.track.id == delayed {
+      entered = true
+      try await Task.sleep(for: .seconds(30))
+    }
+    try Task.checkCancellation()
+    if item.track.id == failed { throw AudioSourceFailure.unavailable }
+    let id = UUID()
+    active.insert(id)
+    peak = max(peak, active.count)
+    return PreparedAudioSource(id: id, file: files[item.track.id]!, byteCount: 0)
+  }
+  func release(_ source: PreparedAudioSource) { active.remove(source.id) }
+  func open() {
+    gate?.resume()
+    gate = nil
+  }
+}
+@MainActor private final class SilentQueueOutput: QueueAudioOutput {
+  var positionFrames: Int64 = 0
+  var pending: [(Int, @Sendable () -> Void)] = []
+  var playing = false
+  var starts = 0
+  var stops = 0
+  var captured: [Float] = []
+  func configure(sampleRate: Double, blockFrames: Int) { positionFrames = 0 }
+  func schedule(_ block: PCMBlock, completion: @escaping @Sendable () -> Void) {
+    pending.append((block.frameCount, completion))
+    captured.append(contentsOf: block.channels[0])
+  }
+  func resume() {
+    playing = true
+    starts += 1
+  }
+  func pause() { playing = false }
+  func stop() {
+    pending = []
+    positionFrames = 0
+    playing = false
+    stops += 1
+  }
+  func consume() {
+    guard playing, !pending.isEmpty else { return }
+    let first = pending.removeFirst()
+    positionFrames += Int64(first.0)
+    first.1()
+  }
+}
+private func queueFixture(_ root: URL, id: String, value: Float, frames: Int = 48000) throws -> URL
+{
+  let url = root.appendingPathComponent(id + ".wav")
+  let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
+  let output = try AVAudioFile(forWriting: url, settings: format.settings)
+  let block = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 2048)!
+  var remaining = frames
+  while remaining > 0 {
+    block.frameLength = AVAudioFrameCount(min(2048, remaining))
+    for channel in 0..<2 {
+      block.floatChannelData![channel].update(repeating: value, count: Int(block.frameLength))
+    }
+    try output.write(from: block)
+    remaining -= Int(block.frameLength)
+  }
+  return url
+}
+private func queueTrack(_ id: String, album: String? = nil, number: Int? = nil)
+  -> PlaybackOccurrence
+{
+  var track = Track(id: id, title: id, artist: "Fixture", duration: 1)
+  track.albumId = album
+  track.trackNumber = number
+  return PlaybackOccurrence(track: track)
+}
+private func queueRoot() throws -> URL {
+  let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+  return url
+}
+@MainActor private func waitQueue(_ predicate: () -> Bool) async throws {
+  let deadline = ContinuousClock.now + .seconds(5)
+  while !predicate() {
+    guard ContinuousClock.now < deadline else { throw AudioPipelineFailure.stalled }
+    try await Task.sleep(for: .milliseconds(10))
+  }
+}
+
+@Suite(.serialized) struct RealtimeQueueTests {
+  @Test func threeSongStreamKeepsDecoderPositionAcrossCrossfadesAndReleasesSources() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(files: [
+      "a": try queueFixture(root, id: "a", value: 0.2),
+      "b": try queueFixture(root, id: "b", value: 0.4),
+      "c": try queueFixture(root, id: "c", value: 0.6),
+    ])
+    let stream = try await QueuePCMStream(
+      items: [queueTrack("a"), queueTrack("b"), queueTrack("c")], crossfade: true,
+      fadeSeconds: 0.25,
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    var samples: [Float] = []
+    var markers: [QueueAudioMarker] = []
+    while let block = try await stream.next() {
+      samples += block.pcm.channels[0]
+      markers += block.markers
+    }
+    await stream.close()
+    #expect(samples.count == 120000)
+    #expect(markers.map(\.index) == [0, 1, 2])
+    #expect(markers.map(\.originFrame) == [0, 36000, 72000])
+    #expect(markers.map(\.switchFrame) == [0, 42000, 78000])
+    #expect(abs(samples[47999] - 0.4) < 0.00001)
+    #expect(abs(samples[83999] - 0.6) < 0.00001)
+    #expect(await sources.peak <= 2)
+    #expect(await sources.active.isEmpty)
+  }
+  @Test func queuedEngineCaptureMatchesThreeSongTimelineAndMix() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(files: [
+      "a": try queueFixture(root, id: "a", value: 0.2),
+      "b": try queueFixture(root, id: "b", value: 0.4),
+      "c": try queueFixture(root, id: "c", value: 0.6),
+    ])
+    let stream = try await QueuePCMStream(
+      items: [queueTrack("a"), queueTrack("b"), queueTrack("c")], crossfade: true,
+      fadeSeconds: 0.25,
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    let destination = root.appendingPathComponent("capture.wav")
+    let result = try await QueuedAudioEngineProbe.render(stream: stream, output: destination)
+    await stream.close()
+    #expect(result.frames == 120000)
+    #expect(result.peakScheduledFrames <= 8192)
+    #expect(result.markers.map(\.switchFrame) == [0, 42000, 78000])
+    let file = try AVAudioFile(forReading: destination)
+    let buffer = AVAudioPCMBuffer(
+      pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length))!
+    try file.read(into: buffer)
+    for frame in 0..<120000 {
+      let expected: Float
+      if frame < 36000 {
+        expected = 0.2
+      } else if frame < 48000 {
+        expected = 0.2 + 0.2 * Float(frame - 36000) / 11999
+      } else if frame < 72000 {
+        expected = 0.4
+      } else if frame < 84000 {
+        expected = 0.4 + 0.2 * Float(frame - 72000) / 11999
+      } else {
+        expected = 0.6
+      }
+      #expect(abs(buffer.floatChannelData![0][frame] - expected) < 0.00001)
+    }
+    #expect(await sources.active.isEmpty)
+  }
+  @Test func threePartAlbumCapturePreservesEveryUniqueSample() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let format = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
+    var paths: [String: URL] = [:]
+    var items: [PlaybackOccurrence] = []
+    for part in 0..<3 {
+      let id = "part-\(part)"
+      let url = root.appendingPathComponent(id + ".wav")
+      let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4800)!
+      buffer.frameLength = 4800
+      for channel in 0..<2 {
+        for frame in 0..<4800 {
+          buffer.floatChannelData![channel][frame] = Float(part * 4800 + frame) / 14400
+        }
+      }
+      do {
+        let file = try AVAudioFile(forWriting: url, settings: format.settings)
+        try file.write(from: buffer)
+      }
+      paths[id] = url
+      items.append(queueTrack(id, album: "continuous", number: part + 1))
+    }
+    let sources = QueueSources(files: paths)
+    let stream = try await QueuePCMStream(
+      items: items, crossfade: true,
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    let destination = root.appendingPathComponent("capture.wav")
+    let result = try await QueuedAudioEngineProbe.render(stream: stream, output: destination)
+    await stream.close()
+    #expect(result.frames == 14400)
+    #expect(result.markers.map(\.switchFrame) == [0, 4800, 9600])
+    let file = try AVAudioFile(forReading: destination)
+    let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 14400)!
+    try file.read(into: buffer)
+    var maximumError: Float = 0
+    for frame in 0..<14400 {
+      maximumError = max(
+        maximumError, abs(buffer.floatChannelData![0][frame] - Float(frame) / 14400))
+    }
+    #expect(maximumError < 0.0000001)
+    #expect(await sources.active.isEmpty)
+  }
+  @Test func veryShortRepeatedOccurrencesDoNotReplayConsumedHeads() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(files: [
+      "a": try queueFixture(root, id: "a", value: 0.2, frames: 2400)
+    ])
+    let items = [queueTrack("a"), queueTrack("a"), queueTrack("a")]
+    let stream = try await QueuePCMStream(
+      items: items, crossfade: true, fadeSeconds: 0.25,
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    var frames = 0
+    var markers: [QueueAudioMarker] = []
+    while let block = try await stream.next() {
+      frames += block.pcm.frameCount
+      markers += block.markers
+    }
+    await stream.close()
+    #expect(frames == 4800)
+    #expect(markers.map(\.index) == [0, 1, 2])
+    #expect(Set(items.map(\.id)).count == 3)
+    #expect(await sources.acquired.count == 3)
+    #expect(await sources.active.isEmpty)
+  }
+  @Test func orderedAlbumStaysGaplessAndSeekStartsAtRequestedFrame() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(files: [
+      "a": try queueFixture(root, id: "a", value: 0.2),
+      "b": try queueFixture(root, id: "b", value: 0.4),
+    ])
+    let stream = try await QueuePCMStream(
+      items: [
+        queueTrack("a", album: "album", number: 1), queueTrack("b", album: "album", number: 2),
+      ], startSeconds: 0.5, crossfade: true,
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    var samples: [Float] = []
+    var markers: [QueueAudioMarker] = []
+    while let block = try await stream.next() {
+      samples += block.pcm.channels[0]
+      markers += block.markers
+    }
+    await stream.close()
+    #expect(samples.count == 72000)
+    #expect(samples[23999] == 0.2)
+    #expect(samples[24000] == 0.4)
+    #expect(markers.map(\.originFrame) == [-24000, 24000])
+    #expect(markers.map(\.switchFrame) == [0, 24000])
+    #expect(await sources.active.isEmpty)
+  }
+  @Test @MainActor func pauseDuringPreparationSurvivesCompletionAndSeekPreservesIntent()
+    async throws
+  {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(
+      files: ["a": try queueFixture(root, id: "a", value: 0.2)], gated: true)
+    let output = SilentQueueOutput()
+    let session = try RealtimeQueueSession(output: output)
+    session.replace(
+      [queueTrack("a")], acquire: { try await sources.get($0) },
+      release: { await sources.release($0) })
+    while !(await sources.entered) { await Task.yield() }
+    session.pause()
+    await sources.open()
+    try await waitQueue { session.snapshot.state == .paused }
+    #expect(output.starts == 0)
+    #expect(session.peakScheduledFrames <= 8192)
+    session.seek(0.5)
+    try await waitQueue { session.snapshot.state == .paused && session.snapshot.elapsed >= 0.5 }
+    #expect(output.starts == 0)
+    session.resume()
+    #expect(session.snapshot.wantsPlayback)
+    #expect(output.playing)
+    await session.stopAndWait()
+    #expect(await sources.active.isEmpty)
+  }
+  @Test @MainActor func queueReplacementCancelsPendingSourcesAndIgnoresOldCallbacks() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(files: [
+      "a": try queueFixture(root, id: "a", value: 0.2),
+      "b": try queueFixture(root, id: "b", value: 0.4),
+    ])
+    let output = SilentQueueOutput()
+    let owned = try RealtimeQueueSession(output: output)
+    owned.replace(
+      [queueTrack("a")], acquire: { try await sources.get($0) },
+      release: { await sources.release($0) })
+    try await waitQueue { owned.snapshot.state == .playing }
+    let callbacks = output.pending.map { $0.1 }
+    let replacement = queueTrack("b")
+    owned.replace(
+      [replacement], autoplay: false, acquire: { try await sources.get($0) },
+      release: { await sources.release($0) })
+    for callback in callbacks { callback() }
+    try await waitQueue { owned.snapshot.state == .paused }
+    #expect(owned.snapshot.occurrenceID == replacement.id)
+    #expect(owned.peakScheduledFrames <= 8192)
+    await owned.stopAndWait()
+    #expect(await sources.active.isEmpty)
+  }
+  @Test @MainActor func skipDuringPreparationCancelsOldOccurrenceAndPreservesPausedIntent()
+    async throws
+  {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(
+      files: [
+        "a": try queueFixture(root, id: "a", value: 0.2),
+        "b": try queueFixture(root, id: "b", value: 0.4),
+      ], gated: true)
+    let output = SilentQueueOutput()
+    let session = try RealtimeQueueSession(output: output)
+    let items = [queueTrack("a"), queueTrack("b")]
+    session.replace(
+      items, acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    while !(await sources.entered) { await Task.yield() }
+    session.pause()
+    session.next()
+    await sources.open()
+    try await waitQueue { session.snapshot.state == .paused }
+    #expect(session.snapshot.occurrenceID == items[1].id)
+    #expect(output.starts == 0)
+    #expect(output.captured.allSatisfy { abs($0 - 0.4) < 0.00001 })
+    await session.stopAndWait()
+    #expect(await sources.active.isEmpty)
+  }
+  @Test @MainActor func skipCancelsAwaitedUpcomingTransferInsteadOfWaitingForItsTimeout()
+    async throws
+  {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(
+      files: [
+        "a": try queueFixture(root, id: "a", value: 0.2, frames: 2400),
+        "c": try queueFixture(root, id: "c", value: 0.6),
+      ], delayed: "b")
+    let output = SilentQueueOutput()
+    let session = try RealtimeQueueSession(output: output)
+    let items = [queueTrack("a"), queueTrack("b"), queueTrack("c")]
+    session.replace(
+      items, crossfade: true, acquire: { try await sources.get($0) },
+      release: { await sources.release($0) })
+    while !(await sources.entered) { await Task.yield() }
+    session.pause()
+    // Choose a replacement directly, so the deliberately unavailable source is no longer needed.
+    session.replace(
+      [items[2]], autoplay: false, acquire: { try await sources.get($0) },
+      release: { await sources.release($0) })
+    try await waitQueue { session.snapshot.state == .paused }
+    #expect(session.snapshot.occurrenceID == items[2].id)
+    #expect(output.captured.allSatisfy { abs($0 - 0.6) < 0.00001 })
+    await session.stopAndWait()
+    #expect(await sources.active.isEmpty)
+  }
+  @Test @MainActor func sourceFailureDrainsOutgoingAudioBeforeReportingFallback() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(
+      files: ["a": try queueFixture(root, id: "a", value: 0.2)], failed: "b")
+    let output = SilentQueueOutput()
+    let owned = try RealtimeQueueSession(output: output)
+    owned.replace(
+      [queueTrack("a"), queueTrack("b")], crossfade: true, fadeSeconds: 0.25,
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    let deadline = ContinuousClock.now + .seconds(5)
+    while owned.snapshot.state != .failed {
+      guard ContinuousClock.now < deadline else {
+        await owned.stopAndWait()
+        throw AudioPipelineFailure.stalled
+      }
+      output.consume()
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(output.captured.count == 48000)
+    #expect(output.positionFrames == 48000)
+    #expect(owned.snapshot.index == 0)
+    #expect(owned.snapshot.error != nil)
+    await owned.stopAndWait()
+    #expect(await sources.active.isEmpty)
+  }
+}

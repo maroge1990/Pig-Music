@@ -6,10 +6,10 @@ and publication are app-owned. Preview/test storage remains isolated by default.
 
 import asyncio
 import hashlib
+import math
 import os
 import re
 import shutil
-import subprocess
 import time
 import threading
 import unicodedata
@@ -31,21 +31,21 @@ from mutagen.id3 import (
 )
 from mutagen.mp4 import MP4, MP4FreeForm
 from mutagen.flac import FLAC
+from mutagen.oggopus import OggOpus
+from mutagen.oggvorbis import OggVorbis
 from .soulseek import Soulseek
 
-from .vendor.audio_probe import probe_file
-from .vendor.freemp3cloud import search_freemp3cloud
-from .vendor.zvu4no import search_zvu4no
-from .vendor.jiosaavn import search_jiosaavn
-from .quality import policy
+from .audio import probe_file, validate_streams
+from .providers import REGISTRY, SEARCH_PROVIDERS, supports
+from .providers.process import run_checked
+from .providers.contracts import Context, ProviderError
+from .providers.runtime import Runtime
+from .providers.legacy import search as legacy_search
+from .providers.network import transfer as http_transfer
+from .quality import CODEC_EXTENSIONS, policy, satisfies
 from .storage import download_root, library_root
 
-PROVIDERS = {
-    "freemp3cloud": search_freemp3cloud,
-    "zvu4no": search_zvu4no,
-    "jiosaavn": search_jiosaavn,
-}
-PROFILES = {"mp3_320": 300, "mp3_128": 120, "aac_256": 240, "lossless": None}
+PROVIDERS = SEARCH_PROVIDERS
 VERSION_WORDS = {
     "live",
     "remix",
@@ -74,7 +74,9 @@ def folded(text):
 
 def duration(value):
     if isinstance(value, (int, float)):
-        return float(value)
+        return (
+            float(value) if not isinstance(value, bool) and math.isfinite(value) else 0
+        )
     try:
         parts = [float(v) for v in str(value).split(":")]
         return sum(v * 60**i for i, v in enumerate(reversed(parts)))
@@ -83,6 +85,30 @@ def duration(value):
 
 
 def matches(target, candidate):
+    for key in ("musicbrainz_recording_id", "musicbrainz_release_id"):
+        if target.get(key) and candidate.get(key) and target[key] != candidate[key]:
+            return False
+
+    def isrcs(value):
+        raw = value.get("isrcs") or value.get("isrc") or []
+        if isinstance(raw, str):
+            raw = [raw]
+        return {str(code).strip().upper() for code in raw if code}
+
+    requested_isrcs, candidate_isrcs = isrcs(target), isrcs(candidate)
+    if (
+        requested_isrcs
+        and candidate_isrcs
+        and requested_isrcs.isdisjoint(candidate_isrcs)
+    ):
+        return False
+    if (
+        candidate.get("source") in {"youtube", "soundcloud", "monochrome"}
+        and target.get("album")
+        and candidate.get("album")
+        and folded(target["album"]) != folded(candidate["album"])
+    ):
+        return False
     if folded(candidate.get("channel")) != folded(target["artist"]):
         return False
     if folded(candidate.get("title")) != folded(target["title"]):
@@ -129,9 +155,10 @@ class QualityDeadline(Exception):
 
 
 class Downloader:
-    def __init__(self, store, providers=None):
+    def __init__(self, store, providers=None, runtime=None):
         self.store = store
         self.providers = providers if providers is not None else PROVIDERS
+        self.runtime = runtime or Runtime(store)
         self.soulseek = Soulseek(store)
         self.stopping = asyncio.Event()
         self.deadlines = {}
@@ -210,72 +237,47 @@ class Downloader:
     def transfer(self, job_id, candidate, path):
         source = candidate["source"]
         if source == "soulseek":
-            return self.soulseek.transfer(
+            self.soulseek.transfer(
                 candidate,
                 path,
                 lambda: self.check(job_id),
                 lambda received, total: self.store.progress(job_id, received, total),
             )
-        allowed = {
-            "freemp3cloud": ("meln.top", "freemp3cloud.com"),
-            "zvu4no": ("zvu4it.org",),
-            "jiosaavn": ("saavncdn.com",),
-        }[source]
-        url = candidate["source_url"]
-        started = time.monotonic()
-        with httpx.Client(timeout=20, follow_redirects=False) as client:
-            for _ in range(5):
-                parsed = urlsplit(url)
-                host = parsed.hostname or ""
-                if (
-                    parsed.scheme != "https"
-                    or parsed.port not in (None, 443)
-                    or parsed.username
-                    or not any(host == d or host.endswith("." + d) for d in allowed)
-                ):
-                    raise ValueError("Source returned an unsupported download address")
-                with client.stream("GET", url) as response:
-                    if response.is_redirect:
-                        url = str(response.url.join(response.headers["location"]))
-                        continue
-                    response.raise_for_status()
-                    expected = int(response.headers.get("content-length", 0))
-                    if expected > 80_000_000:
-                        raise ValueError(
-                            "Source file exceeds the single-track size limit"
-                        )
-                    size = 0
-                    with path.open("wb") as output:
-                        for chunk in response.iter_bytes(65536):
-                            self.check(job_id)
-                            size += len(chunk)
-                            if size > 80_000_000 or time.monotonic() - started > 180:
-                                raise ValueError(
-                                    "Transfer exceeded the track size/time limit"
-                                )
-                            output.write(chunk)
-                            self.store.progress(
-                                job_id,
-                                size,
-                                expected,
-                                getattr(self.context, "claim_token", None),
-                            )
-                    if not size or expected and size != expected:
-                        raise ValueError("Source delivered an incomplete file")
-                    return
-        raise ValueError("Source returned too many redirects")
+            return {}
+        context = Context(
+            candidate.get("effective_profile", "native_standard"),
+            check=lambda: self.check(job_id),
+            progress=lambda received, total: self.store.progress(
+                job_id, received, total, getattr(self.context, "claim_token", None)
+            ),
+            deadline=min(
+                self.deadlines.get(job_id, float("inf")),
+                getattr(self.context, "source_deadline", float("inf")),
+                time.monotonic() + 180,
+            ),
+        )
+        if REGISTRY[source].adapter:
+            return self.runtime.transfer(source, candidate, path, context)
+        context.max_bytes = 80_000_000
+        http_transfer(
+            candidate["source_url"], REGISTRY[source].download_hosts, path, context
+        )
+        return {}
 
-    def validate(self, path, target, profile):
-        probe = probe_file(path)
+    def validate(self, path, target, profile, decode=True, check=lambda: None):
+        probe = probe_file(path, check)
         expected_codec = (
             "flac"
             if profile == "lossless"
             else "aac" if profile == "aac_256" else "mp3"
         )
-        if not probe or probe["codec"] != expected_codec:
+        if not probe or (
+            profile != "native_standard" and probe["codec"] != expected_codec
+        ):
             raise ValueError(
                 f"Downloaded content is not readable {expected_codec.upper()} for this quality profile"
             )
+        validate_streams(path, check)
         for key in ("artist", "title"):
             if probe.get(key) and folded(probe[key]) != folded(target[key]):
                 raise ValueError(
@@ -294,28 +296,51 @@ class Downloader:
         )
         if actual_versions and actual_versions != expected_versions:
             raise ValueError("Embedded recording version does not match the request")
-        minimum = PROFILES[profile]
-        if minimum is not None and probe["bitrate_kbps"] < minimum:
+        if not satisfies(profile, probe):
             raise ValueError(
                 "Downloaded audio does not meet the selected quality profile"
             )
+        if CODEC_EXTENSIONS.get(probe["codec"]) != path.suffix.lower():
+            raise ValueError("Downloaded codec does not match its audio container")
+        if probe["duration"] <= 0:
+            raise ValueError("Downloaded recording has no readable duration")
         if target.get("duration") and abs(probe["duration"] - target["duration"]) > 5:
             raise ValueError("Downloaded recording has the wrong duration")
+        if decode:
+            self.decode(path, check)
+        return probe
+
+    def decode(self, path, check=lambda: None):
         ffmpeg = shutil.which("ffmpeg")
         if not ffmpeg:
             raise ValueError("FFmpeg is required to validate the complete recording")
-        result = subprocess.run(
-            [ffmpeg, "-v", "error", "-xerror", "-i", str(path), "-f", "null", "-"],
-            capture_output=True,
+        result = run_checked(
+            [
+                ffmpeg,
+                "-v",
+                "error",
+                "-xerror",
+                "-protocol_whitelist",
+                "file,pipe",
+                "-i",
+                str(path),
+                "-f",
+                "null",
+                "-",
+            ],
+            check,
             timeout=90,
         )
         if result.returncode:
             raise ValueError("The downloaded audio failed complete decoding")
-        return probe
 
     def tag(self, path, target, source):
-        if path.suffix == ".flac":
-            audio = FLAC(path)
+        if path.suffix in {".flac", ".opus", ".ogg"}:
+            audio = {".flac": FLAC, ".opus": OggOpus, ".ogg": OggVorbis}[path.suffix](
+                path
+            )
+            if audio.tags is None:
+                audio.add_tags()
             for field, key in (
                 ("title", "TITLE"),
                 ("artist", "ARTIST"),
@@ -387,10 +412,12 @@ class Downloader:
                 tags.add(TXXX(encoding=3, desc=description, text=target[field]))
         tags.save(path, v2_version=3)
 
-    def complete(self, job, path, extension, source, profile):
+    def complete(self, job, path, extension, source, profile, provenance=None):
         self.check(job["id"])
         self.state(job["id"], "validating", effective_quality=profile)
-        probe = self.validate(path, job, profile)
+        probe = self.validate(
+            path, job, profile, decode=False, check=lambda: self.check(job["id"])
+        )
         if (
             job.get("exact_quality")
             and profile == "mp3_128"
@@ -398,6 +425,19 @@ class Downloader:
         ):
             raise ValueError("Replacement must be a genuine MP3 128 kbps source")
         self.tag(path, job, source)
+        self.decode(path, lambda: self.check(job["id"]))
+        probe["acquisition"] = {
+            "provider": source,
+            "quality_profile": profile,
+            "codec": probe["codec"],
+            "container": probe["container"],
+            "bitrate_kbps": probe["bitrate_kbps"],
+            "duration": probe["duration"],
+            "sample_rate_hz": probe["sample_rate_hz"],
+            "channels": probe["channels"],
+            "validated_at": int(time.time()),
+            **(provenance or {}),
+        }
         self.check(job["id"])
         filename = f"{job['disc_number']:02}-{job['track_number']:02} {safe_name(job['title'])} [{job['id'][:8]}]{extension}"
         target = (
@@ -414,22 +454,46 @@ class Downloader:
         effective = {**job, "quality_profile": profile}
         for source in self.store.download_settings()["sources"]:
             self.check(job["id"])
-            if source != "soulseek" and (
-                profile == "lossless"
-                or (profile == "aac_256") != (source == "jiosaavn")
-            ):
+            if not supports(source, profile):
                 continue
+            self.context.source_deadline = min(
+                self.deadlines.get(job["id"], float("inf")), time.monotonic() + 240
+            )
             try:
-                if source not in self.providers and source != "soulseek":
+                if (
+                    source not in self.providers
+                    and source != "soulseek"
+                    and not REGISTRY[source].adapter
+                ):
                     continue
                 self.state(
                     job["id"], "searching", source=source, effective_quality=profile
                 )
-                candidates = (
-                    self.soulseek.search(effective, lambda: self.check(job["id"]))
-                    if source == "soulseek"
-                    else self.providers[source](f"{job['artist']} {job['title']}", 20)
+                context = Context(
+                    profile,
+                    check=lambda: self.check(job["id"]),
+                    deadline=min(
+                        self.context.source_deadline,
+                        time.monotonic() + 90,
+                    ),
                 )
+                if REGISTRY[source].adapter:
+                    candidates = self.runtime.search(source, effective, context)
+                else:
+                    with self.runtime.health.operation(source):
+                        if source == "soulseek":
+                            candidates = self.soulseek.search(
+                                effective, lambda: self.check(job["id"])
+                            )
+                        elif self.providers[source] is REGISTRY[source].search:
+                            candidates = legacy_search(
+                                source, f"{job['artist']} {job['title']}", context
+                            )
+                        else:
+                            candidates = self.providers[source](
+                                f"{job['artist']} {job['title']}", 20
+                            )
+                        self.runtime.health.outcome(source)
                 candidates = [c for c in candidates if matches(job, c)]
                 if job.get("exact_quality") and profile == "mp3_128":
                     candidates = [
@@ -442,15 +506,12 @@ class Downloader:
                 candidates.sort(key=lambda c: c.get("quality") != "320kbps")
                 for candidate in candidates[:3]:
                     self.check(job["id"])
-                    extension = (
-                        candidate["extension"]
-                        if source == "soulseek"
-                        else ".m4a" if source == "jiosaavn" else ".mp3"
-                    )
+                    extension = REGISTRY[source].extension(candidate)
                     path = (
                         self.staging
                         / f"{job['id']}-{job.get('claim_token','legacy')}{extension}"
                     )
+                    transferred = False
                     try:
                         self.state(
                             job["id"],
@@ -458,16 +519,44 @@ class Downloader:
                             source=source,
                             effective_quality=profile,
                         )
-                        self.transfer(job["id"], {**candidate, "source": source}, path)
-                        self.complete(job, path, extension, source, profile)
+                        provenance = self.transfer(
+                            job["id"],
+                            {
+                                **candidate,
+                                "source": source,
+                                "effective_profile": profile,
+                            },
+                            path,
+                        )
+                        transferred = True
+                        self.complete(job, path, extension, source, profile, provenance)
+                        self.runtime.health.outcome(source, transfer=True)
                         return True
                     except (Cancelled, QualityDeadline):
                         raise
                     except Exception as exc:
+                        if transferred:
+                            self.runtime.health.outcome(
+                                source, error=ProviderError("no_match"), transfer=True
+                            )
+                        elif not REGISTRY[source].adapter:
+                            self.runtime.health.outcome(
+                                source,
+                                error=(
+                                    exc
+                                    if isinstance(exc, ProviderError)
+                                    else ProviderError("no_match")
+                                ),
+                                transfer=True,
+                            )
                         message = (
                             "transfer failed"
                             if isinstance(exc, httpx.HTTPError)
-                            else str(exc)[:160]
+                            else (
+                                str(exc)[:160]
+                                if isinstance(exc, ValueError)
+                                else "candidate validation failed"
+                            )
                         )
                         errors.append(f"{source}: {message}")
                     finally:
@@ -478,7 +567,10 @@ class Downloader:
                     )
             except (Cancelled, QualityDeadline):
                 raise
+            except ProviderError as exc:
+                errors.append(f"{source}: {exc}")
             except Exception:
+                self.runtime.health.outcome(source, error=ProviderError())
                 errors.append(f"{source}: search unavailable")
         return False
 
@@ -509,8 +601,16 @@ class Downloader:
                 and fallback != "none"
                 and not job.get("upgrade_only")
             ):
-                if self.attempt(job, fallback, errors):
-                    return
+                self.deadlines[job["id"]] = (
+                    time.monotonic() + desired["fallback_minutes"] * 60
+                )
+                try:
+                    if self.attempt(job, fallback, errors):
+                        return
+                except QualityDeadline:
+                    errors.append("Fallback quality attempt reached its time limit")
+                finally:
+                    self.deadlines.pop(job["id"], None)
             self.state(
                 job["id"],
                 "failed",

@@ -21,6 +21,8 @@ import {
   goToAlbum,
   goToArtist,
   requestSong,
+  songBody,
+  withLibrary,
   type Song,
 } from "./songs";
 
@@ -123,7 +125,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (s.state === "server" && s.server) {
       // On the server already: adding to your library is instant.
       await requestSong(s);
-      return resolveSaved(s.server.id);
+      const [added] = await withLibrary([s]);
+      return resolveSaved(added.saved?.id || s.server.id);
     }
     if (s.saved) return resolveSaved(s.saved.id);
     if (s.release_id && (s.track_id || s.recording_id)) {
@@ -151,7 +154,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           body.source === "Saved library" ? (body.id as string) : undefined,
       };
     }
-    throw new Error("This song can't be streamed. Download it to listen.");
+    const response = await apiFetch("/api/v1/remote-playback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(songBody(s)),
+    });
+    const body = await response.json();
+    if (!response.ok)
+      throw new Error(
+        typeof body.detail === "string"
+          ? body.detail
+          : "This song can't be streamed right now.",
+      );
+    return {
+      url: body.url as string,
+      source: body.source as string,
+      note: body.note as string | undefined,
+      saved_id: undefined,
+    };
   }
   async function resolveSaved(id: string) {
     const response = await apiFetch(
@@ -230,6 +250,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setQueueVersion((v) => v + 1);
     void load(next);
   }
+  function previous() {
+    const element = audio.current;
+    if (
+      element &&
+      song?.url &&
+      (element.currentTime > 3 || cursor.current <= 0)
+    ) {
+      element.currentTime = 0;
+      setPosition(0);
+      if (playEvent.current) playEvent.current.last = 0;
+    } else step(-1);
+  }
+  const canPrevious = !busy && (!!song?.url || cursor.current > 0);
   const index = cursor.current;
   const hasNext = index >= 0 && index < queue.current.length - 1;
   useEffect(() => {
@@ -251,7 +284,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           void audio.current?.play();
         },
         pause: () => audio.current?.pause(),
-        previoustrack: () => step(-1),
+        previoustrack: previous,
         nexttrack: () => step(1),
         seekto: (details) => {
           if (audio.current && details.seekTime !== undefined)
@@ -395,6 +428,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                 </small>
               </span>
             </button>
+            <button
+              className="mini-next"
+              aria-label="Previous song"
+              disabled={!canPrevious}
+              onClick={previous}
+            >
+              <SkipBack size={22} fill="currentColor" />
+            </button>
             {playButton(22)}
             <button
               className="mini-next"
@@ -493,12 +534,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             <div className="np-transport">
               <button
                 aria-label="Previous song"
-                disabled={index <= 0 || busy}
-                onClick={() =>
-                  position > 3 && audio.current
-                    ? (audio.current.currentTime = 0)
-                    : step(-1)
-                }
+                disabled={!canPrevious}
+                onClick={previous}
               >
                 <SkipBack size={30} fill="currentColor" />
               </button>

@@ -1,11 +1,11 @@
-name: Native feasibility checks
+name: Native client and feasibility checks
 
 on:
   pull_request:
-    paths: ['swift/**', 'api/**', 'server/**', 'scripts/export_openapi.py', 'scripts/serve_contract_fixture.py', '.github/workflows/native-spike.yml']
+    paths: ['swift/**', 'api/**', 'server/**', 'scripts/export_openapi.py', 'scripts/serve_contract_fixture.py', 'scripts/generate_native_project.py', '.github/workflows/native-spike.yml']
   push:
-    branches: [main, 'feature/**']
-    paths: ['swift/**', 'api/**', 'server/**', 'scripts/export_openapi.py', 'scripts/serve_contract_fixture.py', '.github/workflows/native-spike.yml']
+    branches: [main, 'feature/**', 'codex/**']
+    paths: ['swift/**', 'api/**', 'server/**', 'scripts/export_openapi.py', 'scripts/serve_contract_fixture.py', 'scripts/generate_native_project.py', '.github/workflows/native-spike.yml']
   workflow_dispatch:
 
 permissions:
@@ -46,6 +46,11 @@ jobs:
         run: |
           xcodebuild -quiet -scheme PigAPI -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath ../build/PigKitSimulator -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO build
+      - name: Unsigned production iPhone and iPad build
+        run: |
+          xcodebuild -quiet -project swift/PigMusic.xcodeproj -scheme PigMusic \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath swift/build/PigMusic \
+            -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO build
       - name: Shared core tests
         run: swift test --package-path swift/NativeSpike
       - name: Unsigned iPhone and embedded Watch simulator build
