@@ -37,3 +37,4 @@ Credentials, appdata, music exports, private measurements and screenshots remain
 - [Phone/tablet parity candidate and production Watch build](native-phone-watch-build-20261012.md): background downloads, transactional edit replay, import selection/sorting, independent Watch music and remaining hardware gates.
 
 - [Phone and Watch branding 1.7.0](native-branding-20261012.md): official assets, native presentation and build 0.2.0 (3).
+- [Native review, artwork and source fixes](native-review-20261012.md): playback crash, web-aligned iPhone UI, Watch fixes, Passion Pit artwork cause, YouTube search correction.
