@@ -399,8 +399,9 @@ def test_native_preference_migration_preserves_rows_constraints_and_rollback(
 
 
 @pytest.mark.parametrize("drop_terminal_padding", [False, True])
+@pytest.mark.parametrize("omit_initial_skip", [False, True])
 def test_opus_remux_preserves_audio_packets_and_cannot_overwrite(
-    tmp_path, native_audio, monkeypatch, drop_terminal_padding
+    tmp_path, native_audio, monkeypatch, drop_terminal_padding, omit_initial_skip
 ):
     ffmpeg = shutil.which("ffmpeg")
     webm = tmp_path / "source.webm"
@@ -418,7 +419,7 @@ def test_opus_remux_preserves_audio_packets_and_cannot_overwrite(
         check=True,
         timeout=20,
     )
-    if drop_terminal_padding:
+    if drop_terminal_padding or omit_initial_skip:
         # Reproduce the old Linux muxer's lost DiscardPadding on every FFmpeg.
         from mutagen.ogg import OggPage
         import server.audio as audio_module
@@ -427,7 +428,12 @@ def test_opus_remux_preserves_audio_packets_and_cannot_overwrite(
 
         def legacy_muxer(argv, *args, **kwargs):
             result = original_run(argv, *args, **kwargs)
-            if argv[0] == ffmpeg and result.returncode == 0 and argv[-2] == "opus":
+            if (
+                drop_terminal_padding
+                and argv[0] == ffmpeg
+                and result.returncode == 0
+                and argv[-2] == "opus"
+            ):
                 with open(argv[-1], "r+b") as handle:
                     first = OggPage(handle)
                     last = first
@@ -440,6 +446,16 @@ def test_opus_remux_preserves_audio_packets_and_cannot_overwrite(
                     assert len(encoded) == last.size
                     handle.seek(last.offset)
                     handle.write(encoded)
+            if (
+                omit_initial_skip
+                and argv[0] == shutil.which("ffprobe")
+                and str(argv[-1]) == str(webm)
+                and "-show_data" in argv
+            ):
+                metadata = json.loads(result.stdout)
+                for side in metadata["packets"][0].get("side_data_list", []):
+                    side.pop("skip_samples", None)
+                result.stdout = json.dumps(metadata).encode()
             return result
 
         monkeypatch.setattr(audio_module, "run_checked", legacy_muxer)

@@ -109,3 +109,7 @@ The first integrated Linux candidate passed 346 tests and failed the Opus remux 
 The remux now reads bounded packet skip/discard metadata, verifies packet count and initial padding, and corrects only the final Ogg granule/checksum when terminal padding differs. It reads one Ogg page at a time, checks cancellation, validates the corrected metadata and then publishes atomically. No compressed packets are encoded or changed. [Ogg Opus end-trimming rules](https://www.rfc-editor.org/rfc/rfc7845.html#section-4.4) describe the terminal granule mechanism.
 
 The regression simulates the older muxer on every platform and now requires exact decoded PCM equality, alongside exact compressed packet hashes and overwrite protection. All 63 focused source/provider cases pass locally; the combined Linux image must pass its rerun before publication.
+
+The next Linux rerun showed that its FFprobe also omits initial Skip Samples side data for WebM, despite retaining the codec's pre-skip. Initial padding is therefore read from the bounded OpusHead codec-private bytes, with a conflict check when packet metadata is present. The regression covers all combinations of missing initial side data and lost terminal padding; all 65 focused cases pass locally. Image publication remains gated by the exact Linux rerun.
+
+The complete local backend rerun passes **350 tests** after both FFmpeg/FFprobe compatibility corrections. Native, web and build results are unchanged.

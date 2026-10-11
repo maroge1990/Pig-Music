@@ -72,7 +72,8 @@ def _opus_padding(path, ffprobe, check):
             "-select_streams",
             "a:0",
             "-show_entries",
-            "packet=side_data_list:packet_side_data=skip_samples,discard_padding",
+            "stream=extradata:packet=side_data_list:packet_side_data=skip_samples,discard_padding",
+            "-show_data",
             "-of",
             "json",
             str(path),
@@ -83,14 +84,30 @@ def _opus_padding(path, ffprobe, check):
     )
     if result.returncode:
         raise ValueError("Cannot read native Opus sample padding")
-    packets = json.loads(result.stdout).get("packets", [])
+    metadata = json.loads(result.stdout)
+    packets = metadata.get("packets", [])
     if not packets:
         raise ValueError("Native Opus has no audio packets")
 
     def samples(packet, key):
         return sum(int(side.get(key, 0)) for side in packet.get("side_data_list", []))
 
-    start = samples(packets[0], "skip_samples")
+    streams = metadata.get("streams", [])
+    if len(streams) != 1:
+        raise ValueError("Native Opus requires one codec header")
+    # Older FFprobe omits WebM's initial Skip Samples side data. OpusHead
+    # retains the actual pre-skip; read its bounded codec-private byte dump.
+    header = b"".join(
+        bytes.fromhex(line.partition(":")[2].strip().split("  ", 1)[0])
+        for line in streams[0].get("extradata", "").splitlines()
+        if ":" in line
+    )
+    if len(header) < 19 or not header.startswith(b"OpusHead"):
+        raise ValueError("Native Opus has no readable codec header")
+    start = int.from_bytes(header[10:12], "little")
+    reported_start = samples(packets[0], "skip_samples")
+    if reported_start not in (0, start):
+        raise ValueError("Native Opus header and packet initial padding conflict")
     end = samples(packets[-1], "discard_padding")
     if not 0 <= start <= 65535 or not 0 <= end <= 5760:
         raise ValueError("Unsupported native Opus sample padding")
