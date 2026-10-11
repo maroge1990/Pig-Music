@@ -62,8 +62,12 @@ export function SavedArtistHeading({
       <div>
         <span className="eyebrow">IN YOUR LIBRARY</span>
         <h1>{artist.name}</h1>
-        <button className="secondary-button" onClick={() => void open()}>
-          Find more by {artist.name}
+        <button
+          className="small-button"
+          aria-label={`Find more by ${artist.name}`}
+          onClick={() => void open()}
+        >
+          Discography
         </button>
         {candidates &&
           (owner ? (

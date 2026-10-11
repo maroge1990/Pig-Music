@@ -64,14 +64,17 @@ function HomeSection({ kind }: { kind: "popular" | "recommended" }) {
           whenIdle(() =>
             [
               ...new Set(
-                [...value.artists, ...value.albums, ...value.songs].map(
-                  (item) => item.artist_id,
-                ),
+                [
+                  ...value.artists,
+                  ...value.albums,
+                  ...(kind === "recommended" ? [] : value.songs),
+                ].map((item) => item.artist_id),
               ),
             ]
               .slice(0, 12)
               .forEach((id, i) => warmArtist(id, i < 2)),
           );
+          if (kind === "recommended") return;
           const plain = songRows(value.songs);
           setSongs(plain);
           return withLibrary(plain).then((found) => {
@@ -87,9 +90,12 @@ function HomeSection({ kind }: { kind: "popular" | "recommended" }) {
       clearTimeout(timer);
     };
   }, [kind]);
-  const collections = (["artists", "albums", "songs"] as const).filter(
-    (collection) => feed?.[collection].length,
-  );
+  // Recommendations are artists and albums only; songs stay in the charts.
+  const collections = (
+    kind === "recommended"
+      ? (["artists", "albums"] as const)
+      : (["artists", "albums", "songs"] as const)
+  ).filter((collection) => feed?.[collection].length);
   const heading =
     kind === "popular"
       ? feed?.title || "Popular in Australia"

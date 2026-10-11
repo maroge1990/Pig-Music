@@ -423,7 +423,6 @@ export function CatalogueBrowser({
           }}
         />
       )}
-      {!group && <FollowArtist id={artist.id} name={artist.name} />}
       {group && (
         <div className="page-heading catalogue-heading">
           {group && (
@@ -512,19 +511,22 @@ export function CatalogueBrowser({
               <Play size={16} fill="currentColor" /> Play
             </button>
             <button
-              className="secondary-button"
+              className="round-action"
+              aria-label="Shuffle"
+              title="Shuffle"
               disabled={!rows.length}
               onClick={() => player.play(shuffled(rows), 0)}
             >
-              <Shuffle size={16} /> Shuffle
+              <Shuffle size={18} aria-hidden="true" />
             </button>
             <button
-              className="secondary-button"
+              className="round-action"
+              aria-label="Download album"
+              title="Download album"
               disabled={busy || !rows.some((r) => r.state === "missing")}
               onClick={() => download()}
             >
-              <ArrowDown size={16} />
-              Download album
+              <ArrowDown size={18} aria-hidden="true" />
             </button>
           </div>
           <div className="song-list">
@@ -717,6 +719,11 @@ export function CatalogueBrowser({
           )}
         </>
       ) : null}
+      {!group && (
+        <section className="detail-settings" aria-label="Artist settings">
+          <FollowArtist id={artist.id} name={artist.name} />
+        </section>
+      )}
       {owner && !group && (
         <OwnerPanel label="server downloads for this artist">
           <ArtistAcquisition id={artist.id} notify={notify} />

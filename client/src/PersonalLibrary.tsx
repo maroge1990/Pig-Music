@@ -507,6 +507,11 @@ export function PersonalLibrary({
   const visibleTabs = libraryTabs.filter((id) => counts[id] !== 0);
   return (
     <main className="personal-main">
+      {detail && !searching && (
+        <button className="text-button back-link" onClick={backToLibrary}>
+          <ArrowLeft size={16} aria-hidden="true" /> Library
+        </button>
+      )}
       {searching ? (
         <PageHeader
           title="Search"
@@ -559,9 +564,6 @@ export function PersonalLibrary({
         />
       ) : detail ? (
         <>
-          <button className="text-button" onClick={backToLibrary}>
-            <ArrowLeft size={18} /> Back to library
-          </button>
           {(detail.playlist || detail.quality?.scope === "album") && (
             <div className="release-actions">
               {[false, true].map((shuffle) => {
@@ -573,31 +575,67 @@ export function PersonalLibrary({
                 return (
                   <button
                     key={String(shuffle)}
-                    className={shuffle ? "secondary-button" : "primary-button"}
+                    className={shuffle ? "round-action" : "primary-button"}
+                    aria-label={shuffle ? "Shuffle" : undefined}
+                    title={shuffle ? "Shuffle" : undefined}
                     disabled={!playable.length}
                     onClick={() => {
                       const queue = shuffle ? shuffled(playable) : playable;
                       player.play(queue, 0);
                     }}
                   >
-                    {shuffle ? <Shuffle size={18} /> : <Play size={18} />}{" "}
-                    {shuffle ? "Shuffle" : "Play"}
+                    {shuffle ? (
+                      <Shuffle size={18} aria-hidden="true" />
+                    ) : (
+                      <>
+                        <Play
+                          size={16}
+                          fill="currentColor"
+                          aria-hidden="true"
+                        />{" "}
+                        Play
+                      </>
+                    )}
                   </button>
                 );
               })}
-              {albumRows && (
+              {albumRows && missing.length > 0 && (
                 <button
-                  className="secondary-button"
-                  disabled={!missing.length || downloading}
+                  className="round-action"
+                  aria-label={`Download ${missing.length} missing songs`}
+                  title="Download missing songs"
+                  disabled={downloading}
                   onClick={() => void downloadMissing(missing)}
                 >
-                  <Download size={18} /> Download missing
+                  <Download size={18} aria-hidden="true" />
                 </button>
               )}
             </div>
           )}
+          {detail.albums && (
+            <div className="personal-grid">
+              {detail.albums.map((a) => (
+                <button key={a.id} onClick={() => go("/library/album/" + a.id)}>
+                  <Cover title={a.title} src={a.cover_url} />
+                  <h3>{a.title}</h3>
+                </button>
+              ))}
+            </div>
+          )}
+          {albumRows && (
+            <p className="muted album-summary">
+              {albumSummary(albumRows, owned)}
+            </p>
+          )}
+          {shownTracks && songs(shownTracks, detail.playlist)}
+          {/* Per-item settings follow the music; owner tools come last. */}
           {detail.quality && (
-            <PersonalQuality key={detail.quality.itemId} {...detail.quality} />
+            <section className="detail-settings" aria-label="Settings">
+              <PersonalQuality
+                key={detail.quality.itemId}
+                {...detail.quality}
+              />
+            </section>
           )}
           {detail.playlist && !detail.playlist.favourites && (
             <details className="playlist-options">
@@ -648,22 +686,6 @@ export function PersonalLibrary({
               </button>
             </details>
           )}
-          {detail.albums && (
-            <div className="personal-grid">
-              {detail.albums.map((a) => (
-                <button key={a.id} onClick={() => go("/library/album/" + a.id)}>
-                  <Cover title={a.title} src={a.cover_url} />
-                  <h3>{a.title}</h3>
-                </button>
-              ))}
-            </div>
-          )}
-          {albumRows && (
-            <p className="muted album-summary">
-              {albumSummary(albumRows, owned)}
-            </p>
-          )}
-          {shownTracks && songs(shownTracks, detail.playlist)}
           {owner && detail.quality?.scope === "album" && (
             <OwnerAlbumTools id={detail.quality.itemId} title={detail.title} />
           )}

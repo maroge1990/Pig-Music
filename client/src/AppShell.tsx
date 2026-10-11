@@ -60,7 +60,6 @@ export function AppShell() {
   // Remounts the sign-in form when an invite link opens in an existing tab.
   const [invites, setInvites] = useState(0);
   const nav = useFixedHeight("--mobile-nav-height", !!user);
-  useCompactNav();
   useServerEvents(!!user);
   const downloading = useActiveDownloads(!!user);
 
@@ -404,30 +403,4 @@ function useActiveDownloads(active: boolean) {
     };
   }, [active]);
   return count;
-}
-
-/** Phones: scrolling down folds the tab bar into a compact row beside the
- * player, as Apple Music does; returning to the top restores it. */
-function useCompactNav() {
-  useEffect(() => {
-    const root = document.documentElement;
-    let frame = 0;
-    let last = window.scrollY;
-    const update = () => {
-      frame = 0;
-      const y = window.scrollY;
-      if (y < 24) root.classList.remove("nav-compact");
-      else if (y > last + 4) root.classList.add("nav-compact");
-      last = y;
-    };
-    const scroll = () => {
-      if (!frame) frame = requestAnimationFrame(update);
-    };
-    window.addEventListener("scroll", scroll, { passive: true });
-    return () => {
-      window.removeEventListener("scroll", scroll);
-      cancelAnimationFrame(frame);
-      root.classList.remove("nav-compact");
-    };
-  }, []);
 }
