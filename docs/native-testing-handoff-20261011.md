@@ -7,7 +7,7 @@
 1. Pull `main`, open `swift/PigMusic.xcodeproj`, and select **PigMusic**.
 2. In Xcode Settings → Accounts, add your Apple Account. In the app target's Signing & Capabilities, select your **Personal Team** and automatic signing. If Xcode reports an unavailable bundle identifier, use a unique local identifier. Keep account/signing changes local.
 3. Connect your iPhone or iPad, select it as the run destination, and follow Xcode/device prompts for Developer Mode and trust. Build and run. The app currently requires iOS/iPadOS 18 or later.
-4. Enter your reachable private HTTPS server address and existing Pig Music username/password. Ensure your private-network connection works before signing in. User creation and server/provider setup remain in the web app.
+4. Enter your reachable private HTTPS server address and existing Pig Music username/password, or join with a web-issued invitation link/code. Ensure your private-network connection works before signing in. User creation and server/provider setup remain in the web app.
 
 Apple permits personal-device testing through Xcode with a free account. Personal Team provisioning expires after seven days, requiring a rebuild and reinstall; account/device limits also apply. See [Apple's current account guidance](https://developer.apple.com/help/account/basics/about-your-developer-account). No signed IPA, TestFlight delivery or physical-device installation is produced by this repository push.
 
@@ -56,4 +56,4 @@ Test original and AAC downloads, kill/reopen during a transfer, go offline and p
 
 Create/import/rename/reorder/delete playlists, add repeated songs, delete one occurrence, and make a conflicting edit through the web app. Review XML matches before importing. Exercise artist monitoring and explicit catalogue requests separately. Verify personal quality/Plex/password/session changes, removal consequences and undo; administrative configuration remains on the web.
 
-Expanded candidate verification: **358 backend tests**, **80 PigKit tests** (17 XCTest + 51 core Swift Testing + 12 API Swift Testing) against the disposable authenticated contract server, with no skips, and **38 web tests** pass. The web production build, exported schema checks, Swift/Python formatting and whitespace checks pass. Unsigned Debug and Release simulator verification is recorded alongside the final publication result; physical-device installation and live provider testing are still required.
+Expanded candidate verification: **358 backend tests**, **80 PigKit tests** (17 XCTest + 51 core Swift Testing + 12 API Swift Testing) against the disposable authenticated contract server, with no skips, and **38 web tests** pass. The web production build, exported schema checks, Swift/Python formatting and whitespace checks pass. Unsigned **Debug and Release iPhone/iPad simulator builds pass**; physical-device installation and live provider testing are still required.
