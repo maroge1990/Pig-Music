@@ -31,19 +31,36 @@ import PigPlayback
     let ids: [String]
   }
   var albums: [AlbumGroup] {
-    Dictionary(grouping: manifest.songs) {
-      $0.track.albumId
-        ?? (($0.track.albumArtist ?? $0.track.artist) + "\u{0}" + ($0.track.album ?? "Singles"))
-    }.map { key, songs in
-      AlbumGroup(
-        id: key, title: songs[0].track.album ?? "Singles",
-        artist: songs[0].track.albumArtist ?? songs[0].track.artist,
-        ids: songs.sorted {
-          ($0.track.discNumber ?? 1, $0.track.trackNumber ?? 0, $0.id) < (
-            $1.track.discNumber ?? 1, $1.track.trackNumber ?? 0, $1.id
-          )
-        }.map(\.id))
-    }.sorted { ($0.title, $0.artist, $0.id) < ($1.title, $1.artist, $1.id) }
+    var grouped: [String: [CompanionSong]] = [:]
+    for song in manifest.songs {
+      let artist = song.track.albumArtist ?? song.track.artist
+      let title = song.track.album ?? "Singles"
+      let key = song.track.albumId ?? (artist + "\u{0}" + title)
+      grouped[key, default: []].append(song)
+    }
+    var result: [AlbumGroup] = []
+    for (key, songs) in grouped {
+      guard let first = songs.first else { continue }
+      let ordered: [CompanionSong] = songs.sorted { left, right in
+        let leftDisc = left.track.discNumber ?? 1
+        let rightDisc = right.track.discNumber ?? 1
+        if leftDisc != rightDisc { return leftDisc < rightDisc }
+        let leftTrack = left.track.trackNumber ?? 0
+        let rightTrack = right.track.trackNumber ?? 0
+        if leftTrack != rightTrack { return leftTrack < rightTrack }
+        return left.id < right.id
+      }
+      let ids: [String] = ordered.map { $0.id }
+      result.append(
+        AlbumGroup(
+          id: key, title: first.track.album ?? "Singles",
+          artist: first.track.albumArtist ?? first.track.artist, ids: ids))
+    }
+    return result.sorted { left, right in
+      if left.title != right.title { return left.title < right.title }
+      if left.artist != right.artist { return left.artist < right.artist }
+      return left.id < right.id
+    }
   }
   func finishBackgroundDelivery() async {
     await link?.finishBackgroundDelivery()
