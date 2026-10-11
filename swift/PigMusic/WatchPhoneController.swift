@@ -390,7 +390,9 @@ struct WatchDownloadsView: View {
             "AAC music is stored on your Watch for independent playback. Keep the phone app open while preparing AAC copies; Watch transfers are scheduled by the system."
           ).font(.footnote)
           Button("Sync / retry Watch transfers") { Task { await watch.publish(force: true) } }
-          if let error = watch.message ?? watch.link?.error { Text(error).foregroundStyle(.red) }
+          if let error = watch.message ?? watch.link?.error {
+            Text(error).foregroundStyle(Color("PigDanger"))
+          }
         }
         Section("Choose songs") {
           ForEach(songs) { track in

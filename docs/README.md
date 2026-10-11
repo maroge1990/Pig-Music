@@ -35,3 +35,5 @@ Credentials, appdata, music exports, private measurements and screenshots remain
 - [Expanded everyday native build](native-everyday-build-20261011.md): phone/tablet features, original/AAC server and device copies, validation and remaining package ledger.
 
 - [Phone/tablet parity candidate and production Watch build](native-phone-watch-build-20261012.md): background downloads, transactional edit replay, import selection/sorting, independent Watch music and remaining hardware gates.
+
+- [Phone and Watch branding 1.7.0](native-branding-20261012.md): official assets, native presentation and build 0.2.0 (3).

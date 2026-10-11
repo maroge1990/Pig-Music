@@ -6,11 +6,19 @@ import UIKit
 @main struct PigMusicApp: App {
   @UIApplicationDelegateAdaptor(PigMusicAppDelegate.self) private var delegate
   @State private var model = AppModel()
+  @State private var starting = true
   @Environment(\.scenePhase) private var phase
   var body: some Scene {
     WindowGroup {
       RootView(model: model)
-        .task { await model.restore() }
+        .overlay { if starting { PigBrandSplash() } }
+        .task {
+          await model.restore()
+          starting = false
+        }
+        .onChange(of: model.person?.id) { _, person in
+          if person != nil { starting = false }
+        }
         .onChange(of: phase, initial: true) { _, value in
           Task { await model.sceneActive(value == .active) }
         }
@@ -31,7 +39,7 @@ struct RootView: View {
     )
     .tint(PigBrand.accent(scheme))
     .scrollContentBackground(.hidden)
-    .background(PigBrand.canvas(scheme))
+    .background { PigCanvasBackground() }
   }
 }
 
@@ -44,7 +52,8 @@ struct SignInView: View {
     NavigationStack {
       Form {
         Section {
-          Image("PigMark").resizable().scaledToFit().frame(height: 100).frame(maxWidth: .infinity)
+          Image("PigLockup").resizable().scaledToFit().frame(maxWidth: 280).frame(height: 100)
+            .frame(maxWidth: .infinity)
             .accessibilityHidden(true)
           Text("Your music, wherever you are.").font(PigType.headline)
         }
@@ -69,7 +78,8 @@ struct SignInView: View {
               Spacer()
               if model.busy { ProgressView() }
             }
-          }.disabled(model.busy || username.isEmpty || password.isEmpty || model.server.isEmpty)
+          }.pigPrimaryAction().disabled(
+            model.busy || username.isEmpty || password.isEmpty || model.server.isEmpty)
         }
         Section("Join with an invitation") {
           TextField("Invitation link or code", text: $invitation).textInputAutocapitalization(
@@ -88,7 +98,8 @@ struct SignInView: View {
         }
         if let message = model.message {
           Section {
-            Text(message).foregroundStyle(.red).accessibilityLabel("Sign-in status: " + message)
+            Text(message).foregroundStyle(Color("PigDanger")).accessibilityLabel(
+              "Sign-in status: " + message)
           }
         }
       }.navigationTitle("Pig Music").pigCanvas()
@@ -129,11 +140,17 @@ struct LibraryShell: View {
           NavigationStack { content(selection ?? .home) }
         }
       } else {
-        TabView {
+        TabView(selection: $selection) {
           ForEach(Destination.allCases) { item in
             NavigationStack { content(item) }.tabItem {
-              Label(item.rawValue, systemImage: item.symbol)
-            }
+              if item == .home {
+                Label(
+                  item.rawValue,
+                  image: selection == .home ? "pig-music-glyph-fill" : "pig-music-glyph-outline")
+              } else {
+                Label(item.rawValue, systemImage: item.symbol)
+              }
+            }.tag(Optional(item))
           }
         }
       }
@@ -159,11 +176,8 @@ struct LibraryShell: View {
 }
 
 private struct PigCanvas: ViewModifier {
-  @Environment(\.colorScheme) private var scheme
   func body(content: Content) -> some View {
-    content.scrollContentBackground(.hidden)
-      .background(PigBrand.canvas(scheme))
-      .toolbarBackground(PigBrand.canvas(scheme), for: .navigationBar)
+    content.pigBrandedCanvas()
   }
 }
 extension View {

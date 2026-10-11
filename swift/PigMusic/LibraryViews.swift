@@ -159,11 +159,17 @@ struct SongButton: View {
   let model: AppModel
   let track: Track
   let play: () -> Void
+  @Environment(\.colorScheme) private var scheme
+  private var current: Bool { model.player.queue.current?.track.id == track.id }
   var body: some View {
     Button {
       if track.serverState == "household_available" { model.actionTrack = track } else { play() }
     } label: {
       HStack {
+        if current {
+          Capsule().fill(PigBrand.accent(scheme)).frame(width: 4, height: 28)
+            .accessibilityHidden(true)
+        }
         ArtworkView(model: model, sha: track.coverSha, size: 44)
         VStack(alignment: .leading) {
           Text(track.title).foregroundStyle(.primary)
@@ -178,7 +184,13 @@ struct SongButton: View {
             ? "Add from household"
             : (track.serverState == "not_in_library" ? "Remote streaming" : "On the server"))
       }.frame(minHeight: 44)
-    }.accessibilityLabel(
+    }.listRowBackground(
+      PigBrand.surface(scheme).overlay {
+        if current { PigBrand.accent(scheme).opacity(0.14) }
+      }
+    )
+    .accessibilityValue(current ? "Current song" : "")
+    .accessibilityLabel(
       "\(track.serverState == "household_available" ? "Add" : "Play") \(track.title) by \(track.artist). \(track.serverState == "not_in_library" ? "Remote streaming" : "On the server")."
     )
     .contextMenu {
@@ -239,6 +251,7 @@ struct MiniPlayer: View {
   @Bindable var model: AppModel
   private var player: PlayerController { model.player }
   let open: () -> Void
+  @Environment(\.colorScheme) private var scheme
   var body: some View {
     HStack {
       ArtworkView(model: model, sha: player.queue.current?.track.coverSha, size: 44)
@@ -246,7 +259,7 @@ struct MiniPlayer: View {
         VStack(alignment: .leading) {
           Text(player.queue.current?.track.title ?? "").lineLimit(1)
           Text(player.queue.current?.track.artist ?? "").font(PigType.caption).foregroundStyle(
-            .white.opacity(0.75))
+            PigBrand.secondary(scheme))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
       }
@@ -258,9 +271,9 @@ struct MiniPlayer: View {
       Button(action: player.next) {
         Image(systemName: "forward.end.fill").frame(minWidth: 44, minHeight: 44)
       }.accessibilityLabel("Next song")
-    }.padding(.horizontal).padding(.vertical, 8).foregroundStyle(.white).tint(
-      Color(red: 239 / 255, green: 122 / 255, blue: 174 / 255)
-    ).background(Color(red: 21 / 255, green: 17 / 255, blue: 26 / 255))
+    }.padding(.horizontal, 16).padding(.vertical, 8)
+      .foregroundStyle(PigBrand.text(scheme)).tint(PigBrand.accent(scheme))
+      .pigFloatingControls().padding(.horizontal, 8).padding(.bottom, 4)
   }
 }
 
@@ -275,7 +288,7 @@ struct NowPlayingView: View {
           ArtworkView(
             model: model, sha: player.queue.current?.track.coverSha, width: 512, size: 280
           )
-          .frame(maxWidth: .infinity).padding(.vertical, 20)
+          .pigContentCorners().frame(maxWidth: .infinity).padding(.vertical, 20)
           Text(player.queue.current?.track.title ?? "").font(PigType.title)
           Text(player.queue.current?.track.artist ?? "").font(PigType.headline)
           Slider(
@@ -312,7 +325,7 @@ struct NowPlayingView: View {
             }
           }
           if let error = player.error {
-            Text(error).font(PigType.footnote).foregroundStyle(.red)
+            Text(error).font(PigType.footnote).foregroundStyle(Color("PigDanger"))
             HStack {
               Button("Retry") { player.retry() }
               Button("Skip song") { player.next() }
@@ -337,7 +350,7 @@ struct NowPlayingView: View {
       }
       .navigationTitle("Now playing").navigationBarTitleDisplayMode(.inline)
       .toolbar { Button("Done") { dismiss() } }
-    }.preferredColorScheme(.dark).tint(Color(red: 239 / 255, green: 122 / 255, blue: 174 / 255))
+    }.pigBrandedCanvas()
   }
 }
 

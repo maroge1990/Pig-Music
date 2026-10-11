@@ -1,0 +1,297 @@
+{
+  "assets": {
+    "docs/pig-family-brand-tokens.json": {
+      "sha256": "fc28d72153063243b80f18e45cee3965b7a8643c1d0f11be1fbadce731d628ae",
+      "source": "tokens/brand-tokens.json"
+    },
+    "swift/PigMusic/AppIcon.icon/Assets/body-mono.svg": {
+      "sha256": "4ccfe21caece73a0a234db970162ff5e4ae7894fb23de61ff4fd18affbaa0990",
+      "source": "assets/products/pig-music/Apple/IconComposer/mono/layer-1-body.svg"
+    },
+    "swift/PigMusic/AppIcon.icon/Assets/body.svg": {
+      "sha256": "0800a68578c38e50676e85ec5c36631b66b5438ebbec91b0e75abde6b74b32dc",
+      "source": "assets/products/pig-music/Apple/IconComposer/layer-1-body.svg"
+    },
+    "swift/PigMusic/AppIcon.icon/Assets/face-mono.svg": {
+      "sha256": "7c2fec6e9d0e16f3d0e06fc458b560575dea45c5a37dce955cdb786d888c952b",
+      "source": "assets/products/pig-music/Apple/IconComposer/mono/layer-2-face.svg"
+    },
+    "swift/PigMusic/AppIcon.icon/Assets/face.svg": {
+      "sha256": "25070244acaffd8fb8a3b2450ffd5c09f4fb5788fe42fd54fca379abf2d6a648",
+      "source": "assets/products/pig-music/Apple/IconComposer/layer-2-face.svg"
+    },
+    "swift/PigMusic/AppIcon.icon/Assets/halo-dark.png": {
+      "sha256": "5e18d1d4ec7c2a9f0fb0823840b225594619f22874b7bd129a17de80fd6a33cb",
+      "source": "assets/products/pig-music/Apple/IconComposer/background-dark.png"
+    },
+    "swift/PigMusic/AppIcon.icon/Assets/halo-light.png": {
+      "sha256": "ce5aa871185c3d2d72f1a4f36a5524c2365dd73f40fb33a88e9c272cc420daf7",
+      "source": "assets/products/pig-music/Apple/IconComposer/background-light.png"
+    },
+    "swift/PigMusic/Assets.xcassets/AppIcon.appiconset/Contents.json": {
+      "sha256": "c17dcfcb61a5a2b1d11a6565986917bee7d025ac66902fd55cb2722b7aa12e68",
+      "source": "assets/products/pig-music/Apple/AppIcon.appiconset/Contents.json"
+    },
+    "swift/PigMusic/Assets.xcassets/AppIcon.appiconset/dark.png": {
+      "sha256": "c0ee445b32ecc938180813da23207f013087b44c2f14ae285fd7ed0b2ac4edc1",
+      "source": "assets/products/pig-music/Apple/AppIcon.appiconset/dark.png"
+    },
+    "swift/PigMusic/Assets.xcassets/AppIcon.appiconset/light.png": {
+      "sha256": "5a769b86cb209a74eabd2aeab4c48a7d3075194e93ba3723ac416bdafb224294",
+      "source": "assets/products/pig-music/Apple/AppIcon.appiconset/light.png"
+    },
+    "swift/PigMusic/Assets.xcassets/PigAccent.colorset/Contents.json": {
+      "sha256": "77571e2cfae280c4eded28048d956e80d39794f9e47ac989656b4d62ccebeb5e",
+      "source": "tokens/PigColors.xcassets/PigAccent.colorset/Contents.json"
+    },
+    "swift/PigMusic/Assets.xcassets/PigBorder.colorset/Contents.json": {
+      "sha256": "8c3b238a2aeb5868e501f50c0376c043e28e18107e44608e4ba1428ce9bee206",
+      "source": "tokens/PigColors.xcassets/PigBorder.colorset/Contents.json"
+    },
+    "swift/PigMusic/Assets.xcassets/PigCanvas.colorset/Contents.json": {
+      "sha256": "b2100e654e8a4dd4505015060dc7e3f85598a4f4f503cbe336fd44dfaecc40f6",
+      "source": "tokens/PigColors.xcassets/PigCanvas.colorset/Contents.json"
+    },
+    "swift/PigMusic/Assets.xcassets/PigControlBorder.colorset/Contents.json": {
+      "sha256": "f92363142adaa108bffcb258df3fc741dff96d3b8bb088f588867ffbc52cdf1d",
+      "source": "tokens/PigColors.xcassets/PigControlBorder.colorset/Contents.json"
+    },
+    "swift/PigMusic/Assets.xcassets/PigDanger.colorset/Contents.json": {
+      "sha256": "2401159c36a09cac9fa9c2686986ba8121081cadec49b21e57748fa7dfc9b0f4",
+      "source": "tokens/PigColors.xcassets/PigDanger.colorset/Contents.json"
+    },
+    "swift/PigMusic/Assets.xcassets/PigHalo.imageset/background-dark.png": {
+      "sha256": "5e18d1d4ec7c2a9f0fb0823840b225594619f22874b7bd129a17de80fd6a33cb",
+      "source": "assets/products/pig-music/Apple/IconComposer/background-dark.png"
+    },
+    "swift/PigMusic/Assets.xcassets/PigHalo.imageset/background-light.png": {
+      "sha256": "ce5aa871185c3d2d72f1a4f36a5524c2365dd73f40fb33a88e9c272cc420daf7",
+      "source": "assets/products/pig-music/Apple/IconComposer/background-light.png"
+    },
+    "swift/PigMusic/Assets.xcassets/PigHover.colorset/Contents.json": {
+      "sha256": "eae93c4b32eca722c24ce900dcd3ed0f68c8fd3fb22072d6abf0284101e44cbb",
+      "source": "tokens/PigColors.xcassets/PigHover.colorset/Contents.json"
+    },
+    "swift/PigMusic/Assets.xcassets/PigIconBody.imageset/layer-1-body.svg": {
+      "sha256": "0800a68578c38e50676e85ec5c36631b66b5438ebbec91b0e75abde6b74b32dc",
+      "source": "assets/products/pig-music/Apple/IconComposer/layer-1-body.svg"
+    },
+    "swift/PigMusic/Assets.xcassets/PigIconFace.imageset/layer-2-face.svg": {
+      "sha256": "25070244acaffd8fb8a3b2450ffd5c09f4fb5788fe42fd54fca379abf2d6a648",
+      "source": "assets/products/pig-music/Apple/IconComposer/layer-2-face.svg"
+    },
+    "swift/PigMusic/Assets.xcassets/PigLaunch.imageset/dark.png": {
+      "sha256": "c0ee445b32ecc938180813da23207f013087b44c2f14ae285fd7ed0b2ac4edc1",
+      "source": "assets/products/pig-music/Apple/AppIcon.appiconset/dark.png"
+    },
+    "swift/PigMusic/Assets.xcassets/PigLaunch.imageset/light.png": {
+      "sha256": "5a769b86cb209a74eabd2aeab4c48a7d3075194e93ba3723ac416bdafb224294",
+      "source": "assets/products/pig-music/Apple/AppIcon.appiconset/light.png"
+    },
+    "swift/PigMusic/Assets.xcassets/PigLockup.imageset/lockup-horizontal-dark.svg": {
+      "sha256": "8de1c4d91fc94d35ff8d6427ce30cde404f21d360489de2433061d54695c0110",
+      "source": "assets/products/pig-music/lockup-horizontal-dark.svg"
+    },
+    "swift/PigMusic/Assets.xcassets/PigLockup.imageset/lockup-horizontal-light.svg": {
+      "sha256": "e66bc66156e73665c028c42b8eb502fb4513ad142421e9393b2cc7e8e4287e24",
+      "source": "assets/products/pig-music/lockup-horizontal-light.svg"
+    },
+    "swift/PigMusic/Assets.xcassets/PigMark.imageset/mark.svg": {
+      "sha256": "63d0c501fabbef785a733ab28b72e2635b2525054bd7324ad3096f8f5e63ae04",
+      "source": "assets/products/pig-music/mark.svg"
+    },
+    "swift/PigMusic/Assets.xcassets/PigOnAccent.colorset/Contents.json": {
+      "sha256": "8fd7d5005613cc392a9de5103190ec0a5690afd1af2d5e7472bab300d4d3e039",
+      "source": "tokens/PigColors.xcassets/PigOnAccent.colorset/Contents.json"
+    },
+    "swift/PigMusic/Assets.xcassets/PigRaised.colorset/Contents.json": {
+      "sha256": "30cc8665ecd6cbd93f850f7b1441c113f6b20dbdb8524820c27c3591bca59266",
+      "source": "tokens/PigColors.xcassets/PigRaised.colorset/Contents.json"
+    },
+    "swift/PigMusic/Assets.xcassets/PigSecondary.colorset/Contents.json": {
+      "sha256": "8fe134d4f4f7c30c43c6a55c00ccef608b5434c76e1ce6602275c5beeedca07a",
+      "source": "tokens/PigColors.xcassets/PigSecondary.colorset/Contents.json"
+    },
+    "swift/PigMusic/Assets.xcassets/PigSuccess.colorset/Contents.json": {
+      "sha256": "5305820b7db0c361cb09a0efa5a65ea2cc96e487257aaced38ed3ad35d352f2e",
+      "source": "tokens/PigColors.xcassets/PigSuccess.colorset/Contents.json"
+    },
+    "swift/PigMusic/Assets.xcassets/PigSurface.colorset/Contents.json": {
+      "sha256": "05515811952570feb1c0d9b40f06cf4208f64435358a7a45e8d178eb9555c66a",
+      "source": "tokens/PigColors.xcassets/PigSurface.colorset/Contents.json"
+    },
+    "swift/PigMusic/Assets.xcassets/PigText.colorset/Contents.json": {
+      "sha256": "d7a05160f5b3592850ab9f2efd191481b3e955ce32cb2275c4a4571839831e7d",
+      "source": "tokens/PigColors.xcassets/PigText.colorset/Contents.json"
+    },
+    "swift/PigMusic/Assets.xcassets/PigTextAccent.colorset/Contents.json": {
+      "sha256": "7bd1253b0399432aaaf0ef83210238d5f5bad625790f7cdaabc48f76c68ebb6c",
+      "source": "tokens/PigColors.xcassets/PigTextAccent.colorset/Contents.json"
+    },
+    "swift/PigMusic/Assets.xcassets/PigWarning.colorset/Contents.json": {
+      "sha256": "62560afaaacf6df602e68e9249f49c5950a2c185c4ad2bbe3d83af87469f01fd",
+      "source": "tokens/PigColors.xcassets/PigWarning.colorset/Contents.json"
+    },
+    "swift/PigMusic/Assets.xcassets/pig-music-glyph-fill.imageset/Contents.json": {
+      "sha256": "ac4c131535e28b2d7fcdfab603d15231a694bc3057129a88f982cf118eac8a51",
+      "source": "assets/products/pig-music/Apple/Glyphs.xcassets/pig-music-glyph-fill.imageset/Contents.json"
+    },
+    "swift/PigMusic/Assets.xcassets/pig-music-glyph-fill.imageset/pig-music-glyph-fill.png": {
+      "sha256": "c03563f4a39cb5f503f4382f00508d106531f7e54dcba4ce9027828852f4e3ae",
+      "source": "assets/products/pig-music/Apple/Glyphs.xcassets/pig-music-glyph-fill.imageset/pig-music-glyph-fill.png"
+    },
+    "swift/PigMusic/Assets.xcassets/pig-music-glyph-fill.imageset/pig-music-glyph-fill@2x.png": {
+      "sha256": "8602c1d3e04f52622cfb4f9fbb9320ca3a6e10cab06c10451f277d73efe66d12",
+      "source": "assets/products/pig-music/Apple/Glyphs.xcassets/pig-music-glyph-fill.imageset/pig-music-glyph-fill@2x.png"
+    },
+    "swift/PigMusic/Assets.xcassets/pig-music-glyph-fill.imageset/pig-music-glyph-fill@3x.png": {
+      "sha256": "8de866b5464bb78827d6f766da50560397a10e9f48e611cd0a35e628d8207369",
+      "source": "assets/products/pig-music/Apple/Glyphs.xcassets/pig-music-glyph-fill.imageset/pig-music-glyph-fill@3x.png"
+    },
+    "swift/PigMusic/Assets.xcassets/pig-music-glyph-outline.imageset/Contents.json": {
+      "sha256": "aed0b0704922a6ce80fac80ee2c7641de5f7fba48692ee71fae644410f19c5ff",
+      "source": "assets/products/pig-music/Apple/Glyphs.xcassets/pig-music-glyph-outline.imageset/Contents.json"
+    },
+    "swift/PigMusic/Assets.xcassets/pig-music-glyph-outline.imageset/pig-music-glyph-outline.png": {
+      "sha256": "b6f379cf789d5b41b798c76dda65855f08e0220127ead91cbb6ed94db6383be6",
+      "source": "assets/products/pig-music/Apple/Glyphs.xcassets/pig-music-glyph-outline.imageset/pig-music-glyph-outline.png"
+    },
+    "swift/PigMusic/Assets.xcassets/pig-music-glyph-outline.imageset/pig-music-glyph-outline@2x.png": {
+      "sha256": "c52ed9beac1b2ce7ca37636cdc2499a8082d796ee0e9c436e5e4f2883f762aad",
+      "source": "assets/products/pig-music/Apple/Glyphs.xcassets/pig-music-glyph-outline.imageset/pig-music-glyph-outline@2x.png"
+    },
+    "swift/PigMusic/Assets.xcassets/pig-music-glyph-outline.imageset/pig-music-glyph-outline@3x.png": {
+      "sha256": "5d182e6758c735750bf1d2744f2ed2b4258da4ab915793259f73de580897aefb",
+      "source": "assets/products/pig-music/Apple/Glyphs.xcassets/pig-music-glyph-outline.imageset/pig-music-glyph-outline@3x.png"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/AppIcon.appiconset/icon.png": {
+      "sha256": "c0ee445b32ecc938180813da23207f013087b44c2f14ae285fd7ed0b2ac4edc1",
+      "source": "assets/products/pig-music/Apple/AppIcon.appiconset/dark.png"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigAccent.colorset/Contents.json": {
+      "sha256": "77571e2cfae280c4eded28048d956e80d39794f9e47ac989656b4d62ccebeb5e",
+      "source": "tokens/PigColors.xcassets/PigAccent.colorset/Contents.json"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigBorder.colorset/Contents.json": {
+      "sha256": "8c3b238a2aeb5868e501f50c0376c043e28e18107e44608e4ba1428ce9bee206",
+      "source": "tokens/PigColors.xcassets/PigBorder.colorset/Contents.json"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigCanvas.colorset/Contents.json": {
+      "sha256": "b2100e654e8a4dd4505015060dc7e3f85598a4f4f503cbe336fd44dfaecc40f6",
+      "source": "tokens/PigColors.xcassets/PigCanvas.colorset/Contents.json"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigControlBorder.colorset/Contents.json": {
+      "sha256": "f92363142adaa108bffcb258df3fc741dff96d3b8bb088f588867ffbc52cdf1d",
+      "source": "tokens/PigColors.xcassets/PigControlBorder.colorset/Contents.json"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigDanger.colorset/Contents.json": {
+      "sha256": "2401159c36a09cac9fa9c2686986ba8121081cadec49b21e57748fa7dfc9b0f4",
+      "source": "tokens/PigColors.xcassets/PigDanger.colorset/Contents.json"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigHalo.imageset/background-dark.png": {
+      "sha256": "5e18d1d4ec7c2a9f0fb0823840b225594619f22874b7bd129a17de80fd6a33cb",
+      "source": "assets/products/pig-music/Apple/IconComposer/background-dark.png"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigHalo.imageset/background-light.png": {
+      "sha256": "ce5aa871185c3d2d72f1a4f36a5524c2365dd73f40fb33a88e9c272cc420daf7",
+      "source": "assets/products/pig-music/Apple/IconComposer/background-light.png"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigHover.colorset/Contents.json": {
+      "sha256": "eae93c4b32eca722c24ce900dcd3ed0f68c8fd3fb22072d6abf0284101e44cbb",
+      "source": "tokens/PigColors.xcassets/PigHover.colorset/Contents.json"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigIconBody.imageset/layer-1-body.svg": {
+      "sha256": "0800a68578c38e50676e85ec5c36631b66b5438ebbec91b0e75abde6b74b32dc",
+      "source": "assets/products/pig-music/Apple/IconComposer/layer-1-body.svg"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigIconFace.imageset/layer-2-face.svg": {
+      "sha256": "25070244acaffd8fb8a3b2450ffd5c09f4fb5788fe42fd54fca379abf2d6a648",
+      "source": "assets/products/pig-music/Apple/IconComposer/layer-2-face.svg"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigLaunch.imageset/dark.png": {
+      "sha256": "c0ee445b32ecc938180813da23207f013087b44c2f14ae285fd7ed0b2ac4edc1",
+      "source": "assets/products/pig-music/Apple/AppIcon.appiconset/dark.png"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigLaunch.imageset/light.png": {
+      "sha256": "5a769b86cb209a74eabd2aeab4c48a7d3075194e93ba3723ac416bdafb224294",
+      "source": "assets/products/pig-music/Apple/AppIcon.appiconset/light.png"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigLockup.imageset/lockup-horizontal-dark.svg": {
+      "sha256": "8de1c4d91fc94d35ff8d6427ce30cde404f21d360489de2433061d54695c0110",
+      "source": "assets/products/pig-music/lockup-horizontal-dark.svg"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigLockup.imageset/lockup-horizontal-light.svg": {
+      "sha256": "e66bc66156e73665c028c42b8eb502fb4513ad142421e9393b2cc7e8e4287e24",
+      "source": "assets/products/pig-music/lockup-horizontal-light.svg"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigMark.imageset/mark.svg": {
+      "sha256": "63d0c501fabbef785a733ab28b72e2635b2525054bd7324ad3096f8f5e63ae04",
+      "source": "assets/products/pig-music/mark.svg"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigOnAccent.colorset/Contents.json": {
+      "sha256": "8fd7d5005613cc392a9de5103190ec0a5690afd1af2d5e7472bab300d4d3e039",
+      "source": "tokens/PigColors.xcassets/PigOnAccent.colorset/Contents.json"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigRaised.colorset/Contents.json": {
+      "sha256": "30cc8665ecd6cbd93f850f7b1441c113f6b20dbdb8524820c27c3591bca59266",
+      "source": "tokens/PigColors.xcassets/PigRaised.colorset/Contents.json"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigSecondary.colorset/Contents.json": {
+      "sha256": "8fe134d4f4f7c30c43c6a55c00ccef608b5434c76e1ce6602275c5beeedca07a",
+      "source": "tokens/PigColors.xcassets/PigSecondary.colorset/Contents.json"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigSuccess.colorset/Contents.json": {
+      "sha256": "5305820b7db0c361cb09a0efa5a65ea2cc96e487257aaced38ed3ad35d352f2e",
+      "source": "tokens/PigColors.xcassets/PigSuccess.colorset/Contents.json"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigSurface.colorset/Contents.json": {
+      "sha256": "05515811952570feb1c0d9b40f06cf4208f64435358a7a45e8d178eb9555c66a",
+      "source": "tokens/PigColors.xcassets/PigSurface.colorset/Contents.json"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigText.colorset/Contents.json": {
+      "sha256": "d7a05160f5b3592850ab9f2efd191481b3e955ce32cb2275c4a4571839831e7d",
+      "source": "tokens/PigColors.xcassets/PigText.colorset/Contents.json"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigTextAccent.colorset/Contents.json": {
+      "sha256": "7bd1253b0399432aaaf0ef83210238d5f5bad625790f7cdaabc48f76c68ebb6c",
+      "source": "tokens/PigColors.xcassets/PigTextAccent.colorset/Contents.json"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/PigWarning.colorset/Contents.json": {
+      "sha256": "62560afaaacf6df602e68e9249f49c5950a2c185c4ad2bbe3d83af87469f01fd",
+      "source": "tokens/PigColors.xcassets/PigWarning.colorset/Contents.json"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/pig-music-glyph-fill.imageset/Contents.json": {
+      "sha256": "ac4c131535e28b2d7fcdfab603d15231a694bc3057129a88f982cf118eac8a51",
+      "source": "assets/products/pig-music/Apple/Glyphs.xcassets/pig-music-glyph-fill.imageset/Contents.json"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/pig-music-glyph-fill.imageset/pig-music-glyph-fill.png": {
+      "sha256": "c03563f4a39cb5f503f4382f00508d106531f7e54dcba4ce9027828852f4e3ae",
+      "source": "assets/products/pig-music/Apple/Glyphs.xcassets/pig-music-glyph-fill.imageset/pig-music-glyph-fill.png"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/pig-music-glyph-fill.imageset/pig-music-glyph-fill@2x.png": {
+      "sha256": "8602c1d3e04f52622cfb4f9fbb9320ca3a6e10cab06c10451f277d73efe66d12",
+      "source": "assets/products/pig-music/Apple/Glyphs.xcassets/pig-music-glyph-fill.imageset/pig-music-glyph-fill@2x.png"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/pig-music-glyph-fill.imageset/pig-music-glyph-fill@3x.png": {
+      "sha256": "8de866b5464bb78827d6f766da50560397a10e9f48e611cd0a35e628d8207369",
+      "source": "assets/products/pig-music/Apple/Glyphs.xcassets/pig-music-glyph-fill.imageset/pig-music-glyph-fill@3x.png"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/pig-music-glyph-outline.imageset/Contents.json": {
+      "sha256": "aed0b0704922a6ce80fac80ee2c7641de5f7fba48692ee71fae644410f19c5ff",
+      "source": "assets/products/pig-music/Apple/Glyphs.xcassets/pig-music-glyph-outline.imageset/Contents.json"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/pig-music-glyph-outline.imageset/pig-music-glyph-outline.png": {
+      "sha256": "b6f379cf789d5b41b798c76dda65855f08e0220127ead91cbb6ed94db6383be6",
+      "source": "assets/products/pig-music/Apple/Glyphs.xcassets/pig-music-glyph-outline.imageset/pig-music-glyph-outline.png"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/pig-music-glyph-outline.imageset/pig-music-glyph-outline@2x.png": {
+      "sha256": "c52ed9beac1b2ce7ca37636cdc2499a8082d796ee0e9c436e5e4f2883f762aad",
+      "source": "assets/products/pig-music/Apple/Glyphs.xcassets/pig-music-glyph-outline.imageset/pig-music-glyph-outline@2x.png"
+    },
+    "swift/PigMusicWatch/Assets.xcassets/pig-music-glyph-outline.imageset/pig-music-glyph-outline@3x.png": {
+      "sha256": "5d182e6758c735750bf1d2744f2ed2b4258da4ab915793259f73de580897aefb",
+      "source": "assets/products/pig-music/Apple/Glyphs.xcassets/pig-music-glyph-outline.imageset/pig-music-glyph-outline@3x.png"
+    }
+  },
+  "version": "1.7.0"
+}

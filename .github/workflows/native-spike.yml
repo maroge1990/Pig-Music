@@ -20,6 +20,10 @@ jobs:
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c
         with:
           python-version: '3.14'
+      - name: Verify approved branding assets and roles
+        run: |
+          python scripts/sync_native_brand.py --check
+          python scripts/generate_brand_tokens.py --check
       - name: Generate and check native contract
         run: |
           python -m pip install -r requirements.lock.txt

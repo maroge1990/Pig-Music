@@ -1,0 +1,25 @@
+{
+  "images": [
+    {
+      "filename": "lockup-horizontal-light.svg",
+      "idiom": "universal"
+    },
+    {
+      "filename": "lockup-horizontal-dark.svg",
+      "idiom": "universal",
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ]
+    }
+  ],
+  "info": {
+    "author": "Pig family",
+    "version": 1
+  },
+  "properties": {
+    "preserves-vector-representation": true
+  }
+}

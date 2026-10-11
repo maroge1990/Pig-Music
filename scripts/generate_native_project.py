@@ -77,6 +77,23 @@ def generate():
     )
     files.append(assets)
     asset_build = add("asset-build", "PBXBuildFile", fileRef=assets)
+    icon = add(
+        "phone-icon",
+        "PBXFileReference",
+        lastKnownFileType="folder.icon",
+        path="PigMusic/AppIcon.icon",
+        sourceTree="<group>",
+    )
+    launch = add(
+        "launch-screen",
+        "PBXFileReference",
+        lastKnownFileType="file.storyboard",
+        path="PigMusic/LaunchScreen.storyboard",
+        sourceTree="<group>",
+    )
+    files.extend([icon, launch])
+    icon_build = add("phone-icon-build", "PBXBuildFile", fileRef=icon)
+    launch_build = add("launch-screen-build", "PBXBuildFile", fileRef=launch)
     tone = add(
         "demo-tone",
         "PBXFileReference",
@@ -133,7 +150,7 @@ def generate():
             "resources",
             "PBXResourcesBuildPhase",
             buildActionMask="2147483647",
-            files=[asset_build, tone_build],
+            files=[asset_build, tone_build, icon_build, launch_build],
             runOnlyForDeploymentPostprocessing="0",
         ),
         add(
@@ -146,7 +163,7 @@ def generate():
     ]
     watch_dependencies = []
     watch_frameworks = []
-    for name in ("PigCompanion", "PigDomain", "PigPlayback"):
+    for name in ("PigBrand", "PigCompanion", "PigDomain", "PigPlayback"):
         dependency = add(
             "watch-" + name,
             "XCSwiftPackageProductDependency",
@@ -233,7 +250,7 @@ def generate():
             "GENERATE_INFOPLIST_FILE": "YES",
             "INFOPLIST_FILE": "PigMusic/Info.plist",
             "MARKETING_VERSION": "0.2.0",
-            "CURRENT_PROJECT_VERSION": "2",
+            "CURRENT_PROJECT_VERSION": "3",
             "SDKROOT": "iphoneos",
             "SUPPORTED_PLATFORMS": "iphoneos iphonesimulator",
             "IPHONEOS_DEPLOYMENT_TARGET": "18.0",
@@ -241,7 +258,7 @@ def generate():
             "CODE_SIGN_STYLE": "Automatic",
             "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
             "INFOPLIST_KEY_CFBundleDisplayName": "Pig Music",
-            "INFOPLIST_KEY_UILaunchScreen_Generation": "YES",
+            "INFOPLIST_KEY_UILaunchStoryboardName": "LaunchScreen",
             "INFOPLIST_KEY_UIApplicationSceneManifest_Generation": "YES",
             "INFOPLIST_KEY_UISupportedInterfaceOrientations": "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight",
             "INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad": "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight",
@@ -252,7 +269,7 @@ def generate():
             "GENERATE_INFOPLIST_FILE": "YES",
             "INFOPLIST_FILE": "PigMusicWatch/Info.plist",
             "MARKETING_VERSION": "0.2.0",
-            "CURRENT_PROJECT_VERSION": "2",
+            "CURRENT_PROJECT_VERSION": "3",
             "SDKROOT": "watchos",
             "SUPPORTED_PLATFORMS": "watchos watchsimulator",
             "WATCHOS_DEPLOYMENT_TARGET": "11.0",

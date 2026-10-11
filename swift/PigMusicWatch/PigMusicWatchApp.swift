@@ -1,3 +1,4 @@
+import PigBrand
 import PigCompanion
 import PigDomain
 import PigPlayback
@@ -5,10 +6,16 @@ import SwiftUI
 
 @main struct PigMusicWatchApp: App {
   @State private var model = WatchModel()
+  @State private var starting = true
   @Environment(\.scenePhase) private var scenePhase
   var body: some Scene {
     WindowGroup {
-      WatchLibraryView(model: model).task { await model.reload() }
+      WatchLibraryView(model: model)
+        .overlay { if starting { PigBrandSplash(size: 120) } }
+        .task {
+          await model.reload()
+          starting = false
+        }
         .onChange(of: scenePhase) { _, phase in
           if phase == .active { Task { await model.reload() } }
         }
@@ -21,6 +28,8 @@ private struct WatchLibraryView: View {
   var body: some View {
     NavigationStack {
       List {
+        Image("PigLockup").resizable().scaledToFit().frame(height: 40)
+          .frame(maxWidth: .infinity).accessibilityHidden(true).listRowBackground(Color.clear)
         if !model.queue.isEmpty { NavigationLink("Now playing") { WatchNowPlaying(model: model) } }
         NavigationLink("Songs on Watch") {
           WatchSongs(model: model, ids: model.manifest.songs.map(\.id), title: "Songs")
@@ -33,11 +42,11 @@ private struct WatchLibraryView: View {
               } label: {
                 VStack(alignment: .leading) {
                   Text(album.title)
-                  Text(album.artist).font(.caption)
+                  Text(album.artist).font(.caption).foregroundStyle(.secondary)
                 }
               }
             }
-          }.navigationTitle("Albums")
+          }.pigBrandedCanvas().navigationTitle("Albums")
         }
         ForEach(model.manifest.collections.filter { !$0.songIds.isEmpty }) { collection in
           NavigationLink(collection.favourites ? "Favourites" : collection.name) {
@@ -54,11 +63,12 @@ private struct WatchLibraryView: View {
               Task { await model.send("playPause") }
             }
             Button("Next", systemImage: "forward.end.fill") { Task { await model.send("next") } }
-          }.navigationTitle("Phone remote")
+          }.pigBrandedCanvas().navigationTitle("Phone remote")
         }
         NavigationLink("Storage & sync") {
           List {
-            Text("\(model.receipt?.ready.count ?? 0) songs downloaded")
+            Text("\(model.receipt?.ready.count ?? 0) songs downloaded").fontDesign(.rounded)
+              .monospacedDigit()
             Text(
               ByteCountFormatter.string(
                 fromByteCount: model.receipt?.usedBytes ?? 0, countStyle: .file))
@@ -84,13 +94,13 @@ private struct WatchLibraryView: View {
               "Gapless playback preserves continuous albums. Crossfade blends other songs over 3 seconds. Changes apply to the next queue."
             ).font(.footnote)
             if let message = model.message ?? model.link?.error { Text(message).font(.footnote) }
-          }.navigationTitle("Storage & sync")
+          }.pigBrandedCanvas().navigationTitle("Storage & sync")
         }
         if model.manifest.context.account == nil {
           Text("Sign in and open Apple Watch in the phone app to send music.").font(.footnote)
         }
-      }.navigationTitle("Pig Music")
-    }.tint(.pink)
+      }.pigBrandedCanvas().navigationTitle("Pig Music")
+    }.pigBrandedCanvas()
   }
 }
 private struct WatchSongs: View {
@@ -99,7 +109,7 @@ private struct WatchSongs: View {
   let title: String
   var body: some View {
     List {
-      Button("Play all") { Task { await model.play(ids) } }.disabled(ids.isEmpty)
+      Button("Play all") { Task { await model.play(ids) } }.pigPrimaryAction().disabled(ids.isEmpty)
       Button("Shuffle") { Task { await model.play(ids.shuffled()) } }.disabled(ids.isEmpty)
       ForEach(Array(ids.enumerated()), id: \.offset) { _, id in
         if let song = model.manifest.songs.first(where: { $0.id == id }) {
@@ -111,16 +121,16 @@ private struct WatchSongs: View {
                 Task { await model.send("remove", songIds: [id]) }
               }
               if model.receipt?.ready[id] == nil { Text("Waiting for transfer") }
-            }.navigationTitle(song.track.title)
+            }.pigBrandedCanvas().navigationTitle(song.track.title)
           } label: {
             VStack(alignment: .leading) {
               Text(song.track.title)
-              Text(song.track.artist).font(.caption)
+              Text(song.track.artist).font(.caption).foregroundStyle(.secondary)
             }
           }
         }
       }
-    }.navigationTitle(title)
+    }.pigBrandedCanvas().navigationTitle(title)
   }
 }
 private struct WatchNowPlaying: View {
@@ -135,21 +145,23 @@ private struct WatchNowPlaying: View {
         Button {
           model.previous()
         } label: {
-          Image(systemName: "backward.end.fill")
+          Image(systemName: "backward.end.fill").frame(minWidth: 40, minHeight: 44)
         }.accessibilityLabel("Previous song")
         Button {
           model.toggle()
         } label: {
           Image(systemName: model.playback.wantsPlayback ? "pause.fill" : "play.fill")
-        }.accessibilityLabel(model.playback.wantsPlayback ? "Pause" : "Play")
+            .frame(minWidth: 40, minHeight: 44)
+        }.pigPrimaryAction().accessibilityLabel(model.playback.wantsPlayback ? "Pause" : "Play")
         Button {
           model.next()
         } label: {
-          Image(systemName: "forward.end.fill")
+          Image(systemName: "forward.end.fill").frame(minWidth: 40, minHeight: 44)
         }.accessibilityLabel("Next song")
-      }.buttonStyle(.plain)
+      }.buttonStyle(.plain).padding(8).pigFloatingControls().listRowBackground(Color.clear)
       Text("\(Int(model.playback.elapsed)) / \(Int(model.playback.duration)) seconds").font(
-        .caption)
+        .caption
+      ).fontDesign(.rounded).monospacedDigit()
       Slider(
         value: Binding(
           get: { min(model.playback.duration, model.playback.elapsed) }, set: { model.seek($0) }),
@@ -160,7 +172,7 @@ private struct WatchNowPlaying: View {
         Text(error).font(.footnote)
         Button("Retry playback") { Task { await model.retry() } }
       }
-    }.navigationTitle("Now playing")
+    }.pigBrandedCanvas().navigationTitle("Now playing")
   }
 }
 private struct WatchPhoneLibrary: View {
@@ -179,7 +191,7 @@ private struct WatchPhoneLibrary: View {
         } label: {
           VStack(alignment: .leading) {
             Text(track.title)
-            Text(track.artist).font(.caption)
+            Text(track.artist).font(.caption).foregroundStyle(.secondary)
             Label("Download to Watch", systemImage: "arrow.down.circle").font(.caption)
           }
         }
@@ -190,6 +202,6 @@ private struct WatchPhoneLibrary: View {
         }
       }
       if let message = model.message { Text(message).font(.footnote) }
-    }.navigationTitle("Phone library").task { await model.search("") }
+    }.pigBrandedCanvas().navigationTitle("Phone library").task { await model.search("") }
   }
 }

@@ -1,0 +1,15 @@
+{
+  "images": [
+    {
+      "filename": "layer-2-face.svg",
+      "idiom": "universal"
+    }
+  ],
+  "info": {
+    "author": "Pig family",
+    "version": 1
+  },
+  "properties": {
+    "preserves-vector-representation": true
+  }
+}

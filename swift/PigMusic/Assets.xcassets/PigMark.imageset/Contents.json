@@ -1,12 +1,15 @@
 {
   "images": [
     {
-      "filename": "mark.png",
+      "filename": "mark.svg",
       "idiom": "universal"
     }
   ],
   "info": {
-    "author": "xcode",
+    "author": "Pig family",
     "version": 1
+  },
+  "properties": {
+    "preserves-vector-representation": true
   }
 }

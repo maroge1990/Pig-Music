@@ -1,0 +1,22 @@
+{
+  "images": [
+    {
+      "filename": "background-light.png",
+      "idiom": "universal"
+    },
+    {
+      "filename": "background-dark.png",
+      "idiom": "universal",
+      "appearances": [
+        {
+          "appearance": "luminosity",
+          "value": "dark"
+        }
+      ]
+    }
+  ],
+  "info": {
+    "author": "Pig family",
+    "version": 1
+  }
+}
