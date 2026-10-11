@@ -69,7 +69,7 @@ struct SongActionsView: View {
         }
         if loading { ProgressView() }
         if let message { Section { Text(message).font(PigType.footnote) } }
-      }.navigationTitle("Song actions").navigationBarTitleDisplayMode(.inline)
+      }.pigCanvas().navigationTitle("Song actions").navigationBarTitleDisplayMode(.inline)
         .toolbar { Button("Done") { dismiss() }.disabled(loading) }
         .task { await loadFavourite() }
     }.interactiveDismissDisabled(model.mutationActive)
@@ -194,7 +194,7 @@ struct RequestsView: View {
       if next != nil {
         Button("Load more requests") { Task { await load(reset: false) } }.disabled(loading)
       }
-    }.navigationTitle("Music requests")
+    }.pigCanvas().navigationTitle("Music requests")
       .toolbar {
         Button("Refresh", systemImage: "arrow.clockwise") { Task { await load(reset: true) } }
           .disabled(loading)

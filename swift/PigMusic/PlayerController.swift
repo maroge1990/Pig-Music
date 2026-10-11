@@ -71,9 +71,22 @@ import PigPlayback
   }
   var seamlessEnabled: Bool {
     didSet {
+      guard oldValue != seamlessEnabled else { return }
       defaults.set(seamlessEnabled, forKey: "pig.playback.seamless")
-      stop()
+      // Keep the queue and position: restart the current song in the new mode.
+      if !restartingForMode, queue.current != nil { restartInCurrentMode() }
     }
+  }
+  @ObservationIgnored private var restartingForMode = false
+  private func restartInCurrentMode() {
+    guard let resolve else { return }
+    let wanted = intent.wantsPlayback
+    let checkpoint = PlaybackCheckpoint(
+      queue: queue, elapsed: duration > 0 && elapsed >= duration ? 0 : elapsed)
+    play(
+      checkpoint.queue.items.map(\.track), startingAt: checkpoint.queue.index,
+      autoplay: wanted, restored: checkpoint, artwork: artworkSource ?? { _ in nil },
+      resolve: resolve)
   }
   var repeatMode: PlaybackRepeat = .off {
     didSet {
@@ -125,7 +138,7 @@ import PigPlayback
       if ProcessInfo.processInfo.arguments.contains("--seamless-demo") { seamlessEnabled = true }
     #endif
     observations.append(
-      NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime).sink {
+      NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime).receive(on: DispatchQueue.main).sink {
         [weak self] notification in
         let identity = notification.object.map { ObjectIdentifier($0 as AnyObject) }
         Task { @MainActor in
@@ -136,7 +149,7 @@ import PigPlayback
         }
       })
     observations.append(
-      NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).sink {
+      NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).receive(on: DispatchQueue.main).sink {
         [weak self] notification in
         let began =
           (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt)
@@ -147,7 +160,7 @@ import PigPlayback
         Task { @MainActor in self?.interruption(began: began, shouldResume: shouldResume) }
       })
     observations.append(
-      NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).sink {
+      NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).receive(on: DispatchQueue.main).sink {
         [weak self] notification in
         let reason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
         Task { @MainActor in
@@ -159,7 +172,7 @@ import PigPlayback
         }
       })
     observations.append(
-      NotificationCenter.default.publisher(for: .AVAudioEngineConfigurationChange).sink {
+      NotificationCenter.default.publisher(for: .AVAudioEngineConfigurationChange).receive(on: DispatchQueue.main).sink {
         [weak self] notification in
         let identity = notification.object.map { ObjectIdentifier($0 as AnyObject) }
         Task { @MainActor in
@@ -176,6 +189,11 @@ import PigPlayback
     }
     commands.pauseCommand.addTarget { [weak self] _ in
       Task { @MainActor in self?.pause() }
+      return .success
+    }
+    // Headphone and AirPods presses arrive as a single toggle command.
+    commands.togglePlayPauseCommand.addTarget { [weak self] _ in
+      Task { @MainActor in self?.toggle() }
       return .success
     }
     commands.nextTrackCommand.addTarget { [weak self] _ in
@@ -467,13 +485,18 @@ import PigPlayback
   }
   func retry(streaming: Bool = false, fromBeginning: Bool = false) {
     guard let resolve else { return }
+    let artwork = artworkSource ?? { _ in nil }
     let checkpoint = PlaybackCheckpoint(
-      queue: queue, elapsed: fromBeginning || elapsed >= duration ? 0 : elapsed)
-    if streaming { seamlessEnabled = false }
+      queue: queue,
+      elapsed: fromBeginning || (duration > 0 && elapsed >= duration) ? 0 : elapsed)
+    if streaming {
+      restartingForMode = true
+      seamlessEnabled = false
+      restartingForMode = false
+    }
     play(
       checkpoint.queue.items.map(\.track), startingAt: checkpoint.queue.index,
-      restored: checkpoint,
-      artwork: artworkSource ?? { _ in nil }, resolve: resolve)
+      restored: checkpoint, artwork: artwork, resolve: resolve)
   }
   func next() {
     if usingEngine {
@@ -548,9 +571,14 @@ import PigPlayback
       guard let image = await artworkSource(occurrence.track), !Task.isCancelled,
         queue.current?.id == occurrence.id
       else { return }
-      currentArtwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+      currentArtwork = Self.nowPlayingArtwork(image)
       publishNowPlaying()
     }
+  }
+  /// MediaPlayer requests the image on its own queue. The handler must not be
+  /// main-actor isolated, or Swift's isolation check stops the app.
+  nonisolated private static func nowPlayingArtwork(_ image: UIImage) -> MPMediaItemArtwork {
+    MPMediaItemArtwork(boundsSize: image.size) { _ in image }
   }
   private func publishNowPlaying() {
     guard let song = queue.current?.track else { return }

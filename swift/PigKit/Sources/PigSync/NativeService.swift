@@ -174,7 +174,15 @@ public actor NativeService: LibrarySource {
   }
   public func artistArtwork(id: String, request: ArtworkRequest) async throws -> Data {
     guard let uuid = UUID(uuidString: id) else { throw ArtworkFailure.invalidRequest }
-    return try await artworkTransport.fetch(request, artist: uuid.uuidString.lowercased())
+    return try await artworkTransport.fetch(request, alias: .artist(uuid))
+  }
+  /// Catalogue release ("release") or release-group cover, fetched by the server.
+  public func catalogueArtwork(kind: CatalogueArtworkKind, id: String, request: ArtworkRequest)
+    async throws -> Data
+  {
+    guard let uuid = UUID(uuidString: id) else { throw ArtworkFailure.invalidRequest }
+    return try await artworkTransport.fetch(
+      request, alias: kind == .release ? .release(uuid) : .releaseGroup(uuid))
   }
   public func catalogueEditions(groupId: String, offset: Int = 0) async throws -> CatalogueEditions
   {

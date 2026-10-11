@@ -168,7 +168,7 @@ import PigPlayback
         self?.updateNowPlaying()
       }
       notifications.append(
-        NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).sink {
+        NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).receive(on: DispatchQueue.main).sink {
           [weak self] notification in
           let began =
             (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt)
@@ -188,7 +188,7 @@ import PigPlayback
           }
         })
       notifications.append(
-        NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).sink {
+        NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).receive(on: DispatchQueue.main).sink {
           [weak self] notification in
           let removed =
             (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt)
@@ -199,7 +199,7 @@ import PigPlayback
         })
       notifications.append(
         NotificationCenter.default.publisher(for: AVAudioSession.mediaServicesWereResetNotification)
-          .sink { [weak self] _ in
+          .receive(on: DispatchQueue.main).sink { [weak self] _ in
             Task { @MainActor in
               self?.pause()
               self?.message = "Audio restarted. Tap Play to resume."

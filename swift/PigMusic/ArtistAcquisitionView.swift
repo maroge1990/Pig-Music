@@ -42,7 +42,7 @@ struct ArtistAcquisitionView: View {
       }.disabled(loading || !model.canMutate || !(albums || singles || eps))
       if loading { ProgressView() }
       if let message { Text(message).font(.footnote) }
-    }.navigationTitle("Artist requests").task { await load() }
+    }.pigCanvas().navigationTitle("Artist requests").task { await load() }
       .confirmationDialog("Request all selected releases?", isPresented: $confirm) {
         Button("Request catalogue") { Task { await save(request: true) } }
       } message: {

@@ -17,9 +17,13 @@ struct SearchView: View {
     .navigationTitle("Search")
     .searchable(text: $query, prompt: "Songs, albums and artists")
     .task(id: "\(model.artworkNamespace)|\(SearchText.clean(query))") {
-      model.searchSession?.clear()
+      // Debounce typing; the previous results stay until new ones arrive.
+      if SearchText.clean(query).isEmpty {
+        model.searchSession?.clear()
+        return
+      }
       do {
-        try await Task.sleep(for: .milliseconds(200))
+        try await Task.sleep(for: .milliseconds(250))
         try Task.checkCancellation()
       } catch { return }
       await model.searchSession?.search(query)
@@ -47,13 +51,26 @@ private struct SearchResultsView: View {
             loading: session.localLoading, error: session.localError,
             empty: session.tracks.isEmpty && session.albums.isEmpty && session.artists.isEmpty)
           ForEach(session.artists) { artist in
-            NavigationLink(artist.name) { SavedArtistView(model: model, artist: artist) }
+            NavigationLink {
+              SavedArtistView(model: model, artist: artist)
+            } label: {
+              HStack(spacing: 12) {
+                SavedArtistThumb(model: model, artist: artist)
+                Text(artist.name)
+              }
+            }
           }
           ForEach(session.albums) { album in
             NavigationLink {
               AlbumView(model: model, album: album)
             } label: {
-              AlbumRow(model: model, album: album)
+              HStack(spacing: 12) {
+                ArtworkThumb(model: model, source: album.artworkSource, title: album.title)
+                VStack(alignment: .leading) {
+                  Text(album.title)
+                  Text(album.artist).font(PigType.footnote).foregroundStyle(.secondary)
+                }
+              }
             }
           }
           ForEach(session.tracks) { song in
@@ -88,10 +105,14 @@ private struct SearchResultsView: View {
                 NavigationLink {
                   CatalogueArtistView(model: model, artistId: artist.id, name: artist.name)
                 } label: {
-                  VStack(alignment: .leading) {
-                    Text(artist.name)
-                    if !artist.description.isEmpty {
-                      Text(artist.description).font(PigType.caption).foregroundStyle(.secondary)
+                  HStack(spacing: 12) {
+                    Artwork(model: model, source: .artist(artist.id), title: artist.name, circle: true)
+                      .frame(width: 44, height: 44)
+                    VStack(alignment: .leading) {
+                      Text(artist.name)
+                      if !artist.description.isEmpty {
+                        Text(artist.description).font(PigType.caption).foregroundStyle(.secondary)
+                      }
                     }
                   }
                 }
@@ -113,44 +134,107 @@ private struct SearchResultsView: View {
   }
 }
 
+struct SavedArtistThumb: View {
+  let model: AppModel
+  let artist: Artist
+  @State private var sha: String?
+  var body: some View {
+    Artwork(model: model, source: sha.map { .stored($0) }, title: artist.name, circle: true)
+      .frame(width: 44, height: 44)
+      .task(id: artist.id) { sha = await model.artistCover(artist) }
+  }
+}
+
+/// Saved artist: compact header, album grid, then settings.
 struct SavedArtistView: View {
   let model: AppModel
   let artist: Artist
   @State private var identity: ArtistIdentity?
   @State private var identityMessage: String?
   @State private var albums: [Album] = []
+  @State private var cover: String?
   @State private var loading = false
   @State private var more = true
   @State private var error: String?
+  @State private var exploring = false
   var body: some View {
-    List {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 14) {
+        DetailHeader(
+          model: model, source: cover.map { .stored($0) }, eyebrow: "IN YOUR LIBRARY",
+          title: artist.name,
+          subtitle: artist.albumCount.map { "\($0) album\($0 == 1 ? "" : "s")" }, circle: true)
+        HStack(spacing: 10) {
+          Button {
+            Task { await shuffleArtist() }
+          } label: {
+            Label("Shuffle", systemImage: "shuffle").font(.subheadline.weight(.semibold))
+              .padding(.horizontal, 6)
+          }.pigPrimaryAction().buttonBorderShape(.capsule).disabled(albums.isEmpty)
+          Button {
+            Task { await explore() }
+          } label: {
+            Text("Discography").font(.subheadline.weight(.semibold))
+          }
+          .buttonStyle(ChipStyle(selected: false))
+          .accessibilityLabel("Find more by \(artist.name)")
+          Spacer()
+        }
+        if let identityMessage {
+          Text(identityMessage).font(PigType.footnote).foregroundStyle(.secondary)
+        }
+        LazyVGrid(columns: cardColumns, spacing: 18) {
+          ForEach(albums) { album in
+            NavigationLink {
+              AlbumView(model: model, album: album)
+            } label: {
+              CollectionCard(
+                model: model, source: album.artworkSource, title: album.title,
+                caption: album.year?.text)
+            }.buttonStyle(.plain)
+          }
+        }
+        if loading { ProgressView().frame(maxWidth: .infinity) }
+        if let error { Text(error).font(PigType.footnote) }
+        if more && !albums.isEmpty {
+          Button("Show more albums") { Task { await load() } }.disabled(loading)
+            .buttonStyle(ChipStyle(selected: false)).frame(maxWidth: .infinity)
+        }
+        DetailSettings {
+          InlineQualityPicker(model: model, scope: "artist", id: artist.id)
+        }
+      }.padding(.horizontal).padding(.bottom, 24)
+    }
+    .pigCanvas().navigationTitle(artist.name).navigationBarTitleDisplayMode(.inline)
+    .navigationDestination(isPresented: $exploring) {
       if let identity {
-        NavigationLink("Explore artist catalogue") {
-          CatalogueArtistView(model: model, artistId: identity.id, name: identity.name)
-        }
-      } else {
-        Button("Find artist catalogue") { Task { await identify() } }
-        if let identityMessage { Text(identityMessage).font(PigType.footnote) }
+        CatalogueArtistView(model: model, artistId: identity.id, name: identity.name)
       }
-      ForEach(albums) { album in
-        NavigationLink {
-          AlbumView(model: model, album: album)
-        } label: {
-          AlbumRow(model: model, album: album)
-        }
-      }
-      if loading { ProgressView() }
-      if let error { Text(error).font(PigType.footnote) }
-      if more { Button("Load albums") { Task { await load() } }.disabled(loading) }
-    }.navigationTitle(artist.name).task { if albums.isEmpty { await load() } }
+    }
+    .task {
+      if albums.isEmpty { await load() }
+      cover = await model.artistCover(artist)
+    }
   }
-  private func identify() async {
-    do {
-      identity = try await model.cachedCatalogue(key: "identity:" + artist.id) {
-        try await $0.artistIdentity(id: artist.id)
+  private func explore() async {
+    if identity == nil {
+      do {
+        identity = try await model.cachedCatalogue(key: "identity:" + artist.id) {
+          try await $0.artistIdentity(id: artist.id)
+        }
+        identityMessage = nil
+      } catch {
+        identityMessage = error.localizedDescription
+        return
       }
-      identityMessage = nil
-    } catch { identityMessage = error.localizedDescription }
+    }
+    exploring = identity != nil
+  }
+  private func shuffleArtist() async {
+    var tracks: [Track] = []
+    for album in albums { tracks += await model.albumTracks(album) }
+    guard !tracks.isEmpty else { return }
+    model.play(tracks.shuffled())
   }
   private func load() async {
     guard !loading, let store = model.store else { return }

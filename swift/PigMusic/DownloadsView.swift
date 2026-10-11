@@ -11,7 +11,7 @@ struct DownloadsView: View {
       } else {
         ContentUnavailableView("Connect your library", systemImage: "arrow.down.circle")
       }
-    }.navigationTitle("On this device")
+    }.pigCanvas().navigationTitle("On this device")
   }
 }
 private struct DownloadList: View {
@@ -86,5 +86,67 @@ private struct DownloadList: View {
       "Remove all music downloaded to this device? Server music is retained.",
       isPresented: $clearing
     ) { Button("Remove device downloads", role: .destructive) { Task { await downloads.clear() } } }
+  }
+}
+
+/// The Downloads tab: music requested from the server (as on the web), plus
+/// music stored on this iPhone and on Apple Watch.
+struct DownloadsHubView: View {
+  let model: AppModel
+  var body: some View {
+    List {
+      Section {
+        NavigationLink {
+          RequestsView(model: model)
+        } label: {
+          Label {
+            VStack(alignment: .leading) {
+              Text("Server requests")
+              Text("Music you asked the server to get").font(PigType.footnote)
+                .foregroundStyle(.secondary)
+            }
+          } icon: {
+            Image(systemName: "server.rack")
+          }
+        }
+        NavigationLink {
+          DownloadsView(model: model)
+        } label: {
+          Label {
+            VStack(alignment: .leading) {
+              Text("On this iPhone")
+              Text(deviceSummary).font(PigType.footnote).foregroundStyle(.secondary)
+            }
+          } icon: {
+            Image(systemName: "iphone")
+          }
+        }
+        if model.watch?.supported == true {
+          NavigationLink {
+            WatchDownloadsView(model: model)
+          } label: {
+            Label {
+              VStack(alignment: .leading) {
+                Text("Apple Watch")
+                Text(watchSummary).font(PigType.footnote).foregroundStyle(.secondary)
+              }
+            } icon: {
+              Image(systemName: "applewatch")
+            }
+          }
+        }
+      }
+    }
+    .navigationTitle("Downloads")
+  }
+  private var deviceSummary: String {
+    let records = model.downloads?.records ?? []
+    let ready = records.filter { $0.state == "ready" }.count
+    let waiting = records.count - ready
+    return waiting > 0 ? "\(ready) ready · \(waiting) in progress" : "\(ready) songs ready offline"
+  }
+  private var watchSummary: String {
+    guard let receipt = model.watch?.receipt else { return "Transfers wait for your Watch" }
+    return "\(receipt.ready.count) songs on Watch"
   }
 }

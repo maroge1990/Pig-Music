@@ -37,6 +37,8 @@ public struct Album: Codable, Sendable, Identifiable, Hashable {
   public var category: String?
   public var trackCount: Int?
   public var coverSha: String?
+  public var year: MusicYear?
+  public var duration: Double?
   public var tracks: [Track]?
 }
 
@@ -46,6 +48,7 @@ public struct Artist: Codable, Sendable, Identifiable, Hashable {
   public var albumIds: [String]?
   public var albumCount: Int?
   public var trackCount: Int?
+  public var coverAlbumId: String?
 }
 
 public struct PlaylistEntry: Codable, Sendable, Identifiable, Hashable {

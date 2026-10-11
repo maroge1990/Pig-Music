@@ -32,28 +32,64 @@ final class ArtworkTransport: Sendable {
       configuration: configuration, delegate: NoArtworkRedirects(), delegateQueue: nil)
   }
   deinit { session.invalidateAndCancel() }
-  func fetch(_ artwork: ArtworkRequest, artist: String? = nil) async throws -> Data {
-    let origin = try ServerAddress.validate(server.absoluteString)
-    var parts = URLComponents(url: origin, resolvingAgainstBaseURL: false)!
-    if let artist {
-      guard let uuid = UUID(uuidString: artist) else { throw ArtworkFailure.invalidRequest }
-      parts.path = "/api/catalogue/artists/" + uuid.uuidString.lowercased() + "/artwork"
-    } else {
-      parts.path = "/api/v1/artwork/" + artwork.sha
+  /// Server-side artwork aliases. They answer with a redirect to stored bytes.
+  enum Alias: Sendable {
+    case artist(UUID), release(UUID), releaseGroup(UUID)
+    var path: String {
+      switch self {
+      case .artist(let id): "/api/catalogue/artists/" + id.uuidString.lowercased() + "/artwork"
+      case .release(let id): "/api/catalogue/artwork/release/" + id.uuidString.lowercased()
+      case .releaseGroup(let id):
+        "/api/catalogue/artwork/release-group/" + id.uuidString.lowercased()
+      }
     }
-    parts.queryItems = [URLQueryItem(name: "w", value: String(artwork.width))]
+  }
+  func fetch(_ artwork: ArtworkRequest, alias: Alias? = nil) async throws -> Data {
+    let origin = try ServerAddress.validate(server.absoluteString)
+    guard let alias else { return try await stored(artwork.sha, width: artwork.width, origin) }
+    // Resolve the alias without following it, then load only a same-origin stored
+    // image by hash through the native endpoint. Other redirects are refused.
+    var parts = URLComponents(url: origin, resolvingAgainstBaseURL: false)!
+    parts.path = alias.path
+    let (body, response) = try await send(parts.url!)
+    body.task.cancel()
+    guard (301...308).contains(response.statusCode),
+      let location = response.value(forHTTPHeaderField: "Location"),
+      let target = URL(string: location, relativeTo: parts.url!)?.absoluteURL,
+      target.scheme == origin.scheme, target.host == origin.host, target.port == origin.port,
+      target.path.hasPrefix("/api/artwork/"), target.path.hasSuffix(".jpg")
+    else { throw ArtworkFailure.unavailable }
+    let sha = String(target.lastPathComponent.dropLast(4))
+    guard (try? ArtworkRequest(sha: sha, width: artwork.width)) != nil else {
+      throw ArtworkFailure.unavailable
+    }
+    return try await stored(sha, width: artwork.width, origin)
+  }
+  private func send(_ url: URL) async throws -> (URLSession.AsyncBytes, HTTPURLResponse) {
     guard let token = try await vault.read() else { throw NativeFailure.authentication }
-    var request = URLRequest(url: parts.url!)
+    var request = URLRequest(url: url)
     request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
     request.setValue("image/webp,image/jpeg,image/png", forHTTPHeaderField: "Accept")
     let (bytes, response) = try await session.bytes(for: request)
-    defer { bytes.task.cancel() }
-    guard let response = response as? HTTPURLResponse else { throw ArtworkFailure.unavailable }
+    guard let response = response as? HTTPURLResponse else {
+      bytes.task.cancel()
+      throw ArtworkFailure.unavailable
+    }
     if response.statusCode == 401 {
+      bytes.task.cancel()
       try await vault.clear()
       throw NativeFailure.authentication
     }
-    guard response.statusCode == 200, response.url == request.url,
+    return (bytes, response)
+  }
+  private func stored(_ sha: String, width: Int, _ origin: URL) async throws -> Data {
+    var parts = URLComponents(url: origin, resolvingAgainstBaseURL: false)!
+    parts.path = "/api/v1/artwork/" + sha
+    parts.queryItems = [URLQueryItem(name: "w", value: String(width))]
+    let url = parts.url!
+    let (bytes, response) = try await send(url)
+    defer { bytes.task.cancel() }
+    guard response.statusCode == 200, response.url == url,
       ["image/webp", "image/jpeg", "image/png"].contains(response.mimeType?.lowercased() ?? "")
     else { throw ArtworkFailure.unavailable }
     guard response.expectedContentLength <= ArtworkCache.maximumImageBytes else {

@@ -111,3 +111,64 @@ private final class ArtworkProtocol: URLProtocol, @unchecked Sendable {
     await #expect(throws: ArtworkFailure.tooLarge) { try await transport().fetch(request) }
   }
 }
+
+/// Alias endpoints answer with a redirect to stored bytes; only same-origin
+/// stored-artwork targets are followed, through the native endpoint.
+private final class AliasProtocol: URLProtocol, @unchecked Sendable {
+  nonisolated(unsafe) static var location = ""
+  nonisolated(unsafe) static var requests: [URLRequest] = []
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    Self.requests.append(request)
+    let alias = request.url!.path.hasPrefix("/api/catalogue/")
+    client?.urlProtocol(
+      self,
+      didReceive: HTTPURLResponse(
+        url: request.url!, statusCode: alias ? 307 : 200, httpVersion: "HTTP/1.1",
+        headerFields: alias ? ["Location": Self.location] : ["Content-Type": "image/jpeg"])!,
+      cacheStoragePolicy: .notAllowed)
+    if !alias { client?.urlProtocol(self, didLoad: Data([7, 8, 9])) }
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+
+@Suite(.serialized) struct ArtworkAliasTests {
+  private func transport() -> ArtworkTransport {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [AliasProtocol.self]
+    return ArtworkTransport(
+      server: URL(string: "https://fixture.invalid:10000")!, vault: ArtworkTokens(),
+      configuration: configuration)
+  }
+  @Test func catalogueAliasLoadsSameOriginStoredArtworkByHash() async throws {
+    let sha = String(repeating: "b", count: 64)
+    let release = UUID()
+    AliasProtocol.requests = []
+    AliasProtocol.location = "/api/artwork/\(sha).jpg?w=256&soft=0"
+    let request = try ArtworkRequest(sha: String(repeating: "c", count: 64))
+    let bytes = try await transport().fetch(request, alias: .release(release))
+    #expect(bytes == Data([7, 8, 9]))
+    #expect(
+      AliasProtocol.requests.map(\.url!.path) == [
+        "/api/catalogue/artwork/release/" + release.uuidString.lowercased(),
+        "/api/v1/artwork/" + sha,
+      ])
+    #expect(
+      AliasProtocol.requests.allSatisfy {
+        $0.value(forHTTPHeaderField: "Authorization") == "Bearer disposable-device-token"
+      })
+    for location in [
+      "https://cdn.invalid/api/artwork/\(sha).jpg", "/api/other/\(sha).jpg",
+      "/api/artwork/not-a-hash.jpg",
+    ] {
+      AliasProtocol.requests = []
+      AliasProtocol.location = location
+      await #expect(throws: ArtworkFailure.unavailable) {
+        try await transport().fetch(request, alias: .artist(release))
+      }
+      #expect(AliasProtocol.requests.count == 1)
+    }
+  }
+}

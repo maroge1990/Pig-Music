@@ -16,7 +16,7 @@ struct PreferencesView: View {
       }
       Button("Save preferences") { Task { await save() } }.disabled(loading || !model.canMutate)
       if let message { Text(message).font(PigType.footnote) }
-    }.navigationTitle("Appearance").task {
+    }.pigCanvas().navigationTitle("Appearance").task {
       preferences = model.preferences
     }
   }
@@ -70,7 +70,7 @@ struct PasswordView: View {
         loading || !model.canMutate || current.isEmpty || password.count < 12
           || password != repeatPassword)
       if let message { Text(message).font(PigType.footnote) }
-    }.navigationTitle("Password")
+    }.pigCanvas().navigationTitle("Password")
   }
 }
 struct SessionsView: View {
@@ -96,7 +96,7 @@ struct SessionsView: View {
       }
       if let message { Text(message).font(PigType.footnote) }
       if loading { ProgressView() }
-    }.navigationTitle("Devices and sessions").task { await load() }
+    }.pigCanvas().navigationTitle("Devices and sessions").task { await load() }
       .toolbar {
         Button("Refresh", systemImage: "arrow.clockwise") { Task { await load() } }.disabled(
           loading)
@@ -164,7 +164,7 @@ struct PlexView: View {
         }
       }.disabled(loading || !model.canMutate || token.isEmpty)
       if let message { Text(message).font(PigType.footnote) }
-    }.navigationTitle("Personal Plex").task {
+    }.pigCanvas().navigationTitle("Personal Plex").task {
       do {
         let value = try await model.readCatalogue { try await $0.plex() }
         configured = value.configured
@@ -209,7 +209,7 @@ struct QualityView: View {
         ProgressView()
       }
       if let message { Text(message).font(PigType.footnote) }
-    }.navigationTitle("Server quality").task {
+    }.pigCanvas().navigationTitle("Server quality").task {
       do {
         let value = try await model.readCatalogue { try await $0.quality() }
         quality = value
@@ -255,7 +255,7 @@ struct RemovalView: View {
       }
       if loading { ProgressView() }
       if let message { Text(message).font(PigType.footnote) }
-    }.navigationTitle("Remove music").task { await load() }
+    }.pigCanvas().navigationTitle("Remove music").task { await load() }
       .confirmationDialog(
         "Confirm removal and the file effects shown above?", isPresented: $confirming
       ) { Button("Remove music", role: .destructive) { Task { await remove() } } }

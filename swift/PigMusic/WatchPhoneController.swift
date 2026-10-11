@@ -430,7 +430,7 @@ struct WatchDownloadsView: View {
           }
         }
       }
-    }.navigationTitle("Apple Watch").searchable(text: $query, prompt: "Find songs to send")
+    }.pigCanvas().navigationTitle("Apple Watch").searchable(text: $query, prompt: "Find songs to send")
       .task(id: query) { songs = (try? await model.store?.tracks(query: query, limit: 50)) ?? [] }
   }
 }

@@ -61,7 +61,7 @@ struct PlaylistToolsView: View {
       }
       if loading { ProgressView() }
       if let message { Text(message).font(PigType.footnote) }
-    }.navigationTitle("Playlist tools")
+    }.pigCanvas().navigationTitle("Playlist tools")
       .fileImporter(isPresented: $selecting, allowedContentTypes: [.xml]) { result in
         do {
           let url = try result.get()
@@ -142,7 +142,7 @@ struct AddToPlaylistView: View {
       NavigationLink("Create or import playlists") { PlaylistToolsView(model: model) }
       if loading { ProgressView() }
       if let message { Text(message).font(PigType.footnote) }
-    }.navigationTitle("Add to playlist")
+    }.pigCanvas().navigationTitle("Add to playlist")
   }
 }
 
@@ -153,6 +153,7 @@ struct PlaylistView: View {
   @State private var message: String?
   @State private var loading = false
   @State private var deleting = false
+  @State private var reloadAfterEdit = false
   @Environment(\.dismiss) private var dismiss
   init(model: AppModel, playlist: Playlist) {
     self.model = model
@@ -160,69 +161,73 @@ struct PlaylistView: View {
     _name = State(initialValue: playlist.name)
   }
   private var songs: [Track] { (playlist.entries ?? []).map(\.playbackTrack) }
+  private var locked: Bool {
+    loading || !model.canMutate
+      || model.pendingEdits.contains(where: { $0.mutation.playlistId == playlist.id })
+  }
   var body: some View {
     List {
       Section {
-        Button("Play playlist", systemImage: "play.fill") { model.play(songs) }.disabled(
-          songs.isEmpty)
-        Button("Shuffle playlist", systemImage: "shuffle") { model.play(songs.shuffled()) }
-          .disabled(songs.isEmpty)
-        Button("Send to Apple Watch", systemImage: "applewatch") {
-          Task { await model.watch?.enqueue(songs) }
-        }.disabled(songs.isEmpty)
-        Button("Download originals", systemImage: "arrow.down.circle") {
-          Task { await model.download(songs) }
-        }.disabled(songs.isEmpty)
-        Button("Download AAC copies") { Task { await model.download(songs, quality: "aac") } }
-          .disabled(songs.isEmpty)
+        DetailHeader(
+          model: model, source: songs.lazy.compactMap(\.artworkSource).first,
+          eyebrow: playlist.favourites == true ? "FAVOURITES" : "PLAYLIST", title: playlist.name,
+          subtitle: "\(songs.count) song\(songs.count == 1 ? "" : "s")")
+        HStack(spacing: 10) {
+          PlayCapsule { model.play(songs) }.disabled(songs.isEmpty)
+          RoundIcon(label: "Shuffle", systemImage: "shuffle") { model.play(songs.shuffled()) }
+            .disabled(songs.isEmpty)
+          DownloadMenu(model: model, tracks: songs)
+          Spacer()
+        }.buttonStyle(.plain)
+        if let message { Text(message).font(PigType.footnote) }
+      }.listRowSeparator(.hidden)
+      Section {
+        ForEach(Array((playlist.entries ?? []).enumerated()), id: \.element.entryId) {
+          index, entry in
+          SongRow(model: model, track: entry.playbackTrack) { model.play(songs, at: index) }
+            .swipeActions {
+              Button("Remove", role: .destructive) { Task { await remove(index) } }.disabled(
+                locked)
+            }
+        }
+        .onMove { from, to in
+          var order = Array((playlist.entries ?? []).indices)
+          order.move(fromOffsets: from, toOffset: to)
+          Task { await edit(order: order) }
+        }
+        .moveDisabled(locked)
+      }
+      Section("Settings") {
         if let plex = playlist.plex {
-          Text(
-            "Plex export: \(plex.status?.replacingOccurrences(of: "_", with: " ") ?? "Waiting for sync")"
-          ).font(PigType.footnote)
+          LabeledContent(
+            "Plex export",
+            value: plex.status?.replacingOccurrences(of: "_", with: " ") ?? "Waiting for sync")
           Text(
             "\(plex.availableCount ?? 0) available · \(plex.pendingCount ?? 0) pending · \(plex.repeatedCount ?? 0) repeats combined by Plex"
           ).font(PigType.caption)
         }
-        Text(
-          "Your connected Plex account syncs playlists automatically. Missing songs wait for files to be exported to Plex."
-        ).font(PigType.footnote)
         if playlist.favourites != true {
-          TextField("Name", text: $name)
-          Button("Save name") { Task { await edit(name: name) } }.disabled(
-            loading || !model.canMutate
-              || model.pendingEdits.contains(where: { $0.mutation.playlistId == playlist.id })
-              || name.isEmpty || name == playlist.name)
+          HStack {
+            TextField("Name", text: $name).submitLabel(.done)
+              .onSubmit { Task { await edit(name: name) } }
+            Button("Rename") { Task { await edit(name: name) } }.disabled(
+              locked || name.isEmpty || name == playlist.name)
+          }
+          Button("Delete playlist", role: .destructive) { deleting = true }.disabled(locked)
         }
       }
-      if let message { Text(message).font(PigType.footnote) }
-      ForEach(Array((playlist.entries ?? []).enumerated()), id: \.element.entryId) { index, entry in
-        SongButton(model: model, track: entry.playbackTrack) { model.play(songs, at: index) }
-          .swipeActions {
-            Button("Remove", role: .destructive) { Task { await remove(index) } }.disabled(
-              loading || !model.canMutate
-                || model.pendingEdits.contains(where: { $0.mutation.playlistId == playlist.id }))
-          }
-      }
-      .onMove { from, to in
-        var order = Array((playlist.entries ?? []).indices)
-        order.move(fromOffsets: from, toOffset: to)
-        Task { await edit(order: order) }
-      }
-      .moveDisabled(
-        loading || !model.canMutate
-          || model.pendingEdits.contains(where: { $0.mutation.playlistId == playlist.id }))
-      if playlist.favourites != true {
-        Button("Delete playlist", role: .destructive) { deleting = true }.disabled(
-          loading || !model.canMutate
-            || model.pendingEdits.contains(where: { $0.mutation.playlistId == playlist.id }))
-      }
-    }.navigationTitle(playlist.name)
+    }.pigCanvas().navigationTitle(playlist.name)
       .toolbar {
         EditButton()
         Button("Refresh", systemImage: "arrow.clockwise") { Task { await load() } }.disabled(
           loading)
       }
       .task { await load() }
+      .onChange(of: reloadAfterEdit) { _, reload in
+        guard reload else { return }
+        reloadAfterEdit = false
+        Task { await load() }
+      }
       .confirmationDialog("Delete \(playlist.name)?", isPresented: $deleting) {
         Button("Delete playlist", role: .destructive) { Task { await delete() } }
       }
@@ -251,13 +256,10 @@ struct PlaylistView: View {
         OfflineMutation(
           action: order == nil ? "rename" : "reorder", playlistId: id, name: name,
           revision: revision, order: order))
-      if confirmed, let current = model.playlists.first(where: { $0.id == id }) {
-        playlist = current
-        self.name = current.name
-      }
       message =
         confirmed
         ? nil : "Edit saved on this phone. Other playlist edits wait for this one to sync."
+      if confirmed { reloadAfterEdit = true }
     } catch { message = error.localizedDescription + " Refresh before reapplying your edit." }
   }
   private func remove(_ index: Int) async {
@@ -269,10 +271,8 @@ struct PlaylistView: View {
     do {
       let confirmed = try await model.saveEdit(
         OfflineMutation(action: "remove", playlistId: id, revision: revision, position: index))
-      if confirmed, let current = model.playlists.first(where: { $0.id == id }) {
-        playlist = current
-      }
       message = confirmed ? nil : "Removal saved on this phone; waiting to sync."
+      if confirmed { reloadAfterEdit = true }
     } catch { message = error.localizedDescription + " Refresh before reapplying your edit." }
   }
   private func delete() async {

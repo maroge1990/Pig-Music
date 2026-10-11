@@ -48,6 +48,7 @@ import UIKit
   var artworkRefresh = 0
   @ObservationIgnored private var artworkCache: ArtworkCache?
   @ObservationIgnored private let artworkMemory = NSCache<NSString, UIImage>()
+  @ObservationIgnored private var artistCovers: [String: String?] = [:]
   @ObservationIgnored private(set) var service: NativeService?
   @ObservationIgnored private(set) var store: LibraryStore?
   @ObservationIgnored private var sync: SyncCoordinator?
@@ -397,6 +398,7 @@ import UIKit
     songCount = count
     self.albumCount = albumCount
     self.artistCount = artistCount
+    artistCovers = [:]
     artworkRefresh += 1
   }
   func refreshHome(force: Bool = false) async {
@@ -556,26 +558,69 @@ import UIKit
       throw error
     }
   }
-  func artistArtwork(id: String) async -> UIImage? {
+  /// Artwork addressed by stored hash, or a server alias for catalogue items.
+  enum ArtworkSource: Hashable, Sendable {
+    case stored(String)
+    case release(String)
+    case releaseGroup(String)
+    case artist(String)
+  }
+  func artwork(_ source: ArtworkSource?, width: Int = 256) async -> UIImage? {
+    switch source {
+    case .stored(let sha): return await artwork(sha: sha, width: width)
+    case .release(let id): return await catalogueImage("release", id, width) {
+        try await $0.catalogueArtwork(kind: .release, id: id, request: $1)
+      }
+    case .releaseGroup(let id): return await catalogueImage("release-group", id, width) {
+        try await $0.catalogueArtwork(kind: .releaseGroup, id: id, request: $1)
+      }
+    case .artist(let id): return await catalogueImage("artist", id, width) {
+        try await $0.artistArtwork(id: id, request: $1)
+      }
+    case nil: return nil
+    }
+  }
+  func artistArtwork(id: String) async -> UIImage? { await artwork(.artist(id), width: 512) }
+  private func catalogueImage(
+    _ kind: String, _ id: String, _ width: Int,
+    fetch: @escaping @Sendable (NativeService, ArtworkRequest) async throws -> Data
+  ) async -> UIImage? {
     guard let service, let cache = artworkCache, UUID(uuidString: id) != nil else { return nil }
     let stamp = generation
-    let sha = SHA256.hash(data: Data(("catalogue-artist:" + id).utf8)).map {
+    // Catalogue artwork has no content hash on the client: key it by its alias.
+    let sha = SHA256.hash(data: Data(("catalogue-\(kind):" + id.lowercased()).utf8)).map {
       String(format: "%02x", $0)
     }.joined()
-    guard let request = try? ArtworkRequest(sha: sha, width: 512) else { return nil }
+    guard let request = try? ArtworkRequest(sha: sha, width: width) else { return nil }
+    let key = request.filename as NSString
+    if let image = artworkMemory.object(forKey: key) { return image }
     do {
-      let data = try await cache.data(for: request) {
-        try await service.artistArtwork(id: id, request: $0)
-      }
-      let thumbnail = try await Task.detached(priority: .utility) {
-        try ArtworkCache.thumbnail(data, width: 512)
+      let data = try await cache.data(for: request) { try await fetch(service, $0) }
+      let decoded = try await Task.detached(priority: .utility) {
+        try ArtworkCache.thumbnail(data, width: width)
       }.value
       guard generation == stamp else { return nil }
-      return UIImage(cgImage: thumbnail)
+      let image = UIImage(cgImage: decoded)
+      artworkMemory.setObject(image, forKey: key, cost: decoded.bytesPerRow * decoded.height)
+      return image
     } catch NativeFailure.authentication {
       revoked(generation: stamp)
       return nil
     } catch { return nil }
+  }
+  /// A saved artist shows their first album cover with artwork.
+  func artistCover(_ artist: Artist) async -> String? {
+    if let cached = artistCovers[artist.id] { return cached }
+    guard let store else { return nil }
+    var albums = (try? await store.albums(artistId: artist.id, limit: 12)) ?? []
+    if let preferred = artist.coverAlbumId,
+      let index = albums.firstIndex(where: { $0.id == preferred })
+    {
+      albums.insert(albums.remove(at: index), at: 0)
+    }
+    let sha = albums.lazy.compactMap(\.coverSha).first
+    artistCovers[artist.id] = sha
+    return sha
   }
   func sortLibrary(_ collection: LibraryCollection, by sort: LibrarySort) async {
     guard !loadingMore, !syncing else { return }
@@ -693,7 +738,7 @@ import UIKit
         player.play(
           tracks, startingAt: index,
           artwork: { [weak self] track in
-            await self?.artwork(sha: track.coverSha, width: 512)
+            await self?.artwork(track.artworkSource, width: 512)
           }, resolve: { _ in url }
         )
         return
@@ -705,7 +750,7 @@ import UIKit
     player.play(
       tracks, startingAt: index, autoplay: restored == nil, restored: restored,
       artwork: { [weak self] track in
-        await self?.artwork(sha: track.coverSha, width: 512)
+        await self?.artwork(track.artworkSource, width: 512)
       },
       resolve: { [weak self] track in
         do {
@@ -753,6 +798,7 @@ import UIKit
     artworkCache = nil
     artworkNamespace = ""
     artworkMemory.removeAllObjects()
+    artistCovers = [:]
     homeContent = [:]
     homeErrors = [:]
     homeLoading = []

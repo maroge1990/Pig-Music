@@ -2,27 +2,32 @@ import PigBrand
 import PigDomain
 import SwiftUI
 
+/// Home, as on the web: recently added albums, recommendations (artists and
+/// albums only) and the popular chart, each as a shelf of artwork cards.
 struct HomeView: View {
   @Bindable var model: AppModel
   var body: some View {
-    List {
-      Section("Recently added") {
-        feedStatus(.recent)
-        if let content = model.homeContent[.recent] {
-          ForEach(content.albums) { album in
-            NavigationLink {
-              AlbumView(model: model, album: album)
-            } label: {
-              AlbumRow(model: model, album: album)
+    ScrollView {
+      VStack(alignment: .leading, spacing: 28) {
+        Text("Find your next favourite.").font(PigType.subhead).foregroundStyle(.secondary)
+          .padding(.horizontal)
+        if let recent = model.homeContent[.recent]?.albums, !recent.isEmpty {
+          Shelf(title: "Recently added") {
+            ForEach(recent) { album in
+              NavigationLink {
+                AlbumView(model: model, album: album)
+              } label: {
+                CollectionCard(
+                  model: model, source: album.artworkSource, title: album.title,
+                  caption: album.artist
+                ).frame(width: 150)
+              }.buttonStyle(.plain)
             }
           }
-          if content.albums.isEmpty {
-            Text("Albums you add will appear here.").foregroundStyle(.secondary)
-          }
         }
-      }
-      discovery(.popular, title: "Popular")
-      discovery(.recommended, title: "Recommended")
+        discovery(.recommended, title: "Recommended for you", songs: false)
+        discovery(.popular, title: "Popular", songs: true)
+      }.padding(.vertical, 8)
     }
     .navigationTitle("Home")
     .task(id: model.artworkNamespace) { await model.refreshHome() }
@@ -30,82 +35,84 @@ struct HomeView: View {
       await model.refresh()
       await model.refreshHome(force: true)
     }
-    .toolbar {
-      Button("Refresh", systemImage: "arrow.clockwise") {
-        Task { await model.refreshHome(force: true) }
-      }.disabled(!model.homeLoading.isEmpty)
-    }
   }
 
-  @ViewBuilder private func feedStatus(_ section: HomeSection) -> some View {
-    if model.homeLoading.contains(section) { ProgressView("Loading…") }
-    if let error = model.homeErrors[section] {
-      Text(error).font(PigType.footnote).foregroundStyle(.secondary)
-      Button("Try again") { Task { await model.refreshHome(force: true) } }
-        .disabled(!model.homeLoading.isEmpty)
-    }
-  }
-
-  @ViewBuilder private func discovery(_ section: HomeSection, title: String) -> some View {
-    Section(model.homeContent[section]?.feed?.title ?? title) {
-      feedStatus(section)
-      if let feed = model.homeContent[section]?.feed {
-        Text(feed.source).font(PigType.caption).foregroundStyle(.secondary)
-        if feed.unavailable || feed.state == .unavailable {
-          Text("Discovery is temporarily unavailable. Your saved library is still available.")
-            .foregroundStyle(.secondary)
-        } else if feed.state == .preparing {
-          Text("The server is preparing this feed. Refresh shortly.").foregroundStyle(.secondary)
-        } else if feed.state == .noSeeds {
-          Text("Add some artists to your library to get recommendations.").foregroundStyle(
-            .secondary)
-        }
-        ForEach(feed.artists) { item in
-          NavigationLink {
-            CatalogueArtistView(model: model, artistId: item.id, name: item.name)
-          } label: {
-            discoveryRow(item, symbol: "person.fill")
-          }
-        }
-        ForEach(feed.albums) { item in
-          NavigationLink {
-            CatalogueEditionsView(model: model, groupId: item.id, title: item.name)
-          } label: {
-            discoveryRow(item, symbol: "square.stack")
-          }
-        }
-        ForEach(Array(feed.songs.enumerated()), id: \.offset) { _, item in
-          if let releaseId = item.releaseId {
+  @ViewBuilder private func discovery(_ section: HomeSection, title: String, songs: Bool)
+    -> some View
+  {
+    let feed = model.homeContent[section]?.feed
+    let heading = feed?.title ?? title
+    VStack(alignment: .leading, spacing: 18) {
+      if let feed, !feed.artists.isEmpty {
+        Shelf(title: heading, caption: feed.source.isEmpty ? nil : feed.source) {
+          ForEach(feed.artists) { item in
             NavigationLink {
-              CatalogueReleaseView(model: model, releaseId: releaseId, title: item.album)
+              CatalogueArtistView(model: model, artistId: item.id, name: item.name)
             } label: {
-              discoveryRow(item, symbol: "music.note")
-            }
-          } else if let track = item.playbackTrack {
-            SongButton(model: model, track: track) { model.play([track]) }
+              CollectionCard(
+                model: model, source: .artist(item.id), title: item.name,
+                caption: item.reason, circle: true
+              ).frame(width: 140)
+            }.buttonStyle(.plain)
           }
         }
-        if feed.state == .ready && feed.artists.isEmpty && feed.albums.isEmpty && feed.songs.isEmpty
-        {
-          Text("No discoveries yet. Try again later.").foregroundStyle(.secondary)
+      }
+      if let feed, !feed.albums.isEmpty {
+        Shelf(title: feed.artists.isEmpty ? heading : "Albums") {
+          ForEach(feed.albums) { item in
+            NavigationLink {
+              CatalogueEditionsView(model: model, groupId: item.id, title: item.name)
+            } label: {
+              CollectionCard(
+                model: model, source: .releaseGroup(item.id), title: item.name,
+                caption: item.artist
+              ).frame(width: 150)
+            }.buttonStyle(.plain)
+          }
         }
       }
+      if songs, let feed, !feed.songs.isEmpty {
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Songs").font(.title3.weight(.bold))
+          let tracks = feed.songs.prefix(10).compactMap(\.playbackTrack)
+          ForEach(Array(tracks.enumerated()), id: \.offset) { index, track in
+            SongRow(model: model, track: track) { model.play(tracks, at: index) }
+            Divider()
+          }
+        }.padding(.horizontal)
+      }
+      status(section, feed: feed, heading: heading)
     }
   }
 
-  private func discoveryRow(_ item: DiscoveryItem, symbol: String) -> some View {
-    HStack {
-      Image(systemName: symbol).frame(width: 32).foregroundStyle(.secondary).accessibilityHidden(
-        true)
-      VStack(alignment: .leading) {
-        Text(item.name)
-        if item.kind != .artists {
-          Text(item.artist).font(PigType.subhead).foregroundStyle(.secondary)
+  @ViewBuilder private func status(_ section: HomeSection, feed: DiscoveryFeed?, heading: String)
+    -> some View
+  {
+    let empty = feed.map { $0.artists.isEmpty && $0.albums.isEmpty && $0.songs.isEmpty } ?? true
+    if empty || model.homeErrors[section] != nil {
+      VStack(alignment: .leading, spacing: 6) {
+        Text(heading).font(.title3.weight(.bold))
+        if model.homeLoading.contains(section) {
+          ProgressView("Finding music…")
+        } else if let error = model.homeErrors[section] {
+          Text(error).font(PigType.footnote).foregroundStyle(.secondary)
+          Button("Try again") { Task { await model.refreshHome(force: true) } }
+        } else if let feed {
+          Text(message(section, feed)).font(PigType.footnote).foregroundStyle(.secondary)
         }
-        if let reason = item.reason {
-          Text(reason).font(PigType.caption).foregroundStyle(.secondary)
-        }
-      }
+      }.padding(.horizontal)
     }
+  }
+
+  private func message(_ section: HomeSection, _ feed: DiscoveryFeed) -> String {
+    if feed.state == .preparing { return "Finding what’s popular…" }
+    if feed.state == .noSeeds {
+      return "Recommendations appear once Pig Music has matched artists in your library."
+    }
+    if feed.unavailable || feed.state == .unavailable {
+      return section == .popular
+        ? "Charts are temporarily unavailable." : "Recommendations are temporarily unavailable."
+    }
+    return "Nothing here yet. Try again later."
   }
 }

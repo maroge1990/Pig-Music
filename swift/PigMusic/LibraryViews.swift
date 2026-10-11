@@ -4,209 +4,264 @@ import PigDomain
 import PigPlayback
 import SwiftUI
 
+private enum LibraryTab: String, CaseIterable, Identifiable {
+  case artists = "Artists"
+  case albums = "Albums"
+  case songs = "Songs"
+  case playlists = "Playlists"
+  var id: String { rawValue }
+}
+
+/// "Your library": collection chips and a card grid, as in the web client.
 struct LibraryView: View {
   @Bindable var model: AppModel
+  @State private var tab: LibraryTab = .artists
+  @Environment(\.colorScheme) private var scheme
   var body: some View {
-    List {
-      if let message = model.message { Section { Text(message).font(PigType.footnote) } }
-      Section {
-        NavigationLink("Songs · \(model.songCount)") { SongsView(model: model) }
-        NavigationLink("Albums") { AlbumsView(model: model) }
-        NavigationLink("On this device") { DownloadsView(model: model) }
-        if model.watch?.supported == true {
-          NavigationLink("Apple Watch") { WatchDownloadsView(model: model) }
-        }
-        NavigationLink("Create or import playlists") { PlaylistToolsView(model: model) }
-        NavigationLink("Music requests") { RequestsView(model: model) }
-        NavigationLink("Artists") {
-          List {
-            LibrarySortPicker(
-              model: model, collection: .artists, selected: model.artistSort, artist: false)
-            ForEach(model.artists) { artist in
-              NavigationLink(artist.name) { SavedArtistView(model: model, artist: artist) }
-            }
-            if model.artists.count < model.artistCount {
-              Button("Load more artists") { Task { await model.more(.artists) } }.disabled(
-                model.loadingMore || model.syncing)
-            }
-          }.navigationTitle("Artists")
-        }
-      }
-      if !model.albums.isEmpty {
-        Section("Albums") {
-          ForEach(model.albums.prefix(6)) { album in
-            NavigationLink {
-              AlbumView(model: model, album: album)
-            } label: {
-              AlbumRow(model: model, album: album)
-            }
+    ScrollView {
+      LazyVStack(alignment: .leading, spacing: 16, pinnedViews: []) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(
+            [model.person?.displayName, "\(model.songCount.formatted()) songs"].compactMap { $0 }
+              .joined(separator: " · ")
+          ).font(PigType.subhead).foregroundStyle(.secondary)
+          if let message = model.message {
+            Text(message).font(PigType.footnote).foregroundStyle(.secondary)
           }
         }
-      }
-      if !model.playlists.isEmpty {
-        Section("Playlists") {
-          ForEach(model.playlists) { playlist in
-            NavigationLink(playlist.name) { PlaylistView(model: model, playlist: playlist) }
+        HStack(spacing: 8) {
+          ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+              ForEach(LibraryTab.allCases) { item in
+                Button(item.rawValue) { tab = item }
+                  .buttonStyle(ChipStyle(selected: tab == item))
+                  .accessibilityAddTraits(tab == item ? .isSelected : [])
+              }
+            }
           }
+          RoundIcon(label: "Shuffle all songs", systemImage: "shuffle") {
+            Task { await model.shuffleLibrary() }
+          }.disabled(model.songCount == 0)
+        }
+        content
+        if model.songCount == 0 {
+          ContentUnavailableView(
+            "Your library", systemImage: "music.note",
+            description: Text(
+              model.syncing
+                ? "Syncing your music…"
+                : "Search for songs and albums to add, or pull to refresh."))
         }
       }
-      if model.songCount == 0 {
-        ContentUnavailableView(
-          "Your library", systemImage: "music.note",
-          description: Text(
-            model.syncing
-              ? "Syncing your music…"
-              : "Sync to see your saved music, or search for songs and albums to add."
-          ))
-      }
+      .padding(.horizontal).padding(.bottom, 24)
     }
-    .navigationTitle("Library")
-    .toolbar {
-      Button {
-        Task { await model.refresh() }
-      } label: {
-        if model.syncing {
-          ProgressView()
-        } else {
-          Label("Sync", systemImage: "arrow.triangle.2.circlepath")
-        }
-      }.disabled(model.syncing)
-    }
+    .navigationTitle("Your library")
     .refreshable { await model.refresh() }
-  }
-}
-
-struct SongsView: View {
-  @Bindable var model: AppModel
-  var body: some View {
-    List {
-      LibrarySortPicker(model: model, collection: .tracks, selected: model.songSort)
-      Button("Shuffle all songs", systemImage: "shuffle") { Task { await model.shuffleLibrary() } }
-      ForEach(Array(model.songs.enumerated()), id: \.element.id) { index, track in
-        SongButton(model: model, track: track) { model.play(model.songs, at: index) }
+    #if DEBUG
+      // Headless UI review: --open-album shows the first album page.
+      .navigationDestination(item: $debugAlbum) { AlbumView(model: model, album: $0) }
+      .task {
+        guard ProcessInfo.processInfo.arguments.contains("--open-album") else { return }
+        while model.albums.isEmpty { try? await Task.sleep(for: .milliseconds(200)) }
+        debugAlbum = model.albums.first
       }
-      if model.songs.count < model.songCount {
-        Button("Load more songs") { Task { await model.more(.tracks) } }.disabled(
-          model.loadingMore || model.syncing)
-      }
-    }.navigationTitle("Songs")
+    #endif
   }
-}
-
-struct AlbumsView: View {
-  @Bindable var model: AppModel
-  var body: some View {
-    List {
-      LibrarySortPicker(model: model, collection: .albums, selected: model.albumSort)
-      ForEach(model.albums) { album in
-        NavigationLink {
-          AlbumView(model: model, album: album)
-        } label: {
-          AlbumRow(model: model, album: album)
+  #if DEBUG
+    @State private var debugAlbum: Album?
+  #endif
+  @ViewBuilder private var content: some View {
+    switch tab {
+    case .artists:
+      sort(.artists, selected: model.artistSort, artistOption: false)
+      LazyVGrid(columns: cardColumns, spacing: 18) {
+        ForEach(model.artists) { artist in
+          NavigationLink {
+            SavedArtistView(model: model, artist: artist)
+          } label: {
+            SavedArtistCard(model: model, artist: artist)
+          }.buttonStyle(.plain)
         }
       }
-      if model.albums.count < model.albumCount {
-        Button("Load more albums") { Task { await model.more(.albums) } }.disabled(
-          model.loadingMore || model.syncing)
+      more(.artists, shown: model.artists.count, total: model.artistCount)
+    case .albums:
+      sort(.albums, selected: model.albumSort)
+      LazyVGrid(columns: cardColumns, spacing: 18) {
+        ForEach(model.albums) { album in
+          NavigationLink {
+            AlbumView(model: model, album: album)
+          } label: {
+            CollectionCard(
+              model: model, source: album.artworkSource, title: album.title, caption: album.artist)
+          }.buttonStyle(.plain)
+        }
       }
-    }.navigationTitle("Albums")
+      more(.albums, shown: model.albums.count, total: model.albumCount)
+    case .songs:
+      sort(.tracks, selected: model.songSort)
+      LazyVStack(spacing: 0) {
+        ForEach(Array(model.songs.enumerated()), id: \.element.id) { index, track in
+          SongRow(model: model, track: track) { model.play(model.songs, at: index) }
+          Divider()
+        }
+      }
+      more(.tracks, shown: model.songs.count, total: model.songCount)
+    case .playlists:
+      NavigationLink {
+        PlaylistToolsView(model: model)
+      } label: {
+        Label("New or imported playlist", systemImage: "plus.circle")
+      }.padding(.vertical, 4)
+      LazyVStack(spacing: 0) {
+        ForEach(model.playlists) { playlist in
+          NavigationLink {
+            PlaylistView(model: model, playlist: playlist)
+          } label: {
+            HStack(spacing: 12) {
+              Image(systemName: playlist.favourites == true ? "heart.fill" : "music.note.list")
+                .frame(width: 44, height: 44)
+                .foregroundStyle(PigBrand.accent(scheme))
+                .background(PigBrand.accent(scheme).opacity(0.12), in: .rect(cornerRadius: 10))
+              VStack(alignment: .leading) {
+                Text(playlist.name).foregroundStyle(PigBrand.text(scheme))
+                if let count = playlist.trackCount ?? playlist.entries?.count {
+                  Text("\(count) song\(count == 1 ? "" : "s")").font(PigType.footnote)
+                    .foregroundStyle(.secondary)
+                }
+              }
+              Spacer()
+              Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+            }.frame(minHeight: 56).contentShape(Rectangle())
+          }.buttonStyle(.plain)
+          Divider()
+        }
+      }
+    }
   }
-}
-
-struct AlbumRow: View {
-  let model: AppModel
-  let album: Album
-  var body: some View {
-    HStack {
-      ArtworkView(model: model, sha: album.coverSha, size: 52)
-      VStack(alignment: .leading) {
-        Text(album.title)
-        Text(album.artist).font(PigType.subhead).foregroundStyle(.secondary)
-      }
+  private func sort(_ collection: LibraryCollection, selected: LibrarySort, artistOption: Bool = true)
+    -> some View
+  {
+    LibrarySortPicker(
+      model: model, collection: collection, selected: selected, artist: artistOption)
+  }
+  @ViewBuilder private func more(_ collection: LibraryCollection, shown: Int, total: Int)
+    -> some View
+  {
+    if shown < total {
+      Button("Show more") { Task { await model.more(collection) } }
+        .buttonStyle(ChipStyle(selected: false))
+        .disabled(model.loadingMore || model.syncing)
+        .frame(maxWidth: .infinity)
+        // Grids page in as they scroll into view.
+        .onAppear { Task { await model.more(collection) } }
     }
   }
 }
 
+struct ChipStyle: ButtonStyle {
+  let selected: Bool
+  @Environment(\.colorScheme) private var scheme
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label.font(.subheadline.weight(.semibold))
+      .padding(.horizontal, 16).frame(minHeight: 38)
+      .foregroundStyle(selected ? PigBrand.textAccent(scheme) : PigBrand.text(scheme))
+      .background(
+        selected ? PigBrand.accent(scheme).opacity(0.14) : PigBrand.surface(scheme),
+        in: Capsule()
+      )
+      .overlay(
+        Capsule().strokeBorder(
+          selected ? PigBrand.accent(scheme) : PigBrand.controlBorder(scheme), lineWidth: 1)
+      )
+      .opacity(configuration.isPressed ? 0.7 : 1)
+  }
+}
+
+/// Album page: compact header, one action row, songs, then settings.
 struct AlbumView: View {
   @Bindable var model: AppModel
   let album: Album
   @State private var tracks: [Track] = []
   var body: some View {
-    List {
-      Section {
-        ArtworkView(model: model, sha: album.coverSha, width: 512, size: 220)
-          .frame(maxWidth: .infinity)
-        Text(album.artist).font(PigType.headline)
-        Button("Play album", systemImage: "play.fill") { model.play(tracks) }.disabled(
-          tracks.isEmpty)
-        Button("Send to Apple Watch", systemImage: "applewatch") {
-          Task { await model.watch?.enqueue(tracks) }
-        }.disabled(tracks.isEmpty)
-        Button("Download originals", systemImage: "arrow.down.circle") {
-          Task { await model.download(tracks) }
-        }.disabled(tracks.isEmpty)
-        Button("Download AAC copies") { Task { await model.download(tracks, quality: "aac") } }
-          .disabled(tracks.isEmpty)
-      }
-      ForEach(Array(tracks.enumerated()), id: \.element.id) { index, song in
-        SongButton(model: model, track: song) { model.play(tracks, at: index) }
-      }
-    }.navigationTitle(album.title).task(id: album.id) { tracks = await model.albumTracks(album) }
+    ScrollView {
+      VStack(alignment: .leading, spacing: 14) {
+        DetailHeader(
+          model: model, source: album.artworkSource ?? tracks.first?.artworkSource,
+          eyebrow: "IN YOUR LIBRARY", title: album.title, subtitle: albumSubtitle)
+        HStack(spacing: 10) {
+          PlayCapsule { model.play(tracks) }.disabled(tracks.isEmpty)
+          RoundIcon(label: "Shuffle", systemImage: "shuffle") { model.play(tracks.shuffled()) }
+            .disabled(tracks.isEmpty)
+          DownloadMenu(model: model, tracks: tracks)
+          Spacer()
+        }
+        LazyVStack(spacing: 0) {
+          ForEach(Array(tracks.enumerated()), id: \.element.id) { index, song in
+            SongRow(model: model, track: song, number: song.trackNumber ?? index + 1) {
+              model.play(tracks, at: index)
+            }
+            Divider()
+          }
+        }
+        DetailSettings {
+          InlineQualityPicker(model: model, scope: "album", id: album.id)
+        }
+      }.padding(.horizontal).padding(.bottom, 24)
+    }
+    .pigCanvas().navigationTitle(album.title).navigationBarTitleDisplayMode(.inline)
+    .task(id: album.id) { tracks = await model.albumTracks(album) }
+  }
+  private var albumSubtitle: String {
+    let count = tracks.isEmpty ? album.trackCount : tracks.count
+    return [
+      album.artist, album.year?.text ?? tracks.first?.year?.text,
+      count.map { "\($0) song\($0 == 1 ? "" : "s")" },
+    ].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
   }
 }
 
+/// Device and Watch download choices behind one round button.
+struct DownloadMenu: View {
+  let model: AppModel
+  let tracks: [Track]
+  var body: some View {
+    Menu {
+      Button("Download originals", systemImage: "arrow.down.circle") {
+        Task { await model.download(tracks) }
+      }
+      Button("Download smaller AAC copies", systemImage: "arrow.down.circle.dotted") {
+        Task { await model.download(tracks, quality: "aac") }
+      }
+      if model.watch?.supported == true {
+        Button("Send to Apple Watch", systemImage: "applewatch") {
+          Task { await model.watch?.enqueue(tracks) }
+        }
+      }
+    } label: {
+      RoundIconLabel(systemImage: "arrow.down")
+    }
+    .disabled(tracks.isEmpty).accessibilityLabel("Download")
+  }
+}
+
+/// Kept for screens that list songs inside a `List`.
 struct SongButton: View {
   let model: AppModel
   let track: Track
   let play: () -> Void
-  @Environment(\.colorScheme) private var scheme
-  private var current: Bool { model.player.queue.current?.track.id == track.id }
-  var body: some View {
-    Button {
-      if track.serverState == "household_available" { model.actionTrack = track } else { play() }
-    } label: {
-      HStack {
-        if current {
-          Capsule().fill(PigBrand.accent(scheme)).frame(width: 4, height: 28)
-            .accessibilityHidden(true)
-        }
-        ArtworkView(model: model, sha: track.coverSha, size: 44)
-        VStack(alignment: .leading) {
-          Text(track.title).foregroundStyle(.primary)
-          Text(track.artist).font(PigType.subhead).foregroundStyle(.secondary)
-        }
-        Spacer()
-        Image(
-          systemName: track.serverState == "not_in_library"
-            ? "antenna.radiowaves.left.and.right" : "icloud"
-        ).foregroundStyle(.secondary).accessibilityLabel(
-          track.serverState == "household_available"
-            ? "Add from household"
-            : (track.serverState == "not_in_library" ? "Remote streaming" : "On the server"))
-      }.frame(minHeight: 44)
-    }.listRowBackground(
-      PigBrand.surface(scheme).overlay {
-        if current { PigBrand.accent(scheme).opacity(0.14) }
-      }
-    )
-    .accessibilityValue(current ? "Current song" : "")
-    .accessibilityLabel(
-      "\(track.serverState == "household_available" ? "Add" : "Play") \(track.title) by \(track.artist). \(track.serverState == "not_in_library" ? "Remote streaming" : "On the server")."
-    )
-    .contextMenu {
-      Button("Song actions…", systemImage: "ellipsis.circle") { model.actionTrack = track }
-    }
-    .accessibilityAction(named: "Song actions") { model.actionTrack = track }
-  }
+  var body: some View { SongRow(model: model, track: track, play: play) }
 }
 
 struct AccountView: View {
   @Bindable var model: AppModel
   var body: some View {
     Form {
-      Section("Your account") {
-        Text(model.person?.displayName ?? "")
-        Text(model.server).font(PigType.footnote).textSelection(.enabled)
+      Section {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(model.person?.displayName ?? "").font(.headline)
+          Text(model.server).font(PigType.footnote).foregroundStyle(.secondary)
+            .textSelection(.enabled)
+        }
         NavigationLink("Appearance") { PreferencesView(model: model) }
         NavigationLink("Password") { PasswordView(model: model) }
         NavigationLink("Devices and sessions") { SessionsView(model: model) }
@@ -217,10 +272,10 @@ struct AccountView: View {
         }
       }
       Section("Library") {
-        Text("\(model.songCount) cached songs")
+        LabeledContent("Songs on the server", value: model.songCount.formatted())
         Button("Sync now") { Task { await model.refresh() } }.disabled(model.syncing)
       }
-      Section("Playback") {
+      Section {
         Toggle(
           "Seamless playback",
           isOn: Binding(
@@ -230,13 +285,13 @@ struct AccountView: View {
             "Crossfade",
             isOn: Binding(
               get: { model.player.crossfadeEnabled }, set: { model.player.crossfadeEnabled = $0 }))
-          Text(
-            "Blends unrelated songs for three seconds and preserves continuous album order. Changes apply to the next queue."
-          ).font(PigType.footnote)
         }
+      } header: {
+        Text("Playback")
+      } footer: {
         Text(
-          "Seamless playback may take longer to start while it prepares songs. Turn it off to use streaming if a song cannot be prepared. Changing modes stops playback."
-        ).font(PigType.footnote)
+          "Seamless playback prepares songs for gapless albums and a three-second crossfade between unrelated songs. Switch it off to stream if a song cannot be prepared."
+        )
       }
       Section {
         Button("Sign out", role: .destructive) { Task { await model.signOut() } }.disabled(
@@ -247,33 +302,46 @@ struct AccountView: View {
   }
 }
 
+/// Integrated mini player. On iOS 26.1+ it is the tab bar's accessory, which the
+/// system shows inline beside a minimized tab bar.
 struct MiniPlayer: View {
   @Bindable var model: AppModel
   private var player: PlayerController { model.player }
   let open: () -> Void
   @Environment(\.colorScheme) private var scheme
   var body: some View {
-    HStack {
-      ArtworkView(model: model, sha: player.queue.current?.track.coverSha, size: 44)
+    HStack(spacing: 10) {
       Button(action: open) {
-        VStack(alignment: .leading) {
-          Text(player.queue.current?.track.title ?? "").lineLimit(1)
-          Text(player.queue.current?.track.artist ?? "").font(PigType.caption).foregroundStyle(
-            PigBrand.secondary(scheme))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(spacing: 10) {
+          ArtworkThumb(
+            model: model, source: player.queue.current?.track.artworkSource,
+            title: player.queue.current?.track.title ?? "", size: 32)
+          VStack(alignment: .leading, spacing: 0) {
+            Text(player.queue.current?.track.title ?? "").font(.subheadline.weight(.semibold))
+              .lineLimit(1)
+            Text(status).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+          }
+          Spacer(minLength: 0)
+        }.contentShape(Rectangle())
       }
-      if player.preparing { ProgressView().accessibilityLabel("Preparing audio") }
+      .buttonStyle(.plain)
+      .accessibilityLabel("Now playing: \(player.queue.current?.track.title ?? "")")
+      .accessibilityHint("Opens the player")
       Button(action: player.toggle) {
-        Image(systemName: player.wantsPlayback ? "pause.fill" : "play.fill").frame(
-          minWidth: 44, minHeight: 44)
-      }.accessibilityLabel(player.wantsPlayback ? "Pause" : "Play")
+        Image(systemName: player.wantsPlayback ? "pause.fill" : "play.fill")
+          .font(.title3).frame(width: 40, height: 40)
+      }.buttonStyle(.plain).accessibilityLabel(player.wantsPlayback ? "Pause" : "Play")
       Button(action: player.next) {
-        Image(systemName: "forward.end.fill").frame(minWidth: 44, minHeight: 44)
-      }.accessibilityLabel("Next song")
-    }.padding(.horizontal, 16).padding(.vertical, 8)
-      .foregroundStyle(PigBrand.text(scheme)).tint(PigBrand.accent(scheme))
-      .pigFloatingControls().padding(.horizontal, 8).padding(.bottom, 4)
+        Image(systemName: "forward.fill").font(.title3).frame(width: 40, height: 40)
+      }.buttonStyle(.plain).accessibilityLabel("Next song")
+    }
+    .padding(.horizontal, 12).padding(.vertical, 4)
+    .foregroundStyle(PigBrand.text(scheme))
+  }
+  private var status: String {
+    if player.error != nil { return "Playback problem · tap for options" }
+    if player.preparing { return "Preparing audio…" }
+    return player.queue.current?.track.artist ?? ""
   }
 }
 
@@ -281,109 +349,153 @@ struct NowPlayingView: View {
   @Bindable var model: AppModel
   private var player: PlayerController { model.player }
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.colorScheme) private var scheme
+  /// Dragging updates only this value; one seek happens when the drag ends.
+  @State private var scrubbing: Double?
   var body: some View {
     NavigationStack {
       ScrollView {
-        VStack(spacing: 24) {
-          ArtworkView(
-            model: model, sha: player.queue.current?.track.coverSha, width: 512, size: 280
+        VStack(spacing: 20) {
+          Artwork(
+            model: model, source: player.queue.current?.track.artworkSource,
+            title: player.queue.current?.track.title ?? "", width: 1024
           )
-          .pigContentCorners().frame(maxWidth: .infinity).padding(.vertical, 20)
-          Text(player.queue.current?.track.title ?? "").font(PigType.title)
-          Text(player.queue.current?.track.artist ?? "").font(PigType.headline)
-          Slider(
-            value: Binding(
-              get: { min(player.elapsed, max(1, player.duration)) }, set: { player.seek($0) }),
-            in: 0...max(1, player.duration)
-          ).accessibilityLabel("Playback position")
-          HStack(spacing: 32) {
+          .pigContentCorners().frame(maxWidth: 340).padding(.top, 12)
+          .shadow(color: .black.opacity(0.18), radius: 16, y: 8)
+          VStack(spacing: 4) {
+            Text(player.queue.current?.track.title ?? "").font(.title2.weight(.bold))
+              .multilineTextAlignment(.center)
+            Text(player.queue.current?.track.artist ?? "").font(.headline)
+              .foregroundStyle(PigBrand.textAccent(scheme))
+          }
+          VStack(spacing: 2) {
+            Slider(
+              value: Binding(
+                get: { scrubbing ?? min(player.elapsed, max(1, player.duration)) },
+                set: { scrubbing = $0 }),
+              in: 0...max(1, player.duration)
+            ) { editing in
+              if !editing, let target = scrubbing {
+                player.seek(target)
+                scrubbing = nil
+              }
+            }
+            .accessibilityLabel("Playback position")
+            .accessibilityValue(time(scrubbing ?? player.elapsed))
+            HStack {
+              Text(time(scrubbing ?? player.elapsed))
+              Spacer()
+              Text("-" + time(max(0, player.duration - (scrubbing ?? player.elapsed))))
+            }.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+          }
+          HStack(spacing: 40) {
             Button(action: player.previous) {
-              Image(systemName: "backward.end.fill").frame(minWidth: 44, minHeight: 44)
+              Image(systemName: "backward.fill").font(.title).frame(minWidth: 44, minHeight: 44)
             }.accessibilityLabel("Previous song")
             Button(action: player.toggle) {
               Image(systemName: player.wantsPlayback ? "pause.circle.fill" : "play.circle.fill")
-                .font(
-                  .largeTitle
-                ).frame(minWidth: 60, minHeight: 60)
+                .font(.system(size: 64)).frame(minWidth: 64, minHeight: 64)
             }.accessibilityLabel(player.wantsPlayback ? "Pause" : "Play")
             Button(action: player.next) {
-              Image(systemName: "forward.end.fill").frame(minWidth: 44, minHeight: 44)
+              Image(systemName: "forward.fill").font(.title).frame(minWidth: 44, minHeight: 44)
             }.accessibilityLabel("Next song")
-          }
+          }.buttonStyle(.plain)
           if player.preparing { ProgressView("Preparing audio…").font(PigType.footnote) }
-          HStack {
-            Button(player.shuffled ? "Shuffle on" : "Shuffle", systemImage: "shuffle") {
+          HStack(spacing: 12) {
+            Button {
               player.toggleShuffle()
+            } label: {
+              RoundIconLabel(systemImage: "shuffle")
+                .overlay(
+                  Circle().strokeBorder(
+                    player.shuffled ? PigBrand.accent(scheme) : .clear, lineWidth: 2))
+            }.buttonStyle(.plain).accessibilityLabel("Shuffle")
+              .accessibilityValue(player.shuffled ? "On" : "Off")
+            Button {
+              player.repeatMode =
+                switch player.repeatMode {
+                case .off: .all
+                case .all: .one
+                case .one: .off
+                }
+            } label: {
+              RoundIconLabel(systemImage: player.repeatMode == .one ? "repeat.1" : "repeat")
+                .overlay(
+                  Circle().strokeBorder(
+                    player.repeatMode == .off ? .clear : PigBrand.accent(scheme), lineWidth: 2))
+            }.buttonStyle(.plain).accessibilityLabel("Repeat")
+              .accessibilityValue(
+                player.repeatMode == .off ? "Off" : player.repeatMode == .all ? "All" : "One")
+            if let track = player.queue.current?.track {
+              RoundIcon(label: "Song actions", systemImage: "ellipsis") {
+                model.actionTrack = track
+              }
             }
-            Picker(
-              "Repeat",
-              selection: Binding(get: { player.repeatMode }, set: { player.repeatMode = $0 })
-            ) {
-              Text("Off").tag(PlaybackRepeat.off)
-              Text("All").tag(PlaybackRepeat.all)
-              Text("One").tag(PlaybackRepeat.one)
-            }
+            AirPlayButton().frame(width: 40, height: 40)
           }
           if let error = player.error {
-            Text(error).font(PigType.footnote).foregroundStyle(Color("PigDanger"))
-            HStack {
-              Button("Retry") { player.retry() }
-              Button("Skip song") { player.next() }
-              if player.seamlessEnabled {
-                Button("Use streaming") { player.retry(streaming: true) }
-              }
+            VStack(spacing: 8) {
+              Text(error).font(PigType.footnote).foregroundStyle(PigBrand.danger(scheme))
+                .multilineTextAlignment(.center)
+              HStack {
+                Button("Retry") { player.retry() }
+                Button("Skip song") { player.next() }
+                if player.seamlessEnabled {
+                  Button("Use streaming") { player.retry(streaming: true) }
+                }
+              }.buttonStyle(.bordered)
             }
           }
-          NavigationLink("Edit full queue") { QueueEditorView(player: player) }
-          Text("Up next").font(PigType.headline).frame(maxWidth: .infinity, alignment: .leading)
-          ForEach(player.queue.items.dropFirst(player.queue.index + 1).prefix(50)) { item in
+          VStack(alignment: .leading, spacing: 0) {
             HStack {
-              Text(item.track.title).frame(maxWidth: .infinity, alignment: .leading)
-              Menu("Queue actions", systemImage: "ellipsis") {
-                Button("Move earlier") { player.moveUpcoming(item.id, by: -1) }
-                Button("Move later") { player.moveUpcoming(item.id, by: 1) }
-                Button("Remove from queue", role: .destructive) { player.removeUpcoming(item.id) }
+              Text("Up next").font(.headline)
+              Spacer()
+              NavigationLink("Edit") { QueueEditorView(player: player) }
+            }.padding(.bottom, 6)
+            ForEach(player.queue.items.dropFirst(player.queue.index + 1).prefix(50)) { item in
+              HStack(spacing: 12) {
+                ArtworkThumb(
+                  model: model, source: item.track.artworkSource, title: item.track.title,
+                  size: 40)
+                VStack(alignment: .leading) {
+                  Text(item.track.title).lineLimit(1)
+                  Text(item.track.artist).font(PigType.footnote).foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+                Spacer()
+                Menu {
+                  Button("Move earlier") { player.moveUpcoming(item.id, by: -1) }
+                  Button("Move later") { player.moveUpcoming(item.id, by: 1) }
+                  Button("Remove from queue", role: .destructive) {
+                    player.removeUpcoming(item.id)
+                  }
+                } label: {
+                  Image(systemName: "ellipsis").frame(width: 32, height: 44)
+                }.accessibilityLabel("Queue actions for \(item.track.title)")
               }
+              Divider()
             }
           }
-        }.padding()
+        }.padding(.horizontal, 24).padding(.bottom, 24)
       }
       .navigationTitle("Now playing").navigationBarTitleDisplayMode(.inline)
       .toolbar { Button("Done") { dismiss() } }
     }.pigBrandedCanvas()
   }
+  private func time(_ seconds: Double) -> String {
+    guard seconds.isFinite else { return "0:00" }
+    let value = Int(seconds.rounded(.down))
+    return String(format: "%d:%02d", value / 60, value % 60)
+  }
 }
 
-struct ArtworkView: View {
-  let model: AppModel
-  let sha: String?
-  var width = 256
-  let size: CGFloat
-  @State private var image: UIImage?
-  private var identity: String {
-    "\(model.artworkNamespace)|\(model.artworkRefresh)|\(sha ?? "")|\(width)"
+private struct AirPlayButton: UIViewRepresentable {
+  func makeUIView(context: Context) -> AVRoutePickerView {
+    let view = AVRoutePickerView()
+    view.prioritizesVideoDevices = false
+    return view
   }
-  var body: some View {
-    Group {
-      if let image {
-        Image(uiImage: image).resizable().scaledToFill()
-      } else {
-        RoundedRectangle(cornerRadius: 8).fill(.secondary.opacity(0.12))
-          .overlay {
-            Image(systemName: "music.note").font(.system(size: size * 0.35)).foregroundStyle(
-              .secondary)
-          }
-      }
-    }
-    .frame(width: size, height: size).clipShape(RoundedRectangle(cornerRadius: 8))
-    .accessibilityHidden(true)
-    .task(id: identity) {
-      image = nil
-      let loaded = await model.artwork(sha: sha, width: width)
-      guard !Task.isCancelled else { return }
-      image = loaded
-    }
-  }
+  func updateUIView(_ view: AVRoutePickerView, context: Context) {}
 }
 
 struct QueueEditorView: View {
@@ -405,11 +517,11 @@ struct QueueEditorView: View {
               Button("Move earlier") { player.moveUpcoming(item.id, by: -1) }
               Button("Move later") { player.moveUpcoming(item.id, by: 1) }
               Button("Remove", role: .destructive) { player.removeUpcoming(item.id) }
-            }
+            }.labelStyle(.iconOnly)
           }
         }
       }
-    }.navigationTitle("Playback queue")
+    }.pigCanvas().navigationTitle("Playback queue")
   }
 }
 
@@ -419,17 +531,30 @@ private struct LibrarySortPicker: View {
   let selected: LibrarySort
   var artist = true
   var body: some View {
-    Picker(
-      "Sort",
-      selection: Binding(
-        get: { selected },
-        set: { value in
-          Task { await model.sortLibrary(collection, by: value) }
-        })
-    ) {
-      Text("Title A–Z").tag(LibrarySort.title)
-      Text("Title Z–A").tag(LibrarySort.titleDescending)
-      if artist { Text("Artist, then title").tag(LibrarySort.artist) }
-    }.disabled(model.loadingMore || model.syncing)
+    Menu {
+      Picker(
+        "Sort",
+        selection: Binding(
+          get: { selected },
+          set: { value in
+            Task { await model.sortLibrary(collection, by: value) }
+          })
+      ) {
+        Text("Title A–Z").tag(LibrarySort.title)
+        Text("Title Z–A").tag(LibrarySort.titleDescending)
+        if artist { Text("Artist, then title").tag(LibrarySort.artist) }
+      }
+    } label: {
+      Label(label, systemImage: "arrow.up.arrow.down").font(PigType.footnote)
+    }
+    .disabled(model.loadingMore || model.syncing)
+    .accessibilityLabel("Sort, \(label)")
+  }
+  private var label: String {
+    switch selected {
+    case .title: "Title A–Z"
+    case .titleDescending: "Title Z–A"
+    case .artist: "Artist, then title"
+    }
   }
 }

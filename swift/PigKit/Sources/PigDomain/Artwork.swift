@@ -20,3 +20,7 @@ public struct ArtworkRequest: Hashable, Sendable {
 public enum ArtworkFailure: Error, Sendable, Equatable {
   case invalidRequest, tooLarge, invalidImage, unavailable
 }
+
+public enum CatalogueArtworkKind: String, Sendable {
+  case release, releaseGroup = "release-group"
+}

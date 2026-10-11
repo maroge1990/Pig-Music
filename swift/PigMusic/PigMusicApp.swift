@@ -110,68 +110,128 @@ struct SignInView: View {
 private enum Destination: String, CaseIterable, Identifiable {
   case home = "Home"
   case library = "Library"
+  case downloads = "Downloads"
   case search = "Search"
-  case account = "Account"
   var id: String { rawValue }
   var symbol: String {
     switch self {
     case .home: "house"
-    case .library: "music.note.list"
+    case .library: "square.stack"
+    case .downloads: "arrow.down.circle"
     case .search: "magnifyingglass"
-    case .account: "person.crop.circle"
     }
   }
 }
 
+/// Same sections as the web app. Account opens from the avatar, as on the web,
+/// and the mini player is integrated with the tab bar like Apple Music.
 struct LibraryShell: View {
   @Bindable var model: AppModel
-  @State private var selection: Destination? = .home
+  @State private var selection: Destination = .home
   @State private var showPlayer = false
-  @Environment(\.horizontalSizeClass) private var size
+  @State private var showAccount = false
+  private var playing: Bool { model.player.queue.current != nil }
   var body: some View {
-    Group {
-      if size == .regular {
-        NavigationSplitView {
-          List(Destination.allCases, selection: $selection) { item in
-            Label(item.rawValue, systemImage: item.symbol).tag(item)
-          }
-          .navigationTitle("Pig Music").pigCanvas()
-        } detail: {
-          NavigationStack { content(selection ?? .home) }
-        }
-      } else {
-        TabView(selection: $selection) {
-          ForEach(Destination.allCases) { item in
-            NavigationStack { content(item) }.tabItem {
-              if item == .home {
-                Label(
-                  item.rawValue,
-                  image: selection == .home ? "pig-music-glyph-fill" : "pig-music-glyph-outline")
-              } else {
-                Label(item.rawValue, systemImage: item.symbol)
-              }
-            }.tag(Optional(item))
-          }
+    tabs
+      .sheet(isPresented: $showPlayer) { NowPlayingView(model: model) }
+      .sheet(isPresented: $showAccount) {
+        NavigationStack {
+          AccountView(model: model).pigCanvas()
+            .toolbar { Button("Done") { showAccount = false } }
         }
       }
-    }
-    .safeAreaInset(edge: .bottom) {
-      if model.player.queue.current != nil {
-        MiniPlayer(model: model) { showPlayer = true }
-      }
-    }
-    .sheet(isPresented: $showPlayer) { NowPlayingView(model: model) }
-    .sheet(item: $model.actionTrack) { SongActionsView(model: model, track: $0) }
+      .sheet(item: $model.actionTrack) { SongActionsView(model: model, track: $0) }
+      #if DEBUG
+        // Headless UI review: --tab=<name> and --demo-play.
+        .task {
+          let arguments = ProcessInfo.processInfo.arguments
+          if let tab = arguments.first(where: { $0.hasPrefix("--tab=") })?.dropFirst(6),
+            let value = Destination.allCases.first(where: { $0.rawValue.lowercased() == tab })
+          {
+            selection = value
+          }
+          if arguments.contains("--demo-play") {
+            while model.songs.isEmpty { try? await Task.sleep(for: .milliseconds(200)) }
+            model.play(model.songs)
+            model.player.pause()
+          }
+        }
+      #endif
   }
-  @ViewBuilder private func content(_ destination: Destination) -> some View {
-    Group {
-      switch destination {
-      case .home: HomeView(model: model)
-      case .library: LibraryView(model: model)
-      case .search: SearchView(model: model)
-      case .account: AccountView(model: model)
+  @ViewBuilder private var tabs: some View {
+    let view = TabView(selection: $selection) {
+      Tab(Destination.home.rawValue, systemImage: Destination.home.symbol, value: .home) {
+        stack(.home)
       }
-    }.pigCanvas()
+      Tab(Destination.library.rawValue, systemImage: Destination.library.symbol, value: .library) {
+        stack(.library)
+      }
+      Tab(
+        Destination.downloads.rawValue, systemImage: Destination.downloads.symbol,
+        value: .downloads
+      ) { stack(.downloads) }
+      Tab(value: Destination.search, role: .search) { stack(.search) }
+    }
+    .tabViewStyle(.sidebarAdaptable)
+    if #available(iOS 26.1, *) {
+      view.tabBarMinimizeBehavior(.onScrollDown)
+        .tabViewBottomAccessory(isEnabled: playing) {
+          MiniPlayer(model: model) { showPlayer = true }
+        }
+    } else {
+      view
+    }
+  }
+  private var accessoryAvailable: Bool {
+    if #available(iOS 26.1, *) { return true }
+    return false
+  }
+  private func stack(_ destination: Destination) -> some View {
+    NavigationStack {
+      Group {
+        switch destination {
+        case .home: HomeView(model: model)
+        case .library: LibraryView(model: model)
+        case .downloads: DownloadsHubView(model: model)
+        case .search: SearchView(model: model)
+        }
+      }
+      .pigCanvas()
+      // Older systems: the player docks directly above the tab bar inside each
+      // tab, so it never covers the tabs or the end of a list.
+      .safeAreaInset(edge: .bottom, spacing: 0) {
+        if !accessoryAvailable && playing {
+          MiniPlayer(model: model) { showPlayer = true }
+            .pigFloatingControls().padding(.horizontal, 12).padding(.bottom, 6)
+        }
+      }
+      .toolbar {
+        if destination != .search {
+          ToolbarItem(placement: .topBarTrailing) { accountButton }
+        }
+      }
+    }
+  }
+  private var accountButton: some View {
+    Button {
+      showAccount = true
+    } label: {
+      AccountAvatar(name: model.person?.displayName ?? model.person?.username ?? "")
+    }.accessibilityLabel("Account")
+  }
+}
+
+private struct AccountAvatar: View {
+  let name: String
+  @Environment(\.colorScheme) private var scheme
+  var body: some View {
+    Text(
+      name.split(separator: " ").prefix(2).compactMap(\.first).map(String.init).joined()
+        .uppercased()
+    )
+    .font(.footnote.weight(.bold)).foregroundStyle(PigBrand.textAccent(scheme))
+    .frame(width: 34, height: 34)
+    .background(PigBrand.accent(scheme).opacity(0.16), in: Circle())
   }
 }
 
