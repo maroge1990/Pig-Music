@@ -336,6 +336,60 @@ def test_circuit_breaker_ignores_candidate_misses_and_allows_one_probe():
     assert health.snapshot("youtube")["last_transfer"] == "verified"
 
 
+def test_answered_probe_clears_expired_cooldown():
+    now = [1000]
+    health = Health(lambda: now[0])
+    for _ in range(3):
+        health.outcome("youtube", error=ProviderError())
+    now[0] = 1300
+    with health.operation("youtube"):
+        # The probe reached the source; only the candidate was rejected.
+        health.outcome("youtube", error=ProviderError("no_match"))
+    assert health.snapshot("youtube")["next_retry_at"] is None
+    with health.operation("youtube"), health.operation("youtube"):
+        pass
+
+
+def test_youtube_prefers_official_song_results_and_falls_back_to_videos(
+    monkeypatch,
+):
+    target = {
+        "artist": "Passion Pit",
+        "title": "Little Secrets",
+        "album": "Manners",
+        "duration": 239,
+    }
+    song = {
+        "title": "Little Secrets",
+        "channel": "Passion Pit",
+        "album": "Manners",
+        "duration": 239.0,
+        "source": "youtube",
+    }
+    adapter, seen = Extractor("youtube"), []
+
+    def invoke(request, context):
+        seen.append(request.get("catalogue"))
+        return {"candidates": [song] if request.get("catalogue") else []}
+
+    monkeypatch.setattr(adapter, "invoke", invoke)
+    assert adapter.search(target, Context("native_standard")) == [song]
+    assert seen == ["music"]
+    seen.clear()
+    assert adapter.search({**target, "title": "Sleepyhead"}, Context("x")) == [song]
+    assert seen == ["music", None]
+
+
+def test_official_channel_audio_suffix_is_not_part_of_the_title():
+    info = {
+        "title": "Passion Pit - Little Secrets (Audio)",
+        "channel": "Passion Pit",
+        "channel_is_verified": True,
+        "duration": 241,
+    }
+    assert recording(info, "youtube")["title"] == "Little Secrets"
+
+
 COOKIE = "# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t2147483647\tfixture\tsecret-value\n"
 
 

@@ -314,3 +314,45 @@ def test_same_title_artwork_requires_unique_year_match(tmp_path):
         assert settled_get(client, app, url).status_code == 200
         assert len(calls) == 2
         app.state.http = original_client
+
+
+def test_library_cover_falls_back_from_unscanned_edition_to_its_release_group(
+    tmp_path,
+):
+    # Regression: tagged regional editions (e.g. a GB pressing) often have no
+    # scan of their own while the release group does.
+    snapshot(
+        tmp_path,
+        tracks=[
+            {
+                "id": "song",
+                "artist": "Example Artist",
+                "title": "Song",
+                "album_artist": "Example Artist",
+                "album": "Greatest Hits",
+                "musicbrainz_release_id": RELEASE,
+            }
+        ],
+    )
+    calls = []
+
+    def transport(request):
+        calls.append(str(request.url))
+        if request.url.host == "musicbrainz.org":
+            assert "/release/" + RELEASE in request.url.path
+            return httpx.Response(200, json={"release-group": {"id": GROUP}})
+        if "/release/" + RELEASE in request.url.path:
+            return httpx.Response(404)
+        assert "/release-group/" + GROUP in request.url.path
+        return httpx.Response(200, content=image_bytes())
+
+    app = create_app(tmp_path)
+    with TestClient(app) as client:
+        original = app.state.http
+        app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(transport))
+        library = client.get("/api/library").json()
+        album = settled_get(client, app, library["albums"][0]["cover_url"])
+        assert album.status_code == 200
+        assert client.get(library["artists"][0]["cover_url"]).status_code == 200
+        assert len(calls) == 3
+        app.state.http = original

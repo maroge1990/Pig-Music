@@ -105,3 +105,23 @@ def test_private_playlist_delta_and_return_to_previous_file_state(tmp_path):
     again = sync.page(owner, "tracks")
     assert again["revision"] != first["revision"]
     assert all(t["album_id"] for t in again["items"])
+
+
+def test_server_fetched_cover_is_addressable_by_hash(tmp_path):
+    # Albums without embedded art get catalogue covers from the server. Native
+    # clients address artwork by hash, so the stored cover's hash is exposed.
+    store, owner, _ = fixture(tmp_path)
+    sha = "a" * 64
+    album = store.library["albums"][0]
+    album["cover_sha"], album["cover_url"] = None, f"/api/artwork/{sha}.jpg"
+    store.library_revision += "-changed"
+    sync = NativeSync(store)
+    track = sync.page(owner, "tracks", limit=1)["items"][0]
+    assert track["cover_sha"] == sha and track["album_id"] == album["id"]
+    assert sync.page(owner, "albums")["items"][0]["cover_sha"] == sha
+    personal = store.user_libraries.projection(owner)["tracks"][0]
+    assert personal["album_id"] == album["id"] and personal["cover_sha"] == sha
+    assert "cover_url" not in album["tracks"][0]  # household data untouched
+    album["cover_url"] = "/api/library-artwork/albums/" + album["id"]
+    store.library_revision += "-changed"
+    assert NativeSync(store).page(owner, "albums")["items"][0]["cover_sha"] is None

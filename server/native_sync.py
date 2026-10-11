@@ -10,6 +10,7 @@ import json
 import time
 import uuid
 from .api_models import ArtistDTO, AlbumDTO, TrackDTO, PlaylistDTO
+from .user_library import stored_cover_sha
 
 MODELS = {
     "artists": ArtistDTO,
@@ -37,8 +38,10 @@ class NativeSync:
                 **track_dto(raw),
                 "album_id": album_id,
                 "cover_url": album.get("cover_url"),
-                "cover_sha": album.get("cover_sha"),
+                "cover_sha": stored_cover_sha(album),
             }
+        elif kind == "albums":
+            raw = {**raw, "cover_sha": stored_cover_sha(raw)}
         return MODELS[kind].model_validate(raw).model_dump(mode="json")
 
     def capture(self, user_id):

@@ -83,7 +83,7 @@ class Artwork:
         target = self.target(album)
         if target.exists():
             return target
-        key = "missing-artwork:v3:" + album["id"]
+        key = "missing-artwork:v4:" + album["id"]
         if self.store.read_document(key).get("retry_after", 0) > time.time():
             return None
         lock = self.locks.setdefault(album["id"], asyncio.Lock())
@@ -137,10 +137,7 @@ class Artwork:
                             self.remember_missing(key, 86400)
                             return None
                         kind, selected = "release-group", mbid(next(iter(matches)))
-                    content = await self.fetch(
-                        client,
-                        f"https://coverartarchive.org/{kind}/{selected}/front-500",
-                    )
+                    content = await self.front(client, kind, selected)
                     await asyncio.to_thread(self.save, content, target)
                     return target
                 except httpx.HTTPStatusError as exc:
@@ -171,22 +168,7 @@ class Artwork:
                 return None
             async with self.slots:
                 try:
-                    try:
-                        content = await self.fetch(
-                            client,
-                            f"https://coverartarchive.org/{kind}/{item_id}/front-500",
-                        )
-                    except httpx.HTTPStatusError as exc:
-                        if kind != "release" or exc.response.status_code != 404:
-                            raise
-                        release = await self.catalogue.get(
-                            client, "release/" + item_id, inc="release-groups"
-                        )
-                        group_id = mbid(release["release-group"]["id"])
-                        content = await self.fetch(
-                            client,
-                            f"https://coverartarchive.org/release-group/{group_id}/front-500",
-                        )
+                    content = await self.front(client, kind, item_id)
                     await asyncio.to_thread(self.save, content, target)
                     return target
                 except (
@@ -198,6 +180,27 @@ class Artwork:
                 ):
                     self.remember_missing(key, 300)
                     return None
+
+    async def front(self, client, kind, item_id):
+        """Front cover for a release, else for that same release group.
+
+        Many tagged editions (regional pressings, reissues) have no scan of
+        their own while the release group does. Never crosses release groups.
+        """
+        try:
+            return await self.fetch(
+                client, f"https://coverartarchive.org/{kind}/{item_id}/front-500"
+            )
+        except httpx.HTTPStatusError as exc:
+            if kind != "release" or exc.response.status_code != 404:
+                raise
+        release = await self.catalogue.get(
+            client, "release/" + item_id, inc="release-groups"
+        )
+        group_id = mbid(release["release-group"]["id"])
+        return await self.fetch(
+            client, f"https://coverartarchive.org/release-group/{group_id}/front-500"
+        )
 
     async def artist(self, client, artist):
         albums = self.store.albums_by_id

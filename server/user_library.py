@@ -7,6 +7,7 @@ references and small per-user lists. User data never changes household identity.
 from collections import OrderedDict, defaultdict
 import hashlib
 import json
+import re
 import time
 from urllib.parse import urlsplit
 
@@ -41,6 +42,20 @@ TRACK_FIELDS = frozenset(
 
 class SearchChanged(ValueError):
     pass
+
+
+def stored_cover_sha(item):
+    """Embedded art hash, else the hash of server-fetched art in the cover store.
+
+    Native clients address artwork only by hash; albums without embedded art
+    (catalogue covers fetched by the server) would otherwise never show one.
+    """
+    if item.get("cover_sha"):
+        return item["cover_sha"]
+    match = re.fullmatch(
+        r"/api/artwork/([0-9a-f]{64})\.jpg", item.get("cover_url") or ""
+    )
+    return match[1] if match else None
 
 
 def track_dto(track):
@@ -190,11 +205,23 @@ class UserLibrary:
             }
             albums = []
             for album in self.store.library["albums"]:
-                tracks = [track for track in album["tracks"] if track["id"] in members]
+                cover_sha = stored_cover_sha(album)
+                # Copies: the shared household library is never mutated.
+                tracks = [
+                    {
+                        **track,
+                        "album_id": album["id"],
+                        "cover_url": album.get("cover_url"),
+                        "cover_sha": track.get("cover_sha") or cover_sha,
+                    }
+                    for track in album["tracks"]
+                    if track["id"] in members
+                ]
                 if tracks:
                     albums.append(
                         {
                             **album,
+                            "cover_sha": cover_sha,
                             "tracks": tracks,
                             "track_count": len(tracks),
                             "duration": sum(t.get("duration", 0) for t in tracks),
@@ -225,6 +252,13 @@ class UserLibrary:
                     representative = (
                         owned[0] if owned else album_by_track[credited[0]["id"]]
                     )
+                    # A household portrait (or its lazy alias) is not personal
+                    # data; keep it rather than replacing it with album art.
+                    portrait = (
+                        artist.get("cover_url")
+                        if artist.get("cover_url") != artist.get("fallback_cover_url")
+                        else None
+                    )
                     artists.append(
                         {
                             **artist,
@@ -233,7 +267,8 @@ class UserLibrary:
                             "track_count": len(associated),
                             "compilation_only": not bool(owned),
                             "cover_album_id": representative,
-                            "cover_url": by_album[representative].get("cover_url"),
+                            "cover_url": portrait
+                            or by_album[representative].get("cover_url"),
                             "fallback_cover_url": by_album[representative].get(
                                 "cover_url"
                             ),

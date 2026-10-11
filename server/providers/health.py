@@ -6,6 +6,9 @@ from contextlib import contextmanager
 
 from .contracts import ProviderError
 
+# Failures that prove the source responded, unlike outages or policy blocks.
+ANSWERED = {"no_match", "protected", "access_required", "invalid_response"}
+
 
 class Health:
     def __init__(self, clock=time.time):
@@ -51,7 +54,17 @@ class Health:
                 record["last_transfer_at"] = int(self.clock())
             elif not error:
                 record["metadata_reachable"] = True
-            if error:
+            if error and error.code in ANSWERED:
+                # The source answered (identity, protection or access result):
+                # it is reachable, so an expired cooldown probe must not linger
+                # and block concurrent operations.
+                record["reason"] = str(error)
+                if not transfer:
+                    record.update(failures=0, retry_at=0)
+                    record["metadata_reachable"] = True
+                elif record["retry_at"] and record["retry_at"] <= self.clock():
+                    record.update(transfer_failures=0, retry_at=0)
+            elif error:
                 record["reason"] = str(error)
                 if error.transient:
                     key = "transfer_failures" if transfer else "failures"

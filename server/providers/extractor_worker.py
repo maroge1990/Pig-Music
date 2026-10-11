@@ -13,6 +13,7 @@ import sys
 import time
 import urllib.request
 from pathlib import Path
+from urllib.parse import quote_plus
 
 import httpx
 from yt_dlp import YoutubeDL
@@ -164,6 +165,44 @@ def candidate(info, source, profile):
     return {**fields, **choices[0], "source": source, "provider_track_id": identity}
 
 
+def search(ydl, query, source, profile, limit):
+    listing = ydl.extract_info(query, download=False)
+    results = []
+    for entry in list((listing or {}).get("entries") or [])[:limit]:
+        if not entry:
+            continue
+        try:
+            if source == "youtube":
+                url = canonical(source, str(entry.get("id") or ""))
+            else:
+                url = entry.get("webpage_url") or entry.get("url") or ""
+                validate_url(url, ("soundcloud.com",))
+            info = ydl.extract_info(url, download=False)
+            result = candidate(info, source, profile)
+            if result:
+                results.append(result)
+                results.extend(
+                    {**result, **alternative}
+                    for alternative in formats(info, profile)[1:3]
+                )
+        except DownloadError as exc:
+            # Private/protected/preview results are candidate misses;
+            # network outages still fail the whole source operation.
+            if not any(
+                word in str(exc).lower()
+                for word in (
+                    "drm",
+                    "private",
+                    "not available",
+                    "copyright",
+                    "preview",
+                    "not found",
+                )
+            ):
+                raise
+    return results
+
+
 def execute(request):
     source, profile = request["source"], request["profile"]
     if source not in HOSTS:
@@ -227,47 +266,21 @@ def execute(request):
                 response.read(65536)
             return {"metadata_reachable": True}
         if operation == "search":
-            query = (
-                ("ytsearch" if source == "youtube" else "scsearch")
-                + str(min(request.get("limit", 8), 8))
-                + ":"
-                + request["query"]
-            )
-            listing = ydl.extract_info(query, download=False)
-            results = []
-            for entry in (listing or {}).get("entries", [])[:8]:
-                if not entry:
-                    continue
-                try:
-                    if source == "youtube":
-                        url = canonical(source, str(entry.get("id") or ""))
-                    else:
-                        url = entry.get("webpage_url") or entry.get("url") or ""
-                        validate_url(url, ("soundcloud.com",))
-                    info = ydl.extract_info(url, download=False)
-                    result = candidate(info, source, profile)
-                    if result:
-                        results.append(result)
-                        results.extend(
-                            {**result, **alternative}
-                            for alternative in formats(info, profile)[1:3]
-                        )
-                except DownloadError as exc:
-                    # Private/protected/preview results are candidate misses;
-                    # network outages still fail the whole source operation.
-                    if not any(
-                        word in str(exc).lower()
-                        for word in (
-                            "drm",
-                            "private",
-                            "not available",
-                            "copyright",
-                            "preview",
-                            "not found",
-                        )
-                    ):
-                        raise
-            return {"candidates": results}
+            limit = min(request.get("limit", 8), 8)
+            if source == "soundcloud":
+                query = f"scsearch{limit}:" + request["query"]
+            elif request.get("catalogue") == "music":
+                # YouTube Music song results are the official "Topic" audio
+                # uploads with structured credits.
+                query = (
+                    "https://music.youtube.com/search?q="
+                    + quote_plus(request["query"])
+                    + "#songs"
+                )
+            else:
+                query = f"ytsearch{limit}:" + request["query"]
+            ydl.params["playlistend"] = limit
+            return {"candidates": search(ydl, query, source, profile, limit)}
         if operation != "transfer":
             raise ProviderError("invalid_response")
         info = ydl.extract_info(

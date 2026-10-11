@@ -51,7 +51,7 @@ def recording(info, source):
             if len(parts) == 2 and parts[0].casefold() == name.casefold():
                 artist, title = parts
                 title = re.sub(
-                    r"\s*[\[(](?:official audio|lyric video|official lyric video)[\])]$",
+                    r"\s*[\[(](?:official\s+)?(?:audio|lyric video|lyrics|visuali[sz]er)[\])]$",
                     "",
                     title,
                     flags=re.I,
@@ -199,15 +199,22 @@ class Extractor:
             return value
 
     def search(self, target, context, limit=8):
-        result = self.invoke(
-            {
-                "operation": "search",
-                "query": f"{target['artist']} {target['title']}",
-                "limit": min(limit, 8),
-            },
-            context,
-        )
-        return result["candidates"]
+        from ..downloader import matches
+
+        request = {
+            "operation": "search",
+            "query": f"{target['artist']} {target['title']}",
+            "limit": min(limit, 8),
+        }
+        if self.source == "soundcloud":
+            return self.invoke(request, context)["candidates"]
+        # Official YouTube Music audio first. Ordinary search mostly returns
+        # music videos whose intros/outros fail the duration check, so it is
+        # only a fallback when no song result matches the recording.
+        songs = self.invoke({**request, "catalogue": "music"}, context)["candidates"]
+        if any(matches(target, {**c, "source": self.source}) for c in songs):
+            return songs
+        return songs + self.invoke(request, context)["candidates"]
 
     def transfer(self, candidate, path, context):
         # Re-extract immediately before transfer; never persist expiring URLs.
@@ -257,6 +264,9 @@ class Extractor:
                 remux_aac(original, path, lambda: context.remaining())
             elif remuxed and fresh["original_codec"] == "mp3":
                 remux_mp3(original, path, lambda: context.remaining())
+            elif remuxed:
+                # A WebM/HLS stream must never be renamed into another container.
+                raise ProviderError("invalid_response")
             else:
                 import os
 

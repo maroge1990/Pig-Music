@@ -709,6 +709,9 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 fallback = item.get("fallback_cover_url") or item.get("cover_url") or ""
                 if fallback.startswith("/api/artwork/"):
                     target = store.cover_dir / fallback.split("/")[-1].split("?")[0]
+                elif item.get("cover_album_id") in store.albums_by_id:
+                    # Album art fetched lazily under its own alias.
+                    target = artwork.target(store.albums_by_id[item["cover_album_id"]])
         enrichment.submit(
             library_image_key(kind, item), lambda: enrich_library(kind, item)
         )
