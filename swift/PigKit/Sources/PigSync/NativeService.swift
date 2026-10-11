@@ -82,6 +82,83 @@ public actor NativeService: LibrarySource {
     }
   }
 
+  public func home(_ section: HomeSection) async throws -> HomeContent {
+    switch section {
+    case .recent:
+      switch try await client.recent_api_v1_home_recent_get(.init()) {
+      case .ok(let response):
+        return HomeContent(
+          albums: try response.body.json.albums.map {
+            try LibraryCodec.convert($0, to: Album.self)
+          })
+      case .unauthorized: throw NativeFailure.authentication
+      default:
+        throw NativeFailure.unavailable(
+          "Recently added albums are unavailable. Your cached library is still accessible.")
+      }
+    case .popular:
+      switch try await client.popular_api_v1_home_popular_get(.init()) {
+      case .ok(let response): return HomeContent(feed: try LibraryCodec.convert(response.body.json))
+      case .unauthorized: throw NativeFailure.authentication
+      default: throw NativeFailure.unavailable("Popular music is unavailable. Try again shortly.")
+      }
+    case .recommended:
+      switch try await client.recommended_api_v1_home_recommended_get(.init()) {
+      case .ok(let response): return HomeContent(feed: try LibraryCodec.convert(response.body.json))
+      case .unauthorized: throw NativeFailure.authentication
+      default:
+        throw NativeFailure.unavailable(
+          "Recommendations are unavailable. Your library is still accessible.")
+      }
+    }
+  }
+
+  public func catalogueGroups(artistId: String, offset: Int = 0) async throws -> CatalogueGroups {
+    switch try await client.groups_api_v1_catalogue_artists__artist_id__releases_get(
+      .init(path: .init(artist_id: artistId), query: .init(offset: offset)))
+    {
+    case .ok(let response): return try LibraryCodec.convert(response.body.json)
+    case .unauthorized: throw NativeFailure.authentication
+    default:
+      throw NativeFailure.unavailable("The artist catalogue is unavailable. Try again shortly.")
+    }
+  }
+  public func catalogueEditions(groupId: String, offset: Int = 0) async throws -> CatalogueEditions
+  {
+    switch try await client.editions_api_v1_catalogue_groups__group_id__editions_get(
+      .init(path: .init(group_id: groupId), query: .init(offset: offset)))
+    {
+    case .ok(let response): return try LibraryCodec.convert(response.body.json)
+    case .unauthorized: throw NativeFailure.authentication
+    default: throw NativeFailure.unavailable("Album editions are unavailable. Try again shortly.")
+    }
+  }
+  public func catalogueRelease(releaseId: String) async throws -> CatalogueRelease {
+    switch try await client.release_api_v1_catalogue_releases__release_id__get(
+      .init(path: .init(release_id: releaseId)))
+    {
+    case .ok(let response):
+      let value = try response.body.json
+      let songs = try value.tracks.map { item in
+        var track: Track
+        if let saved = item.saved_track {
+          track = try LibraryCodec.convert(saved)
+        } else {
+          track = try LibraryCodec.convert(item)
+        }
+        // Household and requested songs still require remote resolution, never file access.
+        if item.saved_track == nil { track.serverState = "not_in_library" }
+        track.trackNumber = item.track_number
+        track.discNumber = item.disc_number
+        return CatalogueSong(
+          id: item.id, track: track, availability: item.server_state?.rawValue ?? "not_in_library")
+      }
+      return CatalogueRelease(id: value.id, title: value.title, artist: value.artist, songs: songs)
+    case .unauthorized: throw NativeFailure.authentication
+    default: throw NativeFailure.unavailable("This album is unavailable. Try again shortly.")
+    }
+  }
+
   public func bootstrap() async throws -> LibrarySnapshot {
     var snapshot = LibrarySnapshot(revision: "")
     var cursor: String?

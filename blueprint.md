@@ -407,3 +407,10 @@ The first preflight caught a quoting error in the release state probe before any
 - Admin → Overview "Artist pages ready".
 
 - **11 October 2026 — integrated native/download-source testing candidate:** Current main is merged with the iPhone/iPad connected alpha and three additional server source adapters. Streaming stays the default; Account exposes opt-in seamless playback/crossfade, bounded temporary audio reuse, buffering status and lifecycle/system-controls integration. Local combined validation passes 347 backend, 38 web and 61 PigKit tests, the unsigned Debug iPhone/iPad build and existing NativeSpike core tests. Both schema copies match. Initial device signing uses a free Xcode Personal Team. Full everyday parity, physical-device audio and live provider/Unraid acceptance remain pending; see [testing handoff](docs/native-testing-handoff-20261011.md).
+
+
+### Native Home/catalogue read milestone — 11 October 2026
+
+The Swift app now opens on Home with independent personal-recent/popular/recommended feeds and explicit provider preparation/failure states. Discovery navigation covers artist release groups, editions and playable track lists, with bounded page loads and account-generation checks. Three catalogue browse responses are now typed in both exported contracts; sanitized saved-track metadata is returned only for the caller's personal files, preserving saved-file IDs for playback. Household-only/requested catalogue songs use experimental resolution without acquiring music or file authorization.
+
+Verification: 350 backend tests, 67 native tests with the disposable server (no skips), unsigned Debug iPhone/iPad simulator build; schema export, Swift/Python formatting and diff checks pass. See [delivery and acceptance limits](docs/native-home-discovery-20261011.md). Next: full catalogue/household search and replay-safe personal actions; physical playback acceptance remains pending alongside development. Offline downloads/AAC, playlist/account mutations, SSE and later Watch/Mac phases remain in scope.

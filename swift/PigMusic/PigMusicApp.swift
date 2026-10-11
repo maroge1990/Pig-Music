@@ -72,12 +72,14 @@ struct SignInView: View {
 }
 
 private enum Destination: String, CaseIterable, Identifiable {
+  case home = "Home"
   case library = "Library"
   case search = "Search"
   case account = "Account"
   var id: String { rawValue }
   var symbol: String {
     switch self {
+    case .home: "house"
     case .library: "music.note.list"
     case .search: "magnifyingglass"
     case .account: "person.crop.circle"
@@ -87,7 +89,7 @@ private enum Destination: String, CaseIterable, Identifiable {
 
 struct LibraryShell: View {
   @Bindable var model: AppModel
-  @State private var selection: Destination? = .library
+  @State private var selection: Destination? = .home
   @State private var showPlayer = false
   @Environment(\.horizontalSizeClass) private var size
   var body: some View {
@@ -99,7 +101,7 @@ struct LibraryShell: View {
           }
           .navigationTitle("Pig Music").pigCanvas()
         } detail: {
-          NavigationStack { content(selection ?? .library) }
+          NavigationStack { content(selection ?? .home) }
         }
       } else {
         TabView {
@@ -121,6 +123,7 @@ struct LibraryShell: View {
   @ViewBuilder private func content(_ destination: Destination) -> some View {
     Group {
       switch destination {
+      case .home: HomeView(model: model)
       case .library: LibraryView(model: model)
       case .search: SearchView(model: model)
       case .account: AccountView(model: model)

@@ -20,6 +20,9 @@ import UIKit
   var albums: [Album] = []
   var artists: [Artist] = []
   var playlists: [Playlist] = []
+  var homeContent: [HomeSection: HomeContent] = [:]
+  var homeErrors: [HomeSection: String] = [:]
+  var homeLoading: Set<HomeSection> = []
   var songCount = 0
   var albumCount = 0
   var artistCount = 0
@@ -180,6 +183,63 @@ import UIKit
     self.artistCount = artistCount
     artworkRefresh += 1
   }
+  func refreshHome(force: Bool = false) async {
+    guard let service else { return }
+    let sections = HomeSection.allCases.filter {
+      !homeLoading.contains($0) && (force || (homeContent[$0] == nil && homeErrors[$0] == nil))
+    }
+    guard !sections.isEmpty else { return }
+    let stamp = generation
+    homeLoading.formUnion(sections)
+    for section in sections { homeErrors[section] = nil }
+    await withTaskGroup(of: (HomeSection, Result<HomeContent, NativeFailure>).self) { group in
+      for section in sections {
+        group.addTask {
+          do {
+            return (section, .success(try await service.home(section)))
+          } catch let failure as NativeFailure {
+            return (section, .failure(failure))
+          } catch {
+            return (section, .failure(.unavailable(error.localizedDescription)))
+          }
+        }
+      }
+      for await (section, result) in group {
+        guard generation == stamp, !Task.isCancelled else {
+          group.cancelAll()
+          continue
+        }
+        homeLoading.remove(section)
+        switch result {
+        case .success(let content): homeContent[section] = content
+        case .failure(.authentication):
+          group.cancelAll()
+          revoked(generation: stamp)
+        case .failure(let error): homeErrors[section] = error.localizedDescription
+        }
+      }
+    }
+    if generation == stamp { homeLoading.subtract(sections) }
+  }
+
+  func readCatalogue<T: Sendable>(
+    _ fetch: @Sendable (NativeService) async throws -> T
+  ) async throws -> T {
+    guard let service else {
+      throw NativeFailure.unavailable("Connect to your server to browse the catalogue.")
+    }
+    let stamp = generation
+    do {
+      let value = try await fetch(service)
+      try Task.checkCancellation()
+      guard generation == stamp else { throw CancellationError() }
+      return value
+    } catch NativeFailure.authentication {
+      revoked(generation: stamp)
+      throw NativeFailure.authentication
+    }
+  }
+
   func search(_ query: String) async -> [Track] {
     guard let store else { return [] }
     do { return try await store.tracks(query: query) } catch {
@@ -258,8 +318,8 @@ import UIKit
           tracks, startingAt: index,
           artwork: { [weak self] track in
             await self?.artwork(sha: track.coverSha, width: 512)
-          }
-        ) { _ in url }
+          }, resolve: { _ in url }
+        )
         return
       }
     #endif
@@ -269,13 +329,14 @@ import UIKit
       tracks, startingAt: index,
       artwork: { [weak self] track in
         await self?.artwork(sha: track.coverSha, width: 512)
+      },
+      resolve: { [weak self] track in
+        do { return try await service.resolve(track) } catch NativeFailure.authentication {
+          await self?.revoked(generation: stamp)
+          throw NativeFailure.authentication
+        }
       }
-    ) { [weak self] track in
-      do { return try await service.resolve(track) } catch NativeFailure.authentication {
-        await self?.revoked(generation: stamp)
-        throw NativeFailure.authentication
-      }
-    }
+    )
   }
   func signOut() async {
     guard !busy else { return }
@@ -301,6 +362,9 @@ import UIKit
     artworkCache = nil
     artworkNamespace = ""
     artworkMemory.removeAllObjects()
+    homeContent = [:]
+    homeErrors = [:]
+    homeLoading = []
     songs = []
     albums = []
     artists = []
@@ -333,6 +397,7 @@ import UIKit
           snapshot.albums[index].coverSha = String(
             repeating: snapshot.albums[index].id == "sunrise" ? "a" : "b", count: 64)
         }
+        homeContent[.recent] = HomeContent(albums: snapshot.albums)
         try await database.replace(snapshot)
         let demoDirectory = try FileManager.default.url(
           for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true

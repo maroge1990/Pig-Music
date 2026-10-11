@@ -521,6 +521,168 @@
         "title": "Assignment",
         "type": "object"
       },
+      "CatalogueEditionDTO": {
+        "properties": {
+          "country": {
+            "title": "Country",
+            "type": "string"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "formats": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Formats",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "track_count": {
+            "title": "Track Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "date",
+          "country",
+          "description",
+          "status",
+          "formats",
+          "track_count"
+        ],
+        "title": "CatalogueEditionDTO",
+        "type": "object"
+      },
+      "CatalogueEditionsDTO": {
+        "properties": {
+          "editions": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogueEditionDTO"
+            },
+            "title": "Editions",
+            "type": "array"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "offset",
+          "editions"
+        ],
+        "title": "CatalogueEditionsDTO",
+        "type": "object"
+      },
+      "CatalogueGroupDTO": {
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "date",
+          "type"
+        ],
+        "title": "CatalogueGroupDTO",
+        "type": "object"
+      },
+      "CatalogueGroupsDTO": {
+        "properties": {
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "releases": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogueGroupDTO"
+            },
+            "title": "Releases",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "offset",
+          "releases"
+        ],
+        "title": "CatalogueGroupsDTO",
+        "type": "object"
+      },
+      "CatalogueReleaseDTO": {
+        "properties": {
+          "artist": {
+            "title": "Artist",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tracks": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogueTrackDTO"
+            },
+            "title": "Tracks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "artist",
+          "tracks"
+        ],
+        "title": "CatalogueReleaseDTO",
+        "type": "object"
+      },
       "CatalogueRequest": {
         "properties": {
           "quality_profile": {
@@ -539,6 +701,154 @@
           }
         },
         "title": "CatalogueRequest",
+        "type": "object"
+      },
+      "CatalogueTrackDTO": {
+        "properties": {
+          "album": {
+            "default": "",
+            "title": "Album",
+            "type": "string"
+          },
+          "album_artist": {
+            "default": "",
+            "title": "Album Artist",
+            "type": "string"
+          },
+          "album_id": {
+            "nullable": true,
+            "title": "Album Id",
+            "type": "string"
+          },
+          "artist": {
+            "title": "Artist",
+            "type": "string"
+          },
+          "available": {
+            "default": true,
+            "title": "Available",
+            "type": "boolean"
+          },
+          "bitrate": {
+            "nullable": true,
+            "title": "Bitrate",
+            "type": "integer"
+          },
+          "codec": {
+            "nullable": true,
+            "title": "Codec",
+            "type": "string"
+          },
+          "cover_sha": {
+            "nullable": true,
+            "title": "Cover Sha",
+            "type": "string"
+          },
+          "cover_url": {
+            "nullable": true,
+            "title": "Cover Url",
+            "type": "string"
+          },
+          "disc_number": {
+            "default": 1,
+            "title": "Disc Number",
+            "type": "integer"
+          },
+          "duration": {
+            "default": 0,
+            "title": "Duration",
+            "type": "number"
+          },
+          "genre": {
+            "nullable": true,
+            "title": "Genre",
+            "type": "string"
+          },
+          "household_available": {
+            "default": false,
+            "title": "Household Available",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "isrcs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Isrcs",
+            "type": "array"
+          },
+          "musicbrainz_recording_id": {
+            "nullable": true,
+            "title": "Musicbrainz Recording Id",
+            "type": "string"
+          },
+          "musicbrainz_release_id": {
+            "nullable": true,
+            "title": "Musicbrainz Release Id",
+            "type": "string"
+          },
+          "request_progress": {
+            "nullable": true,
+            "title": "Request Progress",
+            "type": "number"
+          },
+          "saved_track": {
+            "$ref": "#/components/schemas/TrackDTO",
+            "nullable": true
+          },
+          "server_state": {
+            "default": "in_library",
+            "enum": [
+              "not_in_library",
+              "household_available",
+              "requested",
+              "in_library",
+              "failed"
+            ],
+            "title": "Server State",
+            "type": "string"
+          },
+          "source_revision": {
+            "nullable": true,
+            "title": "Source Revision",
+            "type": "string"
+          },
+          "source_sha": {
+            "nullable": true,
+            "title": "Source Sha",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "track_number": {
+            "default": 0,
+            "title": "Track Number",
+            "type": "integer"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "default": "",
+            "title": "Year"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "artist"
+        ],
+        "title": "CatalogueTrackDTO",
         "type": "object"
       },
       "Category": {
@@ -4570,7 +4880,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogueGroupsDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -4705,7 +5017,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogueEditionsDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -5088,7 +5402,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogueReleaseDTO"
+                }
               }
             },
             "description": "Successful Response"

@@ -9,7 +9,13 @@ from pydantic import BaseModel
 from ..artist_identity import Ambiguous, resolve_artist
 from ..catalogue import release_tracks, credit
 from ..releases import release_query
-from ..api_models import TrackDTO
+from ..api_models import (
+    CatalogueGroupsDTO,
+    CatalogueEditionsDTO,
+    CatalogueReleaseDTO,
+    CatalogueTrackDTO,
+)
+from ..user_library import track_dto
 
 ACTIVE = {"waiting_for_sources", "searching", "downloading", "validating", "importing"}
 
@@ -48,7 +54,7 @@ def discover_router(store, catalogue, popularity=None, warmer=None):
             ]
         }
 
-    @router.get("/artists/{artist_id}/releases")
+    @router.get("/artists/{artist_id}/releases", response_model=CatalogueGroupsDTO)
     async def groups(
         artist_id: str, request: Request, offset: int = 0, kind: str | None = None
     ):
@@ -144,7 +150,7 @@ def discover_router(store, catalogue, popularity=None, warmer=None):
         store.write_document("library-artist:" + artist_id, identity)
         return identity
 
-    @router.get("/groups/{group_id}/editions")
+    @router.get("/groups/{group_id}/editions", response_model=CatalogueEditionsDTO)
     async def editions(group_id: str, request: Request, offset: int = 0):
         if not 0 <= offset <= 10000:
             raise HTTPException(422, "invalid_page")
@@ -178,7 +184,7 @@ def discover_router(store, catalogue, popularity=None, warmer=None):
             ],
         }
 
-    @router.get("/releases/{release_id}")
+    @router.get("/releases/{release_id}", response_model=CatalogueReleaseDTO)
     async def release(release_id: str, request: Request):
         result = await metadata(
             request,
@@ -213,9 +219,15 @@ def discover_router(store, catalogue, popularity=None, warmer=None):
             ):
                 state = "requested"
             tracks.append(
-                TrackDTO.model_validate({**raw, "server_state": state}).model_dump(
-                    mode="json"
-                )
+                CatalogueTrackDTO.model_validate(
+                    {
+                        **raw,
+                        "server_state": state,
+                        "saved_track": (
+                            track_dto(matched.track) if state == "in_library" else None
+                        ),
+                    }
+                ).model_dump(mode="json")
             )
         return {
             "id": result["id"],

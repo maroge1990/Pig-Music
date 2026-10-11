@@ -232,3 +232,46 @@ class HomeFeedDTO(BaseModel):
     unavailable: bool
     title: str | None = None
     state: Literal["ready", "no_seeds", "unavailable", "preparing"] | None = None
+
+
+class CatalogueGroupDTO(BaseModel):
+    id: str
+    title: str
+    date: str
+    type: str
+
+
+class CatalogueGroupsDTO(BaseModel):
+    total: int
+    offset: int
+    releases: list[CatalogueGroupDTO]
+
+
+class CatalogueEditionDTO(BaseModel):
+    id: str
+    title: str
+    date: str
+    country: str
+    description: str
+    status: str
+    formats: list[str]
+    track_count: int
+
+
+class CatalogueEditionsDTO(BaseModel):
+    total: int
+    offset: int
+    editions: list[CatalogueEditionDTO]
+
+
+class CatalogueTrackDTO(TrackDTO):
+    id: str
+    # Only populated for a file in the caller's personal library.
+    saved_track: TrackDTO | None = None
+
+
+class CatalogueReleaseDTO(BaseModel):
+    id: str
+    title: str
+    artist: str
+    tracks: list[CatalogueTrackDTO]

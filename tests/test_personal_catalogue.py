@@ -11,7 +11,7 @@ from server.store import Store
 def test_member_catalogue_is_scoped_and_contract_published(tmp_path, monkeypatch):
     monkeypatch.delenv("PIG_MUSIC_TEST_LEGACY_API", raising=False)
     track = release_tracks(fixture_release())[0]
-    track.update(available=True, path="/private/owner-only.mp3")
+    track.update(id="physical-file-id", available=True, path="/private/owner-only.mp3")
     (tmp_path / "library-snapshot.json").write_text(json.dumps({"tracks": [track]}))
     store = Store(tmp_path)
     auth = Auth(store)
@@ -38,9 +38,14 @@ def test_member_catalogue_is_scoped_and_contract_published(tmp_path, monkeypatch
         response = client.get(path)
         assert response.status_code == 200, response.text
         assert response.json()["tracks"][0]["server_state"] == "household_available"
+        assert response.json()["tracks"][0]["saved_track"] is None
         assert "/private/" not in response.text and owner not in response.text
         app.state.store.user_libraries.add(member, [track["id"]])
-        assert client.get(path).json()["tracks"][0]["server_state"] == "in_library"
+        personal_track = client.get(path).json()["tracks"][0]
+        assert personal_track["server_state"] == "in_library"
+        assert personal_track["saved_track"]["id"] == track["id"]
+        assert personal_track["saved_track"]["source_revision"]
+        assert "/private/" not in json.dumps(personal_track)
         assert client.get("/api/v1/catalogue/releases/not-an-id").status_code == 400
         assert (
             client.get(

@@ -4,7 +4,9 @@ Production target under active development. This first connected alpha supports 
 
 Saved-library covers now display in library/album/player views and system Now Playing metadata, with an account-isolated disk cache, bounded thumbnail memory cache and symbol fallback. Catalogue portraits/logos and catalogue-only covers remain pending.
 
-It is not the complete native feature-parity release. Home/catalogue discovery, personal mutations/account settings, SSE, offline audio downloads, AAC service, and full gapless/crossfade device acceptance remain in the [approved scope](../../docs/native-uplift-scope-20261011.md). Administrative tools remain web-only.
+Home now includes recent albums, popular music and recommendations, with artist → releases → editions → track-list navigation and saved/experimental playback. See [Home/catalogue delivery](../../docs/native-home-discovery-20261011.md).
+
+It is not the complete native feature-parity release. Full catalogue/household search, richer artist details/catalogue artwork, personal mutations/account settings, SSE, offline audio downloads, AAC service, and full gapless/crossfade device acceptance remain in the [approved scope](../../docs/native-uplift-scope-20261011.md). Administrative tools remain web-only.
 
 Open `swift/PigMusic.xcodeproj` from the repository root and select the **PigMusic** scheme. Minimum build target is iOS/iPadOS 18; exact household device/OS acceptance remains pending. Choose the developer team only in Xcode's signing UI. No signing account is stored in the repository.
 

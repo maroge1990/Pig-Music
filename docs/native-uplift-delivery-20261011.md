@@ -43,7 +43,7 @@ Build/test logs, audio exports and simulator screenshots are under ignored `swif
 
 The default live player uses AVPlayer. An opt-in AVAudioEngine candidate implements direct album joins and crossfades, but device gaplessness and lifecycle acceptance remain pending. The offline probe proves sample manipulation/decoding only. Streaming decode/prebuffering, format/sample-rate transitions, encoder trimming and actual audio output must drive the N01 architecture choice and N05 implementation.
 
-The client has no offline audio downloader/AAC service, persisted playback queue/history outbox, SSE subscription, full catalogue search/Home feeds, artist catalogue/details, playlist/favourite/request mutations/import review, removal/undo, personal quality/Plex/password/device management, or full accessibility/device acceptance. Library metadata caching does not imply downloaded audio playback. Experimental provider availability was not tested live. Artwork support currently covers content-addressed saved-library covers; catalogue portraits, logos and catalogue-only covers remain future work.
+The client has no offline audio downloader/AAC service, persisted playback queue/history outbox, SSE subscription, full catalogue/household search, persistent Home feed caching, richer artist details/popularity, playlist/favourite/request mutations/import review, removal/undo, personal quality/Plex/password/device management, or full accessibility/device acceptance. Library metadata caching does not imply downloaded audio playback. Experimental provider availability was not tested live. Artwork support currently covers content-addressed saved-library covers; catalogue portraits, logos and catalogue-only covers remain future work.
 
 Auth/cache logic is exercised through package tests and the real fixture transport; end-to-end app sign-in with Keychain on physical devices remains unverified. Audio interruption/route behaviour, locked/background streaming, Tailscale over cellular, resizing/Dynamic Type/VoiceOver, signing/update distribution and three-user 50k concurrency remain acceptance work.
 
@@ -59,7 +59,7 @@ Image downsampling follows Apple's [Image I/O thumbnail pixel bound](https://dev
 
 The download-source assessment proposes retained Opus/Vorbis formats. Native original playback/download compatibility must be tested for the actual formats that implementation enables. Codec-specific preferences are not exposed by this native slice; future quality UI must consume the final server contract and keep acquisition separate from remote listening.
 
-Next development slice: complete live network/device acceptance for the integrated playback modes, then expand the personal typed contract and Home/catalogue discovery with replay-safe personal actions against the same cached domain/store. Preserve the web-only administrative boundary.
+Next development slice: full catalogue/household search and replay-safe favourites/membership/request actions, followed by playlist/account journeys. Live network/device acceptance for both playback modes remains an early parallel gate. Preserve the web-only administrative boundary.
 
 ## Integrated testing candidate
 
@@ -72,3 +72,12 @@ The opt-in app integration now includes temporary source caching/reuse with inde
 No physical-device, live provider acquisition, live Unraid rollout or durable offline audio acceptance is claimed. The [testing handoff](native-testing-handoff-20261011.md) uses a free Apple account with Personal Team signing and lists the acceptance gates. Container build/runtime checks run in the existing GitHub workflow; Docker is unavailable on this Mac.
 
 The first pushed candidate passed native CI completely. Linux CI caught lost Opus terminal padding in its FFmpeg version and correctly blocked image publication. The corrected remux retains exact packets and sample trimming; its cross-version regression now compares every decoded PCM byte. The complete local backend rerun passes **348 tests** and all 63 focused source/provider cases pass. See the [server timing correction](download-source-implementation-20261011.md#linux-opus-timing-correction). The exact Debug app also installed/launched with `--demo --seamless-demo` on the iPhone 17 Pro Max simulator; the synthetic library/artwork screenshot was inspected. No audio was started and no real credentials were entered; the owned simulator was shut down afterward.
+
+
+## Home and catalogue read journeys
+
+Home now loads personal recent albums, popular music and recommendations independently, with refresh, preparation/empty/unavailable states and account-generation fences. It navigates from discovery artists to paged release groups, editions and playable track lists. Recent albums reuse cached library details/artwork; discovery songs preserve exact recording/release identity and experimental-provider failure handling. See [Home/catalogue delivery evidence](native-home-discovery-20261011.md).
+
+The three catalogue browse responses now have typed schemas. A catalogue release exposes a sanitized saved-track DTO only for a file in the caller's personal library, allowing native playback to use the actual saved file ID rather than a catalogue track ID. Household-only and requested songs remain remote playback candidates and gain no file authorization.
+
+Verification: 350 backend tests; 67 native tests against a disposable contract server (17 XCTest and 50 Swift Testing, no skips); unsigned Debug iPhone/iPad simulator build. No physical-device or live-provider/UI acceptance is claimed. This advances N02/N04 read journeys; personal writes, offline audio and the remaining acceptance gates are still pending.
