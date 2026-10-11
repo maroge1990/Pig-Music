@@ -101,15 +101,30 @@ import SwiftUI
     {
       published = old
     }
+    startPolling()
+  }
+  /// Foreground only. Without an installed Watch app there is nothing to
+  /// deliver, so the bridge checks back slowly instead of every two seconds.
+  private func startPolling() {
+    poll?.cancel()
+    guard namespace != nil else { return }
     let stamp = generation
     poll = Task { [weak self] in
       while !Task.isCancelled {
         guard let self, generation == stamp else { return }
-        await downloads?.reload()
-        await publish()
-        do { try await Task.sleep(for: .seconds(2)) } catch { return }
+        let paired = link?.available == true
+        if paired {
+          await downloads?.reload()
+          await publish()
+        }
+        do { try await Task.sleep(for: .seconds(paired ? 2 : 30)) } catch { return }
       }
     }
+  }
+  func resume() {
+    // Watch AAC preparation restarts only after the library was reconciled.
+    if verified { downloads?.resume(automatic: true) }
+    startPolling()
   }
   func confirmAccount() {
     if context.account != namespace || context.revision < peerRevision {
@@ -176,7 +191,11 @@ import SwiftUI
     await downloads?.remove(id: id)
     await publish()
   }
-  func pause() async { await downloads?.pause() }
+  func pause() async {
+    poll?.cancel()
+    poll = nil
+    await downloads?.pause()
+  }
   func disconnect() {
     generation += 1
     poll?.cancel()
@@ -430,7 +449,9 @@ struct WatchDownloadsView: View {
           }
         }
       }
-    }.pigCanvas().navigationTitle("Apple Watch").searchable(text: $query, prompt: "Find songs to send")
-      .task(id: query) { songs = (try? await model.store?.tracks(query: query, limit: 50)) ?? [] }
+    }.pigCanvas().navigationTitle("Apple Watch").searchable(
+      text: $query, prompt: "Find songs to send"
+    )
+    .task(id: query) { songs = (try? await model.store?.tracks(query: query, limit: 50)) ?? [] }
   }
 }

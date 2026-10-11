@@ -104,6 +104,7 @@ import UIKit
       return
     }
     downloads?.resumePreparation()
+    watch?.resume()
     await refresh()
     startLiveUpdates()
   }
@@ -568,13 +569,16 @@ import UIKit
   func artwork(_ source: ArtworkSource?, width: Int = 256) async -> UIImage? {
     switch source {
     case .stored(let sha): return await artwork(sha: sha, width: width)
-    case .release(let id): return await catalogueImage("release", id, width) {
+    case .release(let id):
+      return await catalogueImage("release", id, width) {
         try await $0.catalogueArtwork(kind: .release, id: id, request: $1)
       }
-    case .releaseGroup(let id): return await catalogueImage("release-group", id, width) {
+    case .releaseGroup(let id):
+      return await catalogueImage("release-group", id, width) {
         try await $0.catalogueArtwork(kind: .releaseGroup, id: id, request: $1)
       }
-    case .artist(let id): return await catalogueImage("artist", id, width) {
+    case .artist(let id):
+      return await catalogueImage("artist", id, width) {
         try await $0.artistArtwork(id: id, request: $1)
       }
     case nil: return nil
