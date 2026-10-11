@@ -80,4 +80,4 @@ Home now loads personal recent albums, popular music and recommendations indepen
 
 The three catalogue browse responses now have typed schemas. A catalogue release exposes a sanitized saved-track DTO only for a file in the caller's personal library, allowing native playback to use the actual saved file ID rather than a catalogue track ID. Household-only and requested songs remain remote playback candidates and gain no file authorization.
 
-Verification: 350 backend tests; 67 native tests against a disposable contract server (17 XCTest and 50 Swift Testing, no skips); unsigned Debug iPhone/iPad simulator build. No physical-device or live-provider/UI acceptance is claimed. This advances N02/N04 read journeys; personal writes, offline audio and the remaining acceptance gates are still pending.
+Verification: 351 backend tests; 67 native tests against a disposable contract server (17 XCTest and 50 Swift Testing, no skips); unsigned Debug iPhone/iPad simulator build. No physical-device or live-provider/UI acceptance is claimed. This advances N02/N04 read journeys; personal writes, offline audio and the remaining acceptance gates are still pending.

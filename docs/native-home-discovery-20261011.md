@@ -13,7 +13,7 @@
 
 ## Verification
 
-- Full backend suite: **350 passed**, including the updated personal catalogue regression using a physical saved-file ID different from the catalogue track ID. It checks household-only suppression, personal ID/revision exposure and filesystem-path exclusion.
+- Full backend suite: **351 passed**, including the updated personal catalogue regression using a physical saved-file ID different from the catalogue track ID. It checks household-only suppression, personal ID/revision exposure and filesystem-path exclusion. An additional regression verifies that provider-null dates/countries/formats normalize to usable typed page metadata.
 - Native suite against a disposable loopback fixture: **67 passed, no skips** (17 XCTest; 41 core and 9 API Swift Testing cases). Six new cases cover Home feed states/routes, recording/release identity, personal recent metadata, authentication expiry, saved-file mapping and catalogue paging/edition metadata. The real fixture journey also checks that recent albums match the member's two-track personal projection.
 - Unsigned Debug build for generic iOS Simulator: **passed** for the production phone/tablet target.
 - Both committed OpenAPI exports match server generation; Swift/Python formatting and whitespace checks pass.

@@ -85,8 +85,8 @@ def discover_router(store, catalogue, popularity=None, warmer=None):
                 {
                     "id": r["id"],
                     "title": r["title"],
-                    "date": r.get("first-release-date", ""),
-                    "type": r.get("primary-type", "Release"),
+                    "date": r.get("first-release-date") or "",
+                    "type": r.get("primary-type") or "Release",
                 }
                 for r in result.get("release-groups", [])
             ],
@@ -171,13 +171,13 @@ def discover_router(store, catalogue, popularity=None, warmer=None):
                 {
                     "id": r["id"],
                     "title": r["title"],
-                    "date": r.get("date", ""),
-                    "country": r.get("country", ""),
-                    "description": r.get("disambiguation", ""),
-                    "status": r.get("status", ""),
-                    "formats": [m.get("format", "") for m in r.get("media", [])],
+                    "date": r.get("date") or "",
+                    "country": r.get("country") or "",
+                    "description": r.get("disambiguation") or "",
+                    "status": r.get("status") or "",
+                    "formats": [m.get("format") or "" for m in r.get("media", [])],
                     "track_count": sum(
-                        m.get("track-count", 0) for m in r.get("media", [])
+                        m.get("track-count") or 0 for m in r.get("media", [])
                     ),
                 }
                 for r in result.get("releases", [])

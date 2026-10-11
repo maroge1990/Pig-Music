@@ -97,3 +97,58 @@ def test_release_reports_requested_only_for_the_requesting_member(
 
         assert state("one") == "requested"
         assert state("two") == "not_in_library"
+
+
+def test_typed_catalogue_pages_accept_unknown_provider_metadata(tmp_path, monkeypatch):
+    monkeypatch.delenv("PIG_MUSIC_TEST_LEGACY_API", raising=False)
+    store = Store(tmp_path)
+    auth = Auth(store)
+    auth.create_owner("mark", "catalogue fixture password")
+    token = auth.login(
+        "mark", "catalogue fixture password", "device", "phone", "ios", "fixture"
+    )["token"]
+
+    async def provider(self, client, path, **params):
+        if path == "release-group":
+            return {
+                "release-group-count": 1,
+                "release-groups": [
+                    {
+                        "id": RELEASE,
+                        "title": "Unknown date",
+                        "first-release-date": None,
+                        "primary-type": None,
+                    }
+                ],
+            }
+        return {
+            "release-count": 1,
+            "releases": [
+                {
+                    "id": RELEASE,
+                    "title": "Edition",
+                    "date": None,
+                    "country": None,
+                    "disambiguation": None,
+                    "status": None,
+                    "media": [{"format": None, "track-count": None}],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(Catalogue, "get", provider)
+    app = create_app(tmp_path)
+    with TestClient(
+        app,
+        base_url="https://private.ts.net",
+        headers={"Authorization": "Bearer " + token},
+    ) as client:
+        groups = client.get(f"/api/v1/catalogue/artists/{ARTIST}/releases")
+        assert groups.status_code == 200, groups.text
+        assert groups.json()["releases"][0]["date"] == ""
+        assert groups.json()["releases"][0]["type"] == "Release"
+        editions = client.get(f"/api/v1/catalogue/groups/{RELEASE}/editions")
+        assert editions.status_code == 200, editions.text
+        assert editions.json()["editions"][0]["country"] == ""
+        assert editions.json()["editions"][0]["formats"] == [""]
+        assert editions.json()["editions"][0]["track_count"] == 0
