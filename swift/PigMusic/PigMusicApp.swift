@@ -153,7 +153,7 @@ struct LibraryShell: View {
           if arguments.contains("--demo-play") {
             while model.songs.isEmpty { try? await Task.sleep(for: .milliseconds(200)) }
             model.play(model.songs)
-            model.player.pause()
+            if !arguments.contains("--demo-autoplay") { model.player.pause() }
           }
         }
       #endif

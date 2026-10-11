@@ -30,7 +30,20 @@ private struct WatchLibraryView: View {
       List {
         Image("PigLockup").resizable().scaledToFit().frame(height: 40)
           .frame(maxWidth: .infinity).accessibilityHidden(true).listRowBackground(Color.clear)
-        if !model.queue.isEmpty { NavigationLink("Now playing") { WatchNowPlaying(model: model) } }
+        if model.queue.indices.contains(model.playback.index) {
+          NavigationLink {
+            WatchNowPlaying(model: model)
+          } label: {
+            Label {
+              VStack(alignment: .leading) {
+                Text("Now playing").font(.caption).foregroundStyle(.secondary)
+                Text(model.queue[model.playback.index].track.title).lineLimit(1)
+              }
+            } icon: {
+              Image(systemName: model.playback.state == .playing ? "waveform" : "pause.fill")
+            }
+          }
+        }
         NavigationLink("Songs on Watch") {
           WatchSongs(model: model, ids: model.manifest.songs.map(\.id), title: "Songs")
         }
@@ -109,23 +122,35 @@ private struct WatchSongs: View {
   let title: String
   var body: some View {
     List {
-      Button("Play all") { Task { await model.play(ids) } }.pigPrimaryAction().disabled(ids.isEmpty)
-      Button("Shuffle") { Task { await model.play(ids.shuffled()) } }.disabled(ids.isEmpty)
-      ForEach(Array(ids.enumerated()), id: \.offset) { _, id in
+      HStack {
+        Button {
+          Task { await model.play(ids) }
+        } label: {
+          Label("Play", systemImage: "play.fill")
+        }.pigPrimaryAction()
+        Button {
+          Task { await model.play(ids.shuffled()) }
+        } label: {
+          Image(systemName: "shuffle")
+        }.accessibilityLabel("Shuffle")
+      }.disabled(ids.isEmpty).listRowBackground(Color.clear)
+      // One tap plays from this song; swipe to remove its download.
+      ForEach(Array(ids.enumerated()), id: \.offset) { index, id in
         if let song = model.manifest.songs.first(where: { $0.id == id }) {
-          NavigationLink {
-            List {
-              Button("Play", systemImage: "play.fill") { Task { await model.play([id]) } }.disabled(
-                model.receipt?.ready[id] == nil)
-              Button("Remove download", role: .destructive) {
-                Task { await model.send("remove", songIds: [id]) }
-              }
-              if model.receipt?.ready[id] == nil { Text("Waiting for transfer") }
-            }.pigBrandedCanvas().navigationTitle(song.track.title)
+          let ready = model.receipt?.ready[id] != nil
+          Button {
+            Task { await model.play(ids, at: index) }
           } label: {
             VStack(alignment: .leading) {
-              Text(song.track.title)
-              Text(song.track.artist).font(.caption).foregroundStyle(.secondary)
+              Text(song.track.title).lineLimit(2)
+              Text(ready ? song.track.artist : "Waiting for transfer").font(.caption)
+                .foregroundStyle(.secondary).lineLimit(1)
+            }
+          }
+          .disabled(!ready)
+          .swipeActions {
+            Button("Remove", role: .destructive) {
+              Task { await model.send("remove", songIds: [id]) }
             }
           }
         }
@@ -159,9 +184,8 @@ private struct WatchNowPlaying: View {
           Image(systemName: "forward.end.fill").frame(minWidth: 40, minHeight: 44)
         }.accessibilityLabel("Next song")
       }.buttonStyle(.plain).padding(8).pigFloatingControls().listRowBackground(Color.clear)
-      Text("\(Int(model.playback.elapsed)) / \(Int(model.playback.duration)) seconds").font(
-        .caption
-      ).fontDesign(.rounded).monospacedDigit()
+      Text("\(clock(model.playback.elapsed)) / \(clock(model.playback.duration))").font(.caption)
+        .fontDesign(.rounded).monospacedDigit()
       Slider(
         value: Binding(
           get: { min(model.playback.duration, model.playback.elapsed) }, set: { model.seek($0) }),
@@ -173,6 +197,11 @@ private struct WatchNowPlaying: View {
         Button("Retry playback") { Task { await model.retry() } }
       }
     }.pigBrandedCanvas().navigationTitle("Now playing")
+  }
+  private func clock(_ seconds: Double) -> String {
+    guard seconds.isFinite, seconds > 0 else { return "0:00" }
+    let value = Int(seconds)
+    return String(format: "%d:%02d", value / 60, value % 60)
   }
 }
 private struct WatchPhoneLibrary: View {

@@ -168,7 +168,9 @@ import PigPlayback
         self?.updateNowPlaying()
       }
       notifications.append(
-        NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).receive(on: DispatchQueue.main).sink {
+        NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).receive(
+          on: DispatchQueue.main
+        ).sink {
           [weak self] notification in
           let began =
             (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt)
@@ -188,7 +190,9 @@ import PigPlayback
           }
         })
       notifications.append(
-        NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).receive(on: DispatchQueue.main).sink {
+        NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).receive(
+          on: DispatchQueue.main
+        ).sink {
           [weak self] notification in
           let removed =
             (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt)
@@ -211,6 +215,19 @@ import PigPlayback
       }
       MPRemoteCommandCenter.shared().pauseCommand.addTarget { [weak self] _ in
         Task { @MainActor in self?.pause() }
+        return .success
+      }
+      // Headphone presses and the system Now Playing controls.
+      MPRemoteCommandCenter.shared().togglePlayPauseCommand.addTarget { [weak self] _ in
+        Task { @MainActor in self?.toggle() }
+        return .success
+      }
+      MPRemoteCommandCenter.shared().changePlaybackPositionCommand.addTarget { [weak self] event in
+        guard let event = event as? MPChangePlaybackPositionCommandEvent else {
+          return .commandFailed
+        }
+        let position = event.positionTime
+        Task { @MainActor in self?.seek(position) }
         return .success
       }
       MPRemoteCommandCenter.shared().nextTrackCommand.addTarget { [weak self] _ in
@@ -371,10 +388,14 @@ import PigPlayback
     await stop()
     let stamp = playbackGeneration
     var items: [PlaybackOccurrence] = []
-    for id in ids {
+    var start = 0
+    for (position, id) in ids.enumerated() {
       if let song = manifest.songs.first(where: { $0.id == id }),
         await archive.localFile(id: id) != nil
       {
+        // Songs still waiting for transfer are skipped: start at the chosen
+        // song, or the nearest earlier one that is on the Watch.
+        if position <= index { start = items.count }
         items.append(PlaybackOccurrence(track: song.track))
       }
     }
@@ -385,7 +406,7 @@ import PigPlayback
       queue = items
       intent.play()
       engine.replace(
-        items, startingAt: index, crossfade: crossfade, repeatMode: repeatMode,
+        items, startingAt: start, crossfade: crossfade, repeatMode: repeatMode,
         acquire: { item in
           guard let file = await archive.localFile(id: item.track.id),
             let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize
@@ -397,17 +418,10 @@ import PigPlayback
   private func activateAudio() async throws {
     let session = AVAudioSession.sharedInstance()
     try session.setCategory(.playback, mode: .default, policy: .longFormAudio)
-    try await withCheckedThrowingContinuation {
-      (continuation: CheckedContinuation<Void, any Error>) in
-      session.activate(options: []) { success, error in
-        if let error {
-          continuation.resume(throwing: error)
-        } else if success {
-          continuation.resume()
-        } else {
-          continuation.resume(throwing: AudioSourceFailure.unavailable)
-        }
-      }
+    // The async form avoids a main-actor completion closure that the system
+    // may call from another queue.
+    guard try await session.activate(options: []) else {
+      throw AudioSourceFailure.unavailable
     }
   }
   func activateAndResume() {
