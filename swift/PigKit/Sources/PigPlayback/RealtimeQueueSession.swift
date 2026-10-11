@@ -6,6 +6,18 @@ public enum QueuePlaybackState: Sendable, Equatable {
   case idle, preparing, buffering, playing, paused, ended, failed
 }
 public struct QueuePlaybackSnapshot: Sendable, Equatable {
+  public init(
+    state: QueuePlaybackState = .idle, index: Int = 0, occurrenceID: UUID? = nil,
+    elapsed: Double = 0, duration: Double = 0, wantsPlayback: Bool = false, error: String? = nil
+  ) {
+    self.state = state
+    self.index = index
+    self.occurrenceID = occurrenceID
+    self.elapsed = elapsed
+    self.duration = duration
+    self.wantsPlayback = wantsPlayback
+    self.error = error
+  }
   public var state: QueuePlaybackState = .idle
   public var index = 0
   public var occurrenceID: UUID?
@@ -37,6 +49,10 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
   private var nodeOrigin: Int64 = 0
   private var pausedPosition: Int64 = 0
   public init() { engine.attach(node) }
+  public var volume: Float {
+    get { node.volume }
+    set { node.volume = min(1, max(0, newValue)) }
+  }
   public var engineIdentity: ObjectIdentifier { ObjectIdentifier(engine) }
   public var requiresRecovery: Bool { connected && !engine.isRunning }
   private var nodePosition: Int64 {
@@ -109,6 +125,7 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
   private var acquire: QueuePCMStream.Acquire?
   private var release: QueuePCMStream.Release?
   private var crossfade = false
+  private var repeatMode: PlaybackRepeat = .off
   private var fadeSeconds: Double = 3
   private var pump: Task<Void, Never>?
   private var generation = 0
@@ -132,13 +149,14 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
 
   public func replace(
     _ items: [PlaybackOccurrence], startingAt: Int = 0, autoplay: Bool = true,
-    crossfade: Bool = false, fadeSeconds: Double = 3,
+    crossfade: Bool = false, fadeSeconds: Double = 3, repeatMode: PlaybackRepeat = .off,
     acquire: @escaping QueuePCMStream.Acquire, release: @escaping QueuePCMStream.Release
   ) {
     self.items = items
     self.acquire = acquire
     self.release = release
     self.crossfade = crossfade
+    self.repeatMode = repeatMode
     self.fadeSeconds = fadeSeconds
     guard !items.isEmpty else {
       stop()
@@ -150,12 +168,13 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
   /// Connects signed-server/provider resolution to temporary source leases.
   public func replace(
     _ items: [PlaybackOccurrence], startingAt: Int = 0, autoplay: Bool = true,
-    crossfade: Bool = false, fadeSeconds: Double = 3, preparer: AudioSourcePreparer,
+    crossfade: Bool = false, fadeSeconds: Double = 3, repeatMode: PlaybackRepeat = .off,
+    preparer: AudioSourcePreparer,
     resolve: @escaping @Sendable (Track) async throws -> URL
   ) {
     replace(
       items, startingAt: startingAt, autoplay: autoplay, crossfade: crossfade,
-      fadeSeconds: fadeSeconds,
+      fadeSeconds: fadeSeconds, repeatMode: repeatMode,
       acquire: { item in try await preparer.prepare { try await resolve(item.track) } },
       release: { source in await preparer.release(source) })
   }
@@ -178,6 +197,12 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
     publish()
   }
   /// Explicit queue edits invalidate prepared future audio while preserving the current position.
+  public func setRepeatMode(_ mode: PlaybackRepeat) {
+    repeatMode = mode
+    guard !items.isEmpty else { return }
+    refreshPosition()
+    restart(index: snapshot.index, seconds: snapshot.elapsed, autoplay: snapshot.wantsPlayback)
+  }
   public func updateUpcoming(_ updated: [PlaybackOccurrence]) {
     guard updated.indices.contains(snapshot.index), items.indices.contains(snapshot.index),
       updated[snapshot.index].id == items[snapshot.index].id
@@ -252,6 +277,7 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
     let items = items
     let crossfade = crossfade
     let fade = fadeSeconds
+    let repeatMode = repeatMode
     guard let acquire, let release else { return }
     // Old cleanup completes before a new source reservation can race the same preparer.
     pump = Task { [weak self] in
@@ -261,7 +287,8 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
       do {
         let current = try await QueuePCMStream(
           items: items, startingAt: index, startSeconds: seconds,
-          crossfade: crossfade, fadeSeconds: fade, sampleRate: rate, blockFrames: blockFrames,
+          crossfade: crossfade, fadeSeconds: fade, repeatMode: repeatMode, sampleRate: rate,
+          blockFrames: blockFrames,
           acquire: acquire, release: release)
         stream = current
         try Task.checkCancellation()
@@ -376,7 +403,7 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
       timeline.removeFirst(current)
     }
     snapshot.index = marker.index
-    snapshot.occurrenceID = items[marker.index].id
+    snapshot.occurrenceID = marker.occurrenceID ?? items[marker.index].id
     snapshot.duration = Double(marker.durationFrames) / rate
     snapshot.elapsed = min(snapshot.duration, max(0, Double(position - marker.originFrame) / rate))
   }

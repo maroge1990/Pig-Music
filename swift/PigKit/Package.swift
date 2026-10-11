@@ -12,6 +12,7 @@ let package = Package(
     .library(name: "PigSync", targets: ["PigSync"]),
     .library(name: "PigDownloads", targets: ["PigDownloads"]),
     .library(name: "PigPlayback", targets: ["PigPlayback"]),
+    .library(name: "PigCompanion", targets: ["PigCompanion"]),
     .executable(name: "PigAudioProbe", targets: ["PigAudioProbe"]),
   ],
   dependencies: [
@@ -39,10 +40,13 @@ let package = Package(
     .target(name: "PigSync", dependencies: ["PigDomain", "PigAPI", "PigStore"]),
     .target(name: "PigDownloads", dependencies: ["PigDomain"]),
     .target(name: "PigPlayback", dependencies: ["PigDomain"]),
+    .target(name: "PigCompanion", dependencies: ["PigDomain"]),
     .executableTarget(name: "PigAudioProbe", dependencies: ["PigPlayback"]),
     .testTarget(
       name: "PigCoreTests",
-      dependencies: ["PigDomain", "PigStore", "PigSync", "PigPlayback", "PigDownloads"]),
+      dependencies: [
+        "PigDomain", "PigStore", "PigSync", "PigPlayback", "PigDownloads", "PigCompanion",
+      ]),
     .testTarget(name: "PigAPITests", dependencies: ["PigAPI", "PigDomain", "PigStore", "PigSync"]),
   ]
 )

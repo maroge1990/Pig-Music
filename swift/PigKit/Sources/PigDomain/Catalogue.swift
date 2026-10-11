@@ -26,7 +26,7 @@ public struct CatalogueEditions: Codable, Sendable {
   public let offset: Int
   public let editions: [CatalogueEdition]
 }
-public struct CatalogueSong: Sendable, Identifiable {
+public struct CatalogueSong: Codable, Sendable, Identifiable {
   public let id: String
   public let track: Track
   public let availability: String
@@ -36,7 +36,7 @@ public struct CatalogueSong: Sendable, Identifiable {
     self.availability = availability
   }
 }
-public struct CatalogueRelease: Sendable {
+public struct CatalogueRelease: Codable, Sendable {
   public let id: String
   public let title: String
   public let artist: String
@@ -47,4 +47,38 @@ public struct CatalogueRelease: Sendable {
     self.artist = artist
     self.songs = songs
   }
+}
+
+public struct CataloguePopularSong: Codable, Sendable, Identifiable {
+  public var id: String
+  public var title: String
+  public var artist: String
+  public var album: String
+  public var releaseId: String
+  public var track: Track {
+    var song = Track(id: id, title: title, artist: artist, album: album)
+    song.musicbrainzRecordingId = id
+    song.musicbrainzReleaseId = releaseId
+    song.serverState = "not_in_library"
+    return song
+  }
+}
+public struct CataloguePopularity: Codable, Sendable {
+  public var enabled: Bool
+  public var songs: [CataloguePopularSong]
+  public var albums: [CatalogueGroup]
+  public var rankedAlbumIds: [String]
+}
+public struct CatalogueProfile: Codable, Sendable {
+  public var id: String
+  public var name: String
+  public var description: String
+  public var country: String
+  public var type: String
+  public var begin: String
+  public var end: String
+}
+public struct ArtistIdentity: Codable, Sendable {
+  public var id: String
+  public var name: String
 }

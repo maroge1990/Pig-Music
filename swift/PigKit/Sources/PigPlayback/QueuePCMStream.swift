@@ -8,6 +8,7 @@ public struct QueueAudioMarker: Sendable, Equatable {
   public let switchFrame: Int64
   public let originFrame: Int64
   public let durationFrames: Int64
+  public var occurrenceID: UUID? = nil
 }
 public struct QueuePCMBlock: Sendable {
   public let pcm: PCMBlock
@@ -25,6 +26,9 @@ public actor QueuePCMStream {
   private let format: AVAudioFormat
   private let rate: Double
   private let blockFrames: Int
+  private let repeatMode: PlaybackRepeat
+  private var cycle = 0
+  private var upcomingOccurrence: PlaybackOccurrence?
   private let crossfade: Bool
   private let fadeSeconds: Double
   private var index: Int
@@ -49,7 +53,8 @@ public actor QueuePCMStream {
 
   public init(
     items: [PlaybackOccurrence], startingAt: Int = 0, startSeconds: Double = 0,
-    crossfade: Bool = false, fadeSeconds: Double = 3, sampleRate: Double = 48000,
+    crossfade: Bool = false, fadeSeconds: Double = 3, repeatMode: PlaybackRepeat = .off,
+    sampleRate: Double = 48000,
     blockFrames: Int = 2048, acquire: @escaping Acquire, release: @escaping Release
   ) async throws {
     guard items.indices.contains(startingAt), startSeconds.isFinite, startSeconds >= 0,
@@ -64,6 +69,7 @@ public actor QueuePCMStream {
     self.format = format
     rate = sampleRate
     self.blockFrames = blockFrames
+    self.repeatMode = repeatMode
     self.crossfade = crossfade
     self.fadeSeconds = fadeSeconds
     tail = FrameRing(capacity: Int(fadeSeconds * sampleRate) + blockFrames)
@@ -80,7 +86,7 @@ public actor QueuePCMStream {
       pendingMarkers = [
         QueueAudioMarker(
           index: index, switchFrame: 0, originFrame: -skipped,
-          durationFrames: first.expectedFrames)
+          durationFrames: first.expectedFrames, occurrenceID: items[index].id)
       ]
       configureUpcoming()
     } catch {
@@ -89,16 +95,26 @@ public actor QueuePCMStream {
     }
   }
 
+  private var nextIndex: Int? {
+    if repeatMode == .one { return index }
+    if index + 1 < items.count { return index + 1 }
+    return repeatMode == .all ? 0 : nil
+  }
   private func configureUpcoming() {
     holdFrames = 0
-    guard index + 1 < items.count else { return }
+    guard let nextIndex else {
+      upcomingOccurrence = nil
+      return
+    }
+    let incoming = items[nextIndex]
+    let repeated = cycle > 0 || nextIndex <= index
+    let next = repeated ? PlaybackOccurrence(track: incoming.track) : incoming
+    upcomingOccurrence = next
     let mode = TransitionPlanner.mode(
-      crossfade: crossfade,
-      albumOrder: TransitionPlanner.albumOrder(
-        outgoing: items[index].track, incoming: items[index + 1].track),
+      crossfade: crossfade && repeatMode != .one,
+      albumOrder: TransitionPlanner.albumOrder(outgoing: items[index].track, incoming: next.track),
       duration: fadeSeconds)
     if case .crossfade(let seconds) = mode { holdFrames = Int(seconds * rate) }
-    let next = items[index + 1]
     let acquire = acquire
     upcoming = Task { try await acquire(next) }
   }
@@ -121,7 +137,7 @@ public actor QueuePCMStream {
           ended = true
         }
       }
-      guard index + 1 < items.count else {
+      guard let followingIndex = nextIndex else {
         if tail.count > 0 { return emit(tail.pop(min(blockFrames, tail.count))) }
         return nil
       }
@@ -173,9 +189,9 @@ public actor QueuePCMStream {
         let origin = outputFrames + Int64(prefix)
         pendingMarkers.append(
           QueueAudioMarker(
-            index: index + 1,
+            index: followingIndex,
             switchFrame: origin + Int64(overlap / 2), originFrame: origin,
-            durationFrames: next.expectedFrames))
+            durationFrames: next.expectedFrames, occurrenceID: upcomingOccurrence?.id))
         transitionReady = true
       }
       if prefix > 0 {
@@ -203,7 +219,8 @@ public actor QueuePCMStream {
       decoder = incomingDecoder
       incomingLease = nil
       incomingDecoder = nil
-      index += 1
+      if followingIndex <= index { cycle += 1 }
+      index = followingIndex
       ended = false
       transitionReady = false
       prefix = 0

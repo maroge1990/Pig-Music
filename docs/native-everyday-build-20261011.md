@@ -1,5 +1,7 @@
 # Expanded iPhone and iPad testing build
 
+Superseded for current implementation status by [the 12 October phone/Watch milestone](native-phone-watch-build-20261012.md). The ledger below records the historical October 11 candidate.
+
 11 October 2026. The owner authorized publishing this expanded candidate to main, superseding the earlier hold in the search/actions milestone. It remains a testing candidate; physical-device acceptance, production Watch and Mac apps are not complete. No live Unraid rollout is included.
 
 ## Implemented

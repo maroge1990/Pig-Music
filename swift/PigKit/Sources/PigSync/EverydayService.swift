@@ -4,6 +4,29 @@ import PigAPI
 import PigDomain
 
 extension NativeService {
+  public func applyMutation(_ mutation: OfflineMutation) async throws -> OfflineMutationReceipt {
+    guard
+      var json = try JSONSerialization.jsonObject(with: LibraryCodec.encoder().encode(mutation))
+        as? [String: Any]
+    else { throw MutationRejection.rejected }
+    if var track = json["track"] as? [String: Any], let year = mutation.track?.year {
+      track["year"] = year.text
+      json["track"] = track
+    }
+    let payload = try JSONDecoder().decode(
+      Components.Schemas.NativeMutationInput.self,
+      from: JSONSerialization.data(withJSONObject: json))
+    switch try await client.native_mutation_api_v1_mutations_post(.init(body: .json(payload))) {
+    case .ok(let value): return try LibraryCodec.convert(value.body.json)
+    case .unauthorized: throw NativeFailure.authentication
+    case .conflict: throw NativeFailure.changed
+    case .badRequest, .notFound, .unprocessableContent: throw MutationRejection.rejected
+    default:
+      throw NativeFailure.unavailable(
+        "Your edits are saved on this phone and will retry when the server is available.")
+    }
+  }
+
   public func artistAcquisition(id: String) async throws -> ArtistAcquisition {
     switch try await client.artist_acquisition_api_v1_artists__artist_id__acquisition_get(
       .init(path: .init(artist_id: id)))
@@ -43,6 +66,17 @@ extension NativeService {
     case .unauthorized: throw NativeFailure.authentication
     default:
       throw NativeFailure.unavailable("Cancellation was not confirmed. Refresh artist requests.")
+    }
+  }
+  public func cancelRequest(id: String) async throws -> CancelledRequest {
+    switch try await client.cancel_request_api_v1_requests__request_id__cancel_post(
+      .init(path: .init(request_id: id)))
+    {
+    case .ok(let value): return try LibraryCodec.convert(value.body.json)
+    case .unauthorized: throw NativeFailure.authentication
+    default:
+      throw NativeFailure.unavailable(
+        "Cancellation was not confirmed. Refresh requests before trying again.")
     }
   }
   public func retryRequest(id: String) async throws {

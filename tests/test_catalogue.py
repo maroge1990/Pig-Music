@@ -263,3 +263,35 @@ def test_default_edition_prefers_standard_mix_over_atmos():
     }
     atmos = {**regular, "id": "atmos", "disambiguation": "Dolby Atmos mix"}
     assert edition_rank(regular) < edition_rank(atmos)
+
+
+def test_native_artist_profile_accepts_missing_optional_metadata(tmp_path):
+    def transport(request):
+        return httpx.Response(
+            200,
+            json={
+                "id": ARTIST,
+                "name": "Example",
+                "country": None,
+                "type": None,
+                "disambiguation": None,
+                "life-span": None,
+            },
+        )
+
+    app = create_app(tmp_path)
+    with TestClient(app) as client:
+        original = app.state.http
+        app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(transport))
+        response = client.get(f"/api/v1/catalogue/artists/{ARTIST}/profile")
+        assert response.status_code == 200
+        assert response.json() == {
+            "id": ARTIST,
+            "name": "Example",
+            "description": "",
+            "country": "",
+            "type": "",
+            "begin": "",
+            "end": "",
+        }
+        app.state.http = original

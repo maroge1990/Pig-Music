@@ -1,11 +1,18 @@
 import PigBrand
 import PigDomain
 import SwiftUI
+import UIKit
 
 struct CatalogueArtistView: View {
   let model: AppModel
   let artistId: String
   let name: String
+  @State private var kind = "all"
+  @State private var order = "date"
+  @State private var profile: CatalogueProfile?
+  @State private var popularity: CataloguePopularity?
+  @State private var popularSongs: [Track] = []
+  @State private var portrait: UIImage?
   @State private var releases: [CatalogueGroup] = []
   @State private var offset = 0
   @State private var total = 0
@@ -14,13 +21,55 @@ struct CatalogueArtistView: View {
   @State private var error: String?
   var body: some View {
     List {
+      if let portrait {
+        Image(uiImage: portrait).resizable().scaledToFit().frame(
+          maxWidth: .infinity, maxHeight: 260
+        ).accessibilityHidden(true)
+      }
+      if let profile {
+        if !profile.description.isEmpty { Text(profile.description).font(PigType.subhead) }
+        Text(
+          [profile.type, profile.country, profile.begin, profile.end].filter { !$0.isEmpty }.joined(
+            separator: " · ")
+        ).font(PigType.caption)
+      }
+      if !popularSongs.isEmpty {
+        Section("Popular songs") {
+          ForEach(popularSongs) { track in
+            SongButton(model: model, track: track) {
+              model.play(
+                popularSongs, at: popularSongs.firstIndex(where: { $0.id == track.id }) ?? 0)
+            }
+          }
+        }
+      }
+      if let popular = popularity, !popular.albums.isEmpty {
+        Section("Popular albums") {
+          ForEach(popular.albums) { release in
+            NavigationLink(release.title) {
+              CatalogueEditionsView(model: model, groupId: release.id, title: release.title)
+            }
+          }
+        }
+      }
+      Picker("Release type", selection: $kind) {
+        Text("All releases").tag("all")
+        Text("Albums").tag("album")
+        Text("Singles").tag("single")
+        Text("EPs").tag("ep")
+        Text("Other").tag("other")
+      }
+      Picker("Order", selection: $order) {
+        Text("Newest first").tag("date")
+        Text("Title").tag("title")
+      }
       NavigationLink("Artist requests and monitoring") {
         ArtistAcquisitionView(model: model, artistId: artistId)
       }
       CatalogueStatus(loading: loading, loaded: loaded, empty: releases.isEmpty, error: error) {
         Task { await load(reset: !loaded) }
       }
-      ForEach(Array(releases.enumerated()), id: \.offset) { _, release in
+      ForEach(orderedReleases, id: \.id) { release in
         NavigationLink {
           CatalogueEditionsView(model: model, groupId: release.id, title: release.title)
         } label: {
@@ -34,23 +83,65 @@ struct CatalogueArtistView: View {
       if offset < total {
         Button("Load more releases") { Task { await load(reset: false) } }.disabled(loading)
       }
-    }.navigationTitle(name).task { await load(reset: true) }
+    }.navigationTitle(name).task(id: kind) { await load(reset: true) }.task { await enrich() }
+  }
+  private var orderedReleases: [CatalogueGroup] {
+    releases.sorted {
+      order == "title"
+        ? $0.title.localizedStandardCompare($1.title) == .orderedAscending
+        : ($0.date, $0.title) > ($1.date, $1.title)
+    }
+  }
+  private func enrich() async {
+    portrait = await model.artistArtwork(id: artistId)
+    profile = try? await model.cachedCatalogue(key: "profile:" + artistId) {
+      try await $0.catalogueProfile(artistId: artistId)
+    }
+    do {
+      let popular = try await model.cachedCatalogue(key: "popular:" + artistId) {
+        try await $0.cataloguePopularity(artistId: artistId)
+      }
+      popularity = popular
+      let tracks = popular.songs.map(\.track)
+      if !tracks.isEmpty {
+        let matches = try? await model.cachedCatalogue(key: "popular-matches:" + artistId) {
+          try await $0.lookupSongs(tracks)
+        }
+        popularSongs = tracks.enumerated().map { index, track in
+          matches.flatMap { $0.indices.contains(index) ? $0[index] : nil } ?? track
+        }
+      }
+    } catch {}
+
   }
   private func load(reset: Bool) async {
-    guard !loading else { return }
+    guard reset || !loading else { return }
+    let selectedKind = kind
+    let next = reset ? 0 : offset
+    if reset {
+      releases = []
+      offset = 0
+      total = 0
+      loaded = false
+    }
     loading = true
     error = nil
-    defer { loading = false }
-    let next = reset ? 0 : offset
+    defer { if kind == selectedKind { loading = false } }
     do {
-      let page = try await model.readCatalogue {
-        try await $0.catalogueGroups(artistId: artistId, offset: next)
+      let page = try await model.cachedCatalogue(key: "groups:\(artistId):\(selectedKind):\(next)")
+      {
+        try await $0.catalogueGroups(
+          artistId: artistId, offset: next, kind: selectedKind == "all" ? nil : selectedKind)
       }
+      try Task.checkCancellation()
+      guard kind == selectedKind else { return }
       releases = reset ? page.releases : releases + page.releases
       offset = page.offset + page.releases.count
       total = page.releases.isEmpty ? offset : page.total
       loaded = true
-    } catch is CancellationError {} catch { self.error = error.localizedDescription }
+    } catch is CancellationError {} catch {
+      if kind == selectedKind { self.error = error.localizedDescription }
+    }
   }
 }
 
@@ -98,7 +189,7 @@ struct CatalogueEditionsView: View {
     defer { loading = false }
     let next = reset ? 0 : offset
     do {
-      let page = try await model.readCatalogue {
+      let page = try await model.cachedCatalogue(key: "editions:\(groupId):\(next)") {
         try await $0.catalogueEditions(groupId: groupId, offset: next)
       }
       editions = reset ? page.editions : editions + page.editions
@@ -186,7 +277,7 @@ struct CatalogueReleaseView: View {
     error = nil
     defer { loading = false }
     do {
-      release = try await model.readCatalogue {
+      release = try await model.cachedCatalogue(key: "release:" + releaseId) {
         try await $0.catalogueRelease(releaseId: releaseId)
       }
     } catch is CancellationError {} catch { self.error = error.localizedDescription }

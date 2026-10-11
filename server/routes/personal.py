@@ -31,6 +31,8 @@ from ..api_models import (
     RecordedDTO,
     ArtistAcquisitionDTO,
     RetriedDTO,
+    CancelledRequestDTO,
+    LookupResultDTO,
 )
 from ..playlists import Playlists, PlaylistConflict
 from ..user_library import track_dto, SearchChanged
@@ -160,6 +162,36 @@ class ArtistRequest(BaseModel):
     )
     monitor: bool = False
     request: bool = False
+
+
+class NativeMutationInput(BaseModel):
+    operation_id: str = Field(min_length=36, max_length=36)
+    action: Literal[
+        "create",
+        "append",
+        "rename",
+        "reorder",
+        "remove",
+        "delete",
+        "favourite",
+        "preferences",
+    ]
+    playlist_id: str | None = Field(default=None, max_length=128)
+    name: str | None = Field(default=None, max_length=100)
+    revision: int | None = Field(default=None, ge=0)
+    order: list[int] | None = Field(default=None, max_length=10000)
+    position: int | None = Field(default=None, ge=0)
+    track: TrackInput | None = None
+    favourite: bool | None = None
+    preferences: Preferences | None = None
+
+
+class NativeMutationReceipt(BaseModel):
+    operation_id: str
+    applied: bool
+    playlist_id: str | None = None
+    revision: int | None = None
+    favourited: bool | None = None
 
 
 def personal_router(store, artist_jobs, recovery):
@@ -299,6 +331,16 @@ def personal_router(store, artist_jobs, recovery):
     async def lookup(body: Lookup, request: Request):
         songs = [s.model_dump() for s in body.songs]
         return {"tracks": await run(users.lookup, identity(request), songs)}
+
+    @router.post("/library/matches", response_model=LookupResultDTO)
+    async def matches(body: Lookup, request: Request):
+        songs = [s.model_dump() for s in body.songs]
+        return {
+            "matches": [
+                {"track": track}
+                for track in await run(users.lookup, identity(request), songs)
+            ]
+        }
 
     @router.post("/library/membership", response_model=MembershipResultDTO)
     async def add(body: Membership, request: Request):
@@ -486,6 +528,13 @@ def personal_router(store, artist_jobs, recovery):
     async def clear_requests(request: Request):
         return await run(users.clear_requests, identity(request))
 
+    @router.post("/requests/{request_id}/cancel", response_model=CancelledRequestDTO)
+    async def cancel_request(request_id: str, request: Request):
+        try:
+            return await run(users.cancel_request, identity(request), request_id)
+        except LookupError:
+            raise HTTPException(404, "Request not found")
+
     @router.post("/requests/{request_id}/retry", response_model=RetriedDTO)
     async def retry_request(request_id: str, request: Request):
         try:
@@ -519,6 +568,21 @@ def personal_router(store, artist_jobs, recovery):
                     )
                 )
             }
+
+    @router.post("/mutations", response_model=NativeMutationReceipt)
+    async def native_mutation(body: NativeMutationInput, request: Request):
+        from ..native_mutations import NativeMutations
+
+        try:
+            return await run(
+                NativeMutations(store).apply,
+                identity(request),
+                body.model_dump(exclude_none=True),
+            )
+        except LookupError:
+            raise HTTPException(404, "Playlist not found")
+        except PlaylistConflict as exc:
+            raise HTTPException(409, str(exc))
 
     @router.get("/plex", response_model=PlexStatusDTO)
     async def plex_status(request: Request):

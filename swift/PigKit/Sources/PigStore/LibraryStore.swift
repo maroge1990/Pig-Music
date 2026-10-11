@@ -57,6 +57,20 @@ public actor LibraryStore {
       try db.execute(
         sql: "CREATE TABLE listening_outbox (id TEXT PRIMARY KEY, payload BLOB NOT NULL)")
     }
+    migrator.registerMigration("mutation-outbox-v5") { db in
+      try db.execute(
+        sql:
+          "CREATE TABLE mutation_outbox (sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, payload BLOB NOT NULL)"
+      )
+    }
+    migrator.registerMigration("library-sorting-v6") { db in
+      for table in ["tracks", "albums"] {
+        try db.execute(
+          sql:
+            "CREATE INDEX \(table)_artist_title ON \(table)(json_extract(CAST(payload AS TEXT),'$.artist') COLLATE NOCASE, name COLLATE NOCASE, id)"
+        )
+      }
+    }
     try migrator.migrate(queue)
     database = queue
   }
@@ -122,10 +136,14 @@ public actor LibraryStore {
       }
     }
   }
-  public func tracks(query: String = "", albumId: String? = nil, offset: Int = 0, limit: Int = 100)
+  public func tracks(
+    query: String = "", albumId: String? = nil, offset: Int = 0, limit: Int = 100,
+    sort: LibrarySort = .title
+  )
     throws -> [Track]
   {
-    try database.read { db in
+    guard offset >= 0, (1...200).contains(limit) else { throw StoreSearchFailure.invalidPage }
+    return try database.read { db in
       let rows: [Row]
       if !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         let terms = query.split(whereSeparator: { $0.isWhitespace }).map {
@@ -144,7 +162,7 @@ public actor LibraryStore {
           arguments: [albumId])
       } else {
         rows = try Row.fetchAll(
-          db, sql: "SELECT payload FROM tracks ORDER BY name COLLATE NOCASE, id LIMIT ? OFFSET ?",
+          db, sql: "SELECT payload FROM tracks ORDER BY \(Self.order(sort)) LIMIT ? OFFSET ?",
           arguments: [limit, offset])
       }
       return try rows.map {
@@ -206,24 +224,38 @@ public actor LibraryStore {
     }
   }
 
-  public func albums(offset: Int = 0, limit: Int = 100) throws -> [Album] {
-    try read(.albums, offset: offset, limit: limit)
+  public func albums(offset: Int = 0, limit: Int = 100, sort: LibrarySort = .title) throws
+    -> [Album]
+  {
+    try read(.albums, offset: offset, limit: limit, sort: sort)
   }
-  public func artists(offset: Int = 0, limit: Int = 100) throws -> [Artist] {
-    try read(.artists, offset: offset, limit: limit)
+  public func artists(offset: Int = 0, limit: Int = 100, sort: LibrarySort = .title) throws
+    -> [Artist]
+  {
+    try read(.artists, offset: offset, limit: limit, sort: sort)
   }
   public func playlists() throws -> [Playlist] { try read(.playlists, offset: 0, limit: 10000) }
 
-  private func read<T: Decodable>(_ kind: LibraryCollection, offset: Int, limit: Int) throws -> [T]
-  {
+  private func read<T: Decodable>(
+    _ kind: LibraryCollection, offset: Int, limit: Int, sort: LibrarySort = .title
+  ) throws -> [T] {
     try database.read { db in
       try Row.fetchAll(
         db,
         sql:
-          "SELECT payload FROM \(kind.rawValue) ORDER BY name COLLATE NOCASE, id LIMIT ? OFFSET ?",
+          "SELECT payload FROM \(kind.rawValue) ORDER BY \(Self.order(sort)) LIMIT ? OFFSET ?",
         arguments: [limit, offset]
       )
       .map { try LibraryCodec.decoder().decode(T.self, from: $0["payload"] as Data) }
+    }
+  }
+
+  private static func order(_ sort: LibrarySort) -> String {
+    switch sort {
+    case .title: "name COLLATE NOCASE, id"
+    case .titleDescending: "name COLLATE NOCASE DESC, id"
+    case .artist:
+      "json_extract(CAST(payload AS TEXT),'$.artist') COLLATE NOCASE, name COLLATE NOCASE, id"
     }
   }
 
@@ -317,3 +349,36 @@ public actor LibraryStore {
 }
 
 public enum StoreSearchFailure: Error, Sendable { case invalidPage }
+
+extension LibraryStore {
+  public func enqueueMutation(_ mutation: OfflineMutation) throws {
+    let payload = try LibraryCodec.encoder().encode(PendingMutation(mutation: mutation))
+    try database.write { db in
+      guard try Int.fetchOne(db, sql: "SELECT count(*) FROM mutation_outbox") ?? 0 < 1000 else {
+        throw MutationRejection.rejected
+      }
+      try db.execute(
+        sql: "INSERT OR IGNORE INTO mutation_outbox(id,payload) VALUES (?,?)",
+        arguments: [mutation.id, payload])
+    }
+  }
+  public func pendingMutations() throws -> [PendingMutation] {
+    try database.read { db in
+      try Data.fetchAll(db, sql: "SELECT payload FROM mutation_outbox ORDER BY sequence").map {
+        try LibraryCodec.decoder().decode(PendingMutation.self, from: $0)
+      }
+    }
+  }
+  public func acknowledgeMutation(_ id: String) throws {
+    try database.write {
+      try $0.execute(sql: "DELETE FROM mutation_outbox WHERE id=?", arguments: [id])
+    }
+  }
+  public func updateMutation(_ pending: PendingMutation) throws {
+    let payload = try LibraryCodec.encoder().encode(pending)
+    try database.write {
+      try $0.execute(
+        sql: "UPDATE mutation_outbox SET payload=? WHERE id=?", arguments: [payload, pending.id])
+    }
+  }
+}

@@ -1,5 +1,7 @@
 # Integrated native and download-source testing candidate
 
+Updated 12 October: [current phone/Watch candidate](native-phone-watch-build-20261012.md) is version 0.2.0 (2), adds migration 9, native cache migration 6, background transfers, transactional edits and the embedded production Watch app. Seamless playback is the default on fresh installations; existing preferences are respected. Signing is blocked until Xcode has a usable Apple Account and provisioning profiles. The original instructions below remain historical context.
+
 11 October 2026, Australia/Melbourne. This candidate combines the iPhone/iPad alpha, opt-in seamless playback and the additional server download clients with current main. It is an early testing build; the everyday parity backlog remains in [the approved scope](native-uplift-scope-20261011.md).
 
 ## Install with a free Apple account

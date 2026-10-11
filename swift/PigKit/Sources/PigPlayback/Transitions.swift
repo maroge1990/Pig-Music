@@ -10,6 +10,10 @@ public struct PlaybackOccurrence: Identifiable, Sendable, Equatable, Codable {
   }
 }
 
+public enum PlaybackRepeat: String, Codable, Sendable, CaseIterable {
+  case off, all, one
+}
+
 public struct PlaybackQueue: Sendable, Codable {
   public private(set) var items: [PlaybackOccurrence] = []
   public private(set) var index: Int = 0
@@ -41,6 +45,22 @@ public struct PlaybackQueue: Sendable, Codable {
     guard destination > index, items.indices.contains(destination) else { return }
     let item = items.remove(at: position)
     items.insert(item, at: destination)
+  }
+  public mutating func renewOccurrence(at index: Int, id: UUID) {
+    guard items.indices.contains(index) else { return }
+    items[index] = PlaybackOccurrence(track: items[index].track, id: id)
+  }
+  public mutating func shuffleUpcoming() {
+    guard index + 1 < items.count else { return }
+    let upcoming = items[(index + 1)...].shuffled()
+    items.replaceSubrange((index + 1)..., with: upcoming)
+  }
+  public mutating func restoreUpcoming(_ original: [PlaybackOccurrence]) {
+    let upcoming = Array(items.dropFirst(index + 1))
+    let ids = Set(upcoming.map(\.id))
+    let restored = original.filter { ids.contains($0.id) }
+    let known = Set(restored.map(\.id))
+    items = Array(items.prefix(index + 1)) + restored + upcoming.filter { !known.contains($0.id) }
   }
   @discardableResult public mutating func next() -> Bool {
     guard index + 1 < items.count else { return false }

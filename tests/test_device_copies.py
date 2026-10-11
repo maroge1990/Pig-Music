@@ -144,3 +144,94 @@ def test_disconnected_download_releases_cache_lease(tmp_path, monkeypatch):
         assert not copies.leases
 
     asyncio.run(exercise())
+
+
+def test_compatible_aac_reuses_audio_packets_and_preserves_cover(tmp_path, monkeypatch):
+    import subprocess
+
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        pytest.skip("ffmpeg and ffprobe are required")
+    source, copies = audio_fixture(tmp_path, monkeypatch)
+    cover = source.parent / "cover.jpg"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=red:s=32x32",
+            "-frames:v",
+            "1",
+            str(cover),
+        ],
+        check=True,
+    )
+    aac = source.with_suffix(".m4a")
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-y",
+            "-i",
+            str(source),
+            "-i",
+            str(cover),
+            "-map",
+            "0:a",
+            "-map",
+            "1:v",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-c:v",
+            "copy",
+            "-disposition:v:0",
+            "attached_pic",
+            str(aac),
+        ],
+        check=True,
+    )
+    copies.store.snapshot_tracks["song"]["relative_path"] = "song.m4a"
+    original = checksum(aac)
+
+    def packets(path):
+        return subprocess.run(
+            [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-i",
+                str(path),
+                "-map",
+                "0:a:0",
+                "-c:a",
+                "copy",
+                "-f",
+                "adts",
+                "-",
+            ],
+            capture_output=True,
+            check=True,
+        ).stdout
+
+    async def exercise():
+        first = copies.manifest("song", "aac", True)
+        copies.kick()
+        await copies.worker
+        job = copies.read(first["key"])
+        assert job["state"] == "ready"
+        assert job["reused_audio"] and job["embedded_artwork"]
+        output = copies.root / (first["key"] + ".m4a")
+        assert packets(output) == packets(aac)
+        assert any(
+            s.get("disposition", {}).get("attached_pic") for s in copies.probe(output)
+        )
+        assert checksum(aac) == original
+        await copies.close()
+
+    asyncio.run(exercise())

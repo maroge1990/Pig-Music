@@ -113,15 +113,68 @@ public actor NativeService: LibrarySource {
     }
   }
 
-  public func catalogueGroups(artistId: String, offset: Int = 0) async throws -> CatalogueGroups {
+  public func catalogueGroups(artistId: String, offset: Int = 0, kind: String? = nil) async throws
+    -> CatalogueGroups
+  {
     switch try await client.groups_api_v1_catalogue_artists__artist_id__releases_get(
-      .init(path: .init(artist_id: artistId), query: .init(offset: offset)))
+      .init(path: .init(artist_id: artistId), query: .init(offset: offset, kind: kind)))
     {
     case .ok(let response): return try LibraryCodec.convert(response.body.json)
     case .unauthorized: throw NativeFailure.authentication
     default:
       throw NativeFailure.unavailable("The artist catalogue is unavailable. Try again shortly.")
     }
+  }
+  public func cataloguePopularity(artistId: String) async throws -> CataloguePopularity {
+    switch try await client.popular_artist_api_v1_catalogue_artists__artist_id__popularity_get(
+      .init(path: .init(artist_id: artistId)))
+    {
+    case .ok(let value): return try LibraryCodec.convert(value.body.json)
+    case .unauthorized: throw NativeFailure.authentication
+    default: throw NativeFailure.unavailable("Popular music is unavailable.")
+    }
+  }
+  public func catalogueProfile(artistId: String) async throws -> CatalogueProfile {
+    switch try await client.artist_profile_api_v1_catalogue_artists__artist_id__profile_get(
+      .init(path: .init(artist_id: artistId)))
+    {
+    case .ok(let value): return try LibraryCodec.convert(value.body.json)
+    case .unauthorized: throw NativeFailure.authentication
+    default: throw NativeFailure.unavailable("Artist details are unavailable.")
+    }
+  }
+  public func artistIdentity(id: String) async throws -> ArtistIdentity {
+    switch try await client.saved_identity_api_v1_catalogue_library_artists__artist_id__get(
+      .init(path: .init(artist_id: id)))
+    {
+    case .ok(let value): return try LibraryCodec.convert(value.body.json)
+    case .unauthorized: throw NativeFailure.authentication
+    case .conflict:
+      throw NativeFailure.unavailable(
+        "Search the catalogue to choose between artists with the same name.")
+    default: throw NativeFailure.unavailable("Artist identification is unavailable.")
+    }
+  }
+  public func lookupSongs(_ tracks: [Track]) async throws -> [Track?] {
+    guard !tracks.isEmpty, tracks.count <= 200 else { return [] }
+    let songs = tracks.map {
+      Components.Schemas.LookupSong(
+        artist: $0.artist, musicbrainz_recording_id: $0.musicbrainzRecordingId, title: $0.title)
+    }
+    switch try await client.matches_api_v1_library_matches_post(
+      .init(body: .json(.init(songs: songs))))
+    {
+    case .ok(let value):
+      return try value.body.json.matches.map { item in
+        try item.track.map { try LibraryCodec.convert($0, to: Track.self) }
+      }
+    case .unauthorized: throw NativeFailure.authentication
+    default: throw NativeFailure.unavailable("Library matches are unavailable.")
+    }
+  }
+  public func artistArtwork(id: String, request: ArtworkRequest) async throws -> Data {
+    guard let uuid = UUID(uuidString: id) else { throw ArtworkFailure.invalidRequest }
+    return try await artworkTransport.fetch(request, artist: uuid.uuidString.lowercased())
   }
   public func catalogueEditions(groupId: String, offset: Int = 0) async throws -> CatalogueEditions
   {

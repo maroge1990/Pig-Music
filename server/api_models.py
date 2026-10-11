@@ -107,6 +107,19 @@ class PlaylistEntry(TrackDTO):
     saved_track: TrackDTO | None = None
 
 
+class PlaylistPlexDTO(BaseModel):
+    status: str | None = None
+    available_count: int | None = None
+    pending_count: int | None = None
+    repeated_count: int | None = None
+    updated_at: str | None = None
+
+
+class CancelledRequestDTO(BaseModel):
+    cancelled: bool
+    continues_for_others: bool
+
+
 class PlaylistDTO(BaseModel):
     id: str
     name: str
@@ -115,6 +128,7 @@ class PlaylistDTO(BaseModel):
     track_count: int = 0
     available_count: int = 0
     review_count: int = 0
+    plex: PlaylistPlexDTO | None = None
     entries: list[PlaylistEntry] = Field(default_factory=list)
 
 
@@ -430,3 +444,41 @@ class ArtistAcquisitionDTO(BaseModel):
 
 class RetriedDTO(BaseModel):
     retried: bool
+
+
+class CataloguePopularSongDTO(BaseModel):
+    id: str
+    title: str
+    artist: str
+    album: str
+    release_id: str
+
+
+class CataloguePopularityDTO(BaseModel):
+    enabled: bool
+    songs: list[CataloguePopularSongDTO] = Field(default_factory=list)
+    albums: list[CatalogueGroupDTO] = Field(default_factory=list)
+    ranked_album_ids: list[str] = Field(default_factory=list)
+
+
+class CatalogueProfileDTO(BaseModel):
+    id: str
+    name: str
+    description: str = ""
+    country: str = ""
+    type: str = ""
+    begin: str = ""
+    end: str = ""
+
+
+class ArtistIdentityDTO(BaseModel):
+    id: str
+    name: str
+
+
+class LookupMatchDTO(BaseModel):
+    track: TrackDTO | None = None
+
+
+class LookupResultDTO(BaseModel):
+    matches: list[LookupMatchDTO]

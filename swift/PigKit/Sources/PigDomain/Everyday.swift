@@ -78,3 +78,15 @@ public struct ArtistAcquisition: Codable, Sendable {
   public let created: Int
   public let error: String?
 }
+
+public struct PlaylistPlexStatus: Codable, Sendable, Hashable {
+  public var status: String?
+  public var availableCount: Int?
+  public var pendingCount: Int?
+  public var repeatedCount: Int?
+  public var updatedAt: String?
+}
+public struct CancelledRequest: Codable, Sendable {
+  public var cancelled: Bool
+  public var continuesForOthers: Bool
+}

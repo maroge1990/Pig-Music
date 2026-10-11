@@ -17,9 +17,7 @@ struct PreferencesView: View {
       Button("Save preferences") { Task { await save() } }.disabled(loading || !model.canMutate)
       if let message { Text(message).font(PigType.footnote) }
     }.navigationTitle("Appearance").task {
-      do { preferences = try await model.readCatalogue { try await $0.preferences() } } catch {
-        message = error.localizedDescription
-      }
+      preferences = model.preferences
     }
   }
   private func save() async {
@@ -27,10 +25,12 @@ struct PreferencesView: View {
     defer { loading = false }
     let value = preferences
     do {
-      let saved = try await model.performPersonal { try await $0.savePreferences(value) }
-      model.preferences = saved
+      let confirmed = try await model.saveEdit(
+        OfflineMutation(action: "preferences", preferences: value))
+      model.preferences = value
       await model.cachePreferences()
-      message = "Preferences saved."
+      message =
+        confirmed ? "Preferences saved." : "Preferences saved on this phone; waiting to sync."
     } catch { message = error.localizedDescription }
   }
 }

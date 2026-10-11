@@ -11,6 +11,7 @@ MIGRATIONS = (
     (6, "0006_native_sync"),
     (7, "0007_native_audio"),
     (8, "0008_device_copies"),
+    (9, "0009_native_mutations"),
 )
 
 

@@ -37,7 +37,9 @@ public actor DownloadArchive {
     } else {
       records = []
     }
-    let retainedNames = Set(records.filter { $0.state == "ready" }.compactMap(\.fileName))
+    let retainedNames = Set(
+      records.filter { $0.state == "ready" }.compactMap(\.fileName)
+        + records.compactMap { $0.retained?.fileName })
     for file in try FileManager.default.contentsOfDirectory(
       at: directory, includingPropertiesForKeys: nil)
     where file.pathExtension == "partial"
@@ -47,7 +49,7 @@ public actor DownloadArchive {
   }
   public func snapshot() -> [DownloadRecord] { records }
   public func usedBytes() -> Int64 {
-    records.filter { $0.state == "ready" }.reduce(0) { $0 + $1.total }
+    records.reduce(0) { $0 + ($1.state == "ready" ? $1.total : 0) + ($1.retained?.bytes ?? 0) }
   }
   private func persist() throws {
     try LibraryCodec.encoder().encode(records).write(
@@ -65,10 +67,24 @@ public actor DownloadArchive {
           continue
         }
         if records[index].state == "downloading" { continue }
-        if let name = records[index].fileName {
-          try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+        let old = records[index]
+        var replacement = DownloadRecord(track: track, quality: quality)
+        if old.track.sourceRevision == track.sourceRevision {
+          if old.state == "ready", let name = old.fileName {
+            replacement.retained = RetainedDownload(
+              quality: old.quality, bytes: old.total, fileName: name, checksum: old.checksum,
+              sourceRevision: old.track.sourceRevision)
+          } else {
+            replacement.retained = old.retained
+          }
+        } else {
+          try remove(id: track.id)
         }
-        records[index] = DownloadRecord(track: track, quality: quality)
+        if let existing = records.firstIndex(where: { $0.id == track.id }) {
+          records[existing] = replacement
+        } else {
+          records.append(replacement)
+        }
       } else {
         records.append(DownloadRecord(track: track, quality: quality))
       }
@@ -77,17 +93,30 @@ public actor DownloadArchive {
     try persist()
   }
   public func localFile(_ track: Track) -> URL? {
-    guard !invalidated.contains(track.id),
-      let record = records.first(where: { $0.id == track.id && $0.state == "ready" }),
-      record.track.sourceRevision == track.sourceRevision, let name = record.fileName,
+    guard !invalidated.contains(track.id), let record = records.first(where: { $0.id == track.id }),
+      record.track.sourceRevision == track.sourceRevision
+    else { return nil }
+    if record.state == "ready", let name = record.fileName,
+      validFile(name, id: track.id, quality: record.quality, bytes: record.total)
+    {
+      return directory.appendingPathComponent(name)
+    }
+    if let old = record.retained, old.sourceRevision == track.sourceRevision,
+      validFile(old.fileName, id: track.id, quality: old.quality, bytes: old.bytes)
+    {
+      return directory.appendingPathComponent(old.fileName)
+    }
+    return nil
+  }
+  private func validFile(_ name: String, id: String, quality: String, bytes: Int64) -> Bool {
+    guard
       name
         == safeName(
-          track.id, quality: record.quality,
-          extension: name.split(separator: ".").last.map(String.init) ?? ""),
+          id, quality: quality, extension: name.split(separator: ".").last.map(String.init) ?? ""),
       let size = try? directory.appendingPathComponent(name).resourceValues(forKeys: [.fileSizeKey])
-        .fileSize, Int64(size) == record.total
-    else { return nil }
-    return directory.appendingPathComponent(name)
+        .fileSize
+    else { return false }
+    return Int64(size) == bytes
   }
   private func safeName(_ id: String, quality: String, extension ext: String) -> String {
     SHA256.hash(data: Data((id + "\n" + quality).utf8)).map { String(format: "%02x", $0) }.joined()
@@ -100,6 +129,11 @@ public actor DownloadArchive {
       if name == safeName(id, quality: record.quality, extension: ext) {
         try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
       }
+    }
+    if let old = records.first(where: { $0.id == id })?.retained,
+      validFile(old.fileName, id: id, quality: old.quality, bytes: old.bytes)
+    {
+      try? FileManager.default.removeItem(at: directory.appendingPathComponent(old.fileName))
     }
     records.removeAll { $0.id == id }
     try persist()
@@ -132,6 +166,86 @@ public actor DownloadArchive {
     records[index].state = "failed"
     records[index].error = message
     try persist()
+  }
+  public func prepareFileTransfer(
+    _ record: DownloadRecord, manifest: DeviceCopy, budget: Int64, checkCapacity: Bool = true
+  )
+    throws
+  {
+    guard manifest.state == "ready", manifest.quality == record.quality,
+      let checksum = manifest.sha256, checksum.count == 64,
+      checksum.allSatisfy({ "0123456789abcdef".contains($0) }), manifest.bytes > 0,
+      ["mp3", "m4a", "aac", "flac", "ogg", "opus", "wav", "aiff", "aif", "wma", "ape", "wv"]
+        .contains(manifest.fileExtension),
+      !invalidated.contains(record.id),
+      let index = records.firstIndex(where: {
+        $0.id == record.id && $0.quality == record.quality
+          && $0.track.sourceRevision == record.track.sourceRevision
+      })
+    else { throw OfflineFailure.unsafeResponse }
+    let reserved = records.filter { $0.id != record.id && $0.state == "downloading" }.reduce(
+      Int64(0)
+    ) { $0 + $1.total }
+    guard usedBytes() + reserved + manifest.bytes <= budget else { throw OfflineFailure.quota }
+    if checkCapacity,
+      let capacity = try directory.resourceValues(forKeys: [.volumeAvailableCapacityKey])
+        .volumeAvailableCapacity, Int64(capacity) < manifest.bytes + 32 * 1024 * 1024
+    {
+      throw OfflineFailure.quota
+    }
+    records[index].state = "downloading"
+    records[index].total = manifest.bytes
+    records[index].error = nil
+    try persist()
+  }
+  public func publishFile(_ file: URL, record: DownloadRecord, manifest: DeviceCopy, budget: Int64)
+    throws
+  {
+    try prepareFileTransfer(record, manifest: manifest, budget: budget, checkCapacity: false)
+    guard let expected = manifest.sha256,
+      let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+      Int64(size) == manifest.bytes
+    else { throw OfflineFailure.integrity }
+    let handle = try FileHandle(forReadingFrom: file)
+    defer { try? handle.close() }
+    var digest = SHA256()
+    while let data = try handle.read(upToCount: 256 * 1024), !data.isEmpty {
+      digest.update(data: data)
+    }
+    guard digest.finalize().map({ String(format: "%02x", $0) }).joined() == expected else {
+      throw OfflineFailure.integrity
+    }
+    guard
+      let index = records.firstIndex(where: {
+        $0.id == record.id && $0.quality == record.quality
+          && $0.track.sourceRevision == record.track.sourceRevision
+      }), !invalidated.contains(record.id)
+    else { throw OfflineFailure.cancelled }
+    let name = safeName(record.id, quality: record.quality, extension: manifest.fileExtension)
+    let output = directory.appendingPathComponent(name)
+    if FileManager.default.fileExists(atPath: output.path) {
+      _ = try FileManager.default.replaceItemAt(output, withItemAt: file)
+    } else {
+      try FileManager.default.moveItem(at: file, to: output)
+    }
+    let previous = records[index]
+    let retained = previous.retained
+    records[index].retained = nil
+    records[index].state = "ready"
+    records[index].bytes = manifest.bytes
+    records[index].total = manifest.bytes
+    records[index].fileName = name
+    records[index].checksum = expected
+    do { try persist() } catch {
+      records[index] = previous
+      try? FileManager.default.removeItem(at: output)
+      throw error
+    }
+    if let retained, retained.fileName != name,
+      validFile(retained.fileName, id: record.id, quality: retained.quality, bytes: retained.bytes)
+    {
+      try? FileManager.default.removeItem(at: directory.appendingPathComponent(retained.fileName))
+    }
   }
   public func transfer(
     _ record: DownloadRecord, manifest: DeviceCopy, request: URLRequest, budget: Int64,
@@ -208,15 +322,23 @@ public actor DownloadArchive {
       try FileManager.default.removeItem(at: output)
     }
     try FileManager.default.moveItem(at: temporary, to: output)
+    let retained = records[index].retained
+    records[index].retained = nil
     records[index].state = "ready"
     records[index].bytes = bytes
     records[index].total = bytes
     records[index].fileName = name
     records[index].checksum = expected
     do { try persist() } catch {
+      records[index].retained = retained
       records[index].state = "failed"
       try? FileManager.default.removeItem(at: output)
       throw error
+    }
+    if let retained, retained.fileName != name,
+      validFile(retained.fileName, id: record.id, quality: retained.quality, bytes: retained.bytes)
+    {
+      try? FileManager.default.removeItem(at: directory.appendingPathComponent(retained.fileName))
     }
     await onProgress(bytes, manifest.bytes)
   }

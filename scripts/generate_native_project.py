@@ -1,4 +1,4 @@
-"""Reproducible production iPhone/iPad Xcode project; no signing identities."""
+"""Reproducible production iPhone/iPad and Watch Xcode project; no signing identities."""
 
 import hashlib
 import json
@@ -39,6 +39,35 @@ def generate():
         )
         files.append(ref)
         sources.append(add(f"build-{path.name}", "PBXBuildFile", fileRef=ref))
+    shared = add(
+        "companion-link",
+        "PBXFileReference",
+        lastKnownFileType="sourcecode.swift",
+        path="Shared/CompanionLink.swift",
+        sourceTree="<group>",
+    )
+    files.append(shared)
+    sources.append(add("phone-companion-link", "PBXBuildFile", fileRef=shared))
+    watch_sources = [add("watch-companion-link", "PBXBuildFile", fileRef=shared)]
+    for path in sorted((SWIFT / "PigMusicWatch").glob("*.swift")):
+        ref = add(
+            "watch-" + path.name,
+            "PBXFileReference",
+            lastKnownFileType="sourcecode.swift",
+            path=f"PigMusicWatch/{path.name}",
+            sourceTree="<group>",
+        )
+        files.append(ref)
+        watch_sources.append(
+            add("watch-build-" + path.name, "PBXBuildFile", fileRef=ref)
+        )
+    watch_product = add(
+        "watch-product",
+        "PBXFileReference",
+        explicitFileType="wrapper.application",
+        path="PigMusicWatch.app",
+        sourceTree="BUILT_PRODUCTS_DIR",
+    )
     assets = add(
         "assets",
         "PBXFileReference",
@@ -67,7 +96,7 @@ def generate():
     products = add(
         "products",
         "PBXGroup",
-        children=[product],
+        children=[product, watch_product],
         name="Products",
         sourceTree="<group>",
     )
@@ -83,6 +112,7 @@ def generate():
         "PigSync",
         "PigPlayback",
         "PigDownloads",
+        "PigCompanion",
     ):
         dependency = add(
             name, "XCSwiftPackageProductDependency", package=package, productName=name
@@ -114,6 +144,70 @@ def generate():
             runOnlyForDeploymentPostprocessing="0",
         ),
     ]
+    watch_dependencies = []
+    watch_frameworks = []
+    for name in ("PigCompanion", "PigDomain", "PigPlayback"):
+        dependency = add(
+            "watch-" + name,
+            "XCSwiftPackageProductDependency",
+            package=package,
+            productName=name,
+        )
+        watch_dependencies.append(dependency)
+        watch_frameworks.append(
+            add("watch-framework-" + name, "PBXBuildFile", productRef=dependency)
+        )
+    watch_assets = add(
+        "watch-assets",
+        "PBXFileReference",
+        lastKnownFileType="folder.assetcatalog",
+        path="PigMusicWatch/Assets.xcassets",
+        sourceTree="<group>",
+    )
+    objects[main]["children"].insert(0, watch_assets)
+    watch_phases = [
+        add(
+            "watch-resources",
+            "PBXResourcesBuildPhase",
+            buildActionMask="2147483647",
+            files=[add("watch-assets-build", "PBXBuildFile", fileRef=watch_assets)],
+            runOnlyForDeploymentPostprocessing="0",
+        ),
+        add(
+            "watch-sources",
+            "PBXSourcesBuildPhase",
+            buildActionMask="2147483647",
+            files=watch_sources,
+            runOnlyForDeploymentPostprocessing="0",
+        ),
+        add(
+            "watch-frameworks",
+            "PBXFrameworksBuildPhase",
+            buildActionMask="2147483647",
+            files=watch_frameworks,
+            runOnlyForDeploymentPostprocessing="0",
+        ),
+    ]
+    phases.append(
+        add(
+            "embed-watch",
+            "PBXCopyFilesBuildPhase",
+            buildActionMask="2147483647",
+            dstPath="$(CONTENTS_FOLDER_PATH)/Watch",
+            dstSubfolderSpec="16",
+            files=[
+                add(
+                    "embed-watch-file",
+                    "PBXBuildFile",
+                    fileRef=watch_product,
+                    settings={"ATTRIBUTES": ["RemoveHeadersOnCopy"]},
+                )
+            ],
+            name="Embed Watch Content",
+            runOnlyForDeploymentPostprocessing="0",
+        )
+    )
+    watch_configs = []
     project_configs = []
     target_configs = []
     for name in ("Debug", "Release"):
@@ -138,8 +232,8 @@ def generate():
             "PRODUCT_BUNDLE_IDENTIFIER": "au.com.pig.music",
             "GENERATE_INFOPLIST_FILE": "YES",
             "INFOPLIST_FILE": "PigMusic/Info.plist",
-            "MARKETING_VERSION": "0.1.0",
-            "CURRENT_PROJECT_VERSION": "1",
+            "MARKETING_VERSION": "0.2.0",
+            "CURRENT_PROJECT_VERSION": "2",
             "SDKROOT": "iphoneos",
             "SUPPORTED_PLATFORMS": "iphoneos iphonesimulator",
             "IPHONEOS_DEPLOYMENT_TARGET": "18.0",
@@ -152,6 +246,30 @@ def generate():
             "INFOPLIST_KEY_UISupportedInterfaceOrientations": "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight",
             "INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad": "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight",
         }
+        watch_settings = {
+            "PRODUCT_NAME": "$(TARGET_NAME)",
+            "PRODUCT_BUNDLE_IDENTIFIER": "au.com.pig.music.watchkitapp",
+            "GENERATE_INFOPLIST_FILE": "YES",
+            "INFOPLIST_FILE": "PigMusicWatch/Info.plist",
+            "MARKETING_VERSION": "0.2.0",
+            "CURRENT_PROJECT_VERSION": "2",
+            "SDKROOT": "watchos",
+            "SUPPORTED_PLATFORMS": "watchos watchsimulator",
+            "WATCHOS_DEPLOYMENT_TARGET": "11.0",
+            "TARGETED_DEVICE_FAMILY": "4",
+            "CODE_SIGN_STYLE": "Automatic",
+            "SKIP_INSTALL": "YES",
+            "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
+            "INFOPLIST_KEY_CFBundleDisplayName": "Pig Music",
+        }
+        watch_configs.append(
+            add(
+                f"watch-target-{name}",
+                "XCBuildConfiguration",
+                buildSettings=watch_settings,
+                name=name,
+            )
+        )
         target_configs.append(
             add(
                 f"target-{name}",
@@ -174,13 +292,47 @@ def generate():
         defaultConfigurationIsVisible="0",
         defaultConfigurationName="Release",
     )
+    watch_list = add(
+        "watch-list",
+        "XCConfigurationList",
+        buildConfigurations=watch_configs,
+        defaultConfigurationIsVisible="0",
+        defaultConfigurationName="Release",
+    )
+    watch_target = add(
+        "watch-target",
+        "PBXNativeTarget",
+        buildConfigurationList=watch_list,
+        buildPhases=watch_phases,
+        buildRules=[],
+        dependencies=[],
+        name="PigMusicWatch",
+        productName="PigMusicWatch",
+        productReference=watch_product,
+        productType="com.apple.product-type.application",
+        packageProductDependencies=watch_dependencies,
+    )
+    proxy = add(
+        "watch-proxy",
+        "PBXContainerItemProxy",
+        containerPortal=identity("project"),
+        proxyType="1",
+        remoteGlobalIDString=watch_target,
+        remoteInfo="PigMusicWatch",
+    )
+    watch_dependency = add(
+        "watch-target-dependency",
+        "PBXTargetDependency",
+        target=watch_target,
+        targetProxy=proxy,
+    )
     target = add(
         "target",
         "PBXNativeTarget",
         buildConfigurationList=target_list,
         buildPhases=phases,
         buildRules=[],
-        dependencies=[],
+        dependencies=[watch_dependency],
         name="PigMusic",
         productName="PigMusic",
         productReference=product,
@@ -199,7 +351,7 @@ def generate():
         productRefGroup=products,
         projectDirPath="",
         projectRoot="",
-        targets=[target],
+        targets=[target, watch_target],
         packageReferences=[package],
     )
     directory = SWIFT / "PigMusic.xcodeproj"
@@ -220,6 +372,11 @@ def generate():
 <AnalyzeAction buildConfiguration="Debug"/><ArchiveAction buildConfiguration="Release" revealArchiveInOrganizer="YES"/>
 </Scheme>
 """
+    )
+
+    watch_reference = f'<BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{watch_target}" BuildableName="PigMusicWatch.app" BlueprintName="PigMusicWatch" ReferencedContainer="container:PigMusic.xcodeproj"/>'
+    (schemes / "PigMusicWatch.xcscheme").write_text(
+        (schemes / "PigMusic.xcscheme").read_text().replace(reference, watch_reference)
     )
 
 

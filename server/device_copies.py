@@ -32,7 +32,7 @@ def encoder_version():
     except (OSError, subprocess.SubprocessError) as exc:
         raise ValueError("AAC encoder unavailable") from exc
     return hashlib.sha256(
-        result.stdout.splitlines()[0] + b"aac-256k-44100-stereo-v1"
+        result.stdout.splitlines()[0] + b"aac-256k-44100-stereo-artwork-v2"
     ).hexdigest()
 
 
@@ -177,6 +177,16 @@ class DeviceCopies:
                 await process.wait()
             raise
 
+    @staticmethod
+    def probe(source):
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(source)],
+            capture_output=True,
+            timeout=20,
+            check=True,
+        )
+        return json.loads(result.stdout).get("streams", [])
+
     async def run(self):
         while not self.stopping:
             job = await asyncio.to_thread(self.next_job)
@@ -197,7 +207,26 @@ class DeviceCopies:
                 job["state"] = "preparing"
                 await asyncio.to_thread(self.save, job)
                 source = Path(job["source"])
-                await self.command(
+                streams = await asyncio.to_thread(self.probe, source)
+                audio = next((s for s in streams if s.get("codec_type") == "audio"), {})
+                compatible = (
+                    source.suffix.lower() in {".m4a", ".mp4"}
+                    and audio.get("codec_name") == "aac"
+                    and audio.get("profile") == "LC"
+                    and int(audio.get("sample_rate") or 0) == 44100
+                    and int(audio.get("channels") or 0) == 2
+                    and 0 < int(audio.get("bit_rate") or 0) <= 256000
+                )
+                artwork = next(
+                    (
+                        s
+                        for s in streams
+                        if s.get("disposition", {}).get("attached_pic")
+                        and s.get("codec_name") in {"mjpeg", "png"}
+                    ),
+                    None,
+                )
+                arguments = [
                     "-v",
                     "error",
                     "-nostdin",
@@ -206,21 +235,29 @@ class DeviceCopies:
                     str(source),
                     "-map",
                     "0:a:0",
-                    "-vn",
                     "-map_metadata",
                     "0",
-                    "-c:a",
-                    "aac",
-                    "-b:a",
-                    "256k",
-                    "-ar",
-                    "44100",
-                    "-ac",
-                    "2",
-                    "-movflags",
-                    "+faststart",
-                    str(temporary),
+                ]
+                if artwork is not None:
+                    arguments += [
+                        "-map",
+                        "0:" + str(artwork["index"]),
+                        "-c:v",
+                        "copy",
+                        "-disposition:v:0",
+                        "attached_pic",
+                    ]
+                else:
+                    arguments += ["-vn"]
+                arguments += (
+                    ["-c:a", "copy"]
+                    if compatible
+                    else ["-c:a", "aac", "-b:a", "256k", "-ar", "44100", "-ac", "2"]
                 )
+                arguments += ["-movflags", "+faststart", str(temporary)]
+                await self.command(*arguments)
+                job["reused_audio"] = compatible
+                job["embedded_artwork"] = artwork is not None
                 await self.command(
                     "-v", "error", "-nostdin", "-i", str(temporary), "-f", "null", "-"
                 )
@@ -236,7 +273,7 @@ class DeviceCopies:
                 job["state"] = "queued"
                 await asyncio.to_thread(self.save, job)
                 raise
-            except (OSError, ValueError, TimeoutError):
+            except (OSError, ValueError, TimeoutError, subprocess.SubprocessError):
                 job["state"] = "failed"
                 await asyncio.to_thread(self.save, job)
             finally:

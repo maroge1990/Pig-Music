@@ -32,10 +32,15 @@ final class ArtworkTransport: Sendable {
       configuration: configuration, delegate: NoArtworkRedirects(), delegateQueue: nil)
   }
   deinit { session.invalidateAndCancel() }
-  func fetch(_ artwork: ArtworkRequest) async throws -> Data {
+  func fetch(_ artwork: ArtworkRequest, artist: String? = nil) async throws -> Data {
     let origin = try ServerAddress.validate(server.absoluteString)
     var parts = URLComponents(url: origin, resolvingAgainstBaseURL: false)!
-    parts.path = "/api/v1/artwork/" + artwork.sha
+    if let artist {
+      guard let uuid = UUID(uuidString: artist) else { throw ArtworkFailure.invalidRequest }
+      parts.path = "/api/catalogue/artists/" + uuid.uuidString.lowercased() + "/artwork"
+    } else {
+      parts.path = "/api/v1/artwork/" + artwork.sha
+    }
     parts.queryItems = [URLQueryItem(name: "w", value: String(artwork.width))]
     guard let token = try await vault.read() else { throw NativeFailure.authentication }
     var request = URLRequest(url: parts.url!)
@@ -48,7 +53,7 @@ final class ArtworkTransport: Sendable {
       try await vault.clear()
       throw NativeFailure.authentication
     }
-    guard response.statusCode == 200,
+    guard response.statusCode == 200, response.url == request.url,
       ["image/webp", "image/jpeg", "image/png"].contains(response.mimeType?.lowercased() ?? "")
     else { throw ArtworkFailure.unavailable }
     guard response.expectedContentLength <= ArtworkCache.maximumImageBytes else {

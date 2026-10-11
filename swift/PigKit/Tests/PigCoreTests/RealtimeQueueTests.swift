@@ -439,3 +439,60 @@ private func queueRoot() throws -> URL {
     #expect(await sources.active.isEmpty)
   }
 }
+
+@Suite struct RepeatQueueTests {
+  @Test func repeatAllKeepsBoundedSourcesAndContinuousFramesAcrossWrap() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let one = try queueFixture(root, id: "one", value: 0.2, frames: 1024)
+    let two = try queueFixture(root, id: "two", value: 0.4, frames: 1024)
+    let sources = QueueSources(files: ["one": one, "two": two])
+    let items = ["one", "two"].map {
+      PlaybackOccurrence(track: Track(id: $0, title: $0, artist: "Artist"))
+    }
+    let stream = try await QueuePCMStream(
+      items: items, repeatMode: .all, blockFrames: 256, acquire: { try await sources.get($0) },
+      release: { await sources.release($0) })
+    var markers: [QueueAudioMarker] = []
+    var samples: [Float] = []
+    while samples.count < 4096 {
+      let block = try #require(await stream.next())
+      samples += block.pcm.channels[0]
+      markers += block.markers
+    }
+    await stream.close()
+    #expect(markers.prefix(4).map(\.index) == [0, 1, 0, 1])
+    #expect(Set(markers.prefix(4).compactMap(\.occurrenceID)).count == 4)
+    #expect(abs(samples[1023] - 0.2) < 0.001)
+    #expect(abs(samples[1024] - 0.4) < 0.001)
+    #expect(abs(samples[2047] - 0.4) < 0.001)
+    #expect(abs(samples[2048] - 0.2) < 0.001)
+    #expect(await sources.peak <= 2)
+    #expect(await sources.active.isEmpty)
+  }
+  @Test func repeatOneUsesGaplessBoundariesAndNewListeningOccurrences() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let file = try queueFixture(root, id: "one", value: 0.2, frames: 1024)
+    let sources = QueueSources(files: ["one": file])
+    let item = PlaybackOccurrence(track: Track(id: "one", title: "one", artist: "Artist"))
+    let stream = try await QueuePCMStream(
+      items: [item], crossfade: true, repeatMode: .one, blockFrames: 256,
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    var markers: [QueueAudioMarker] = []
+    var samples: [Float] = []
+    while samples.count < 4096 {
+      let block = try #require(await stream.next())
+      samples += block.pcm.channels[0]
+      markers += block.markers
+    }
+    await stream.close()
+    #expect(markers.prefix(4).map(\.index) == [0, 0, 0, 0])
+    #expect(Set(markers.prefix(4).compactMap(\.occurrenceID)).count == 4)
+    #expect(samples.allSatisfy { abs($0 - 0.2) < 0.001 })
+    #expect(await sources.peak <= 2)
+    #expect(await sources.active.isEmpty)
+  }
+}

@@ -116,12 +116,22 @@ private struct SearchResultsView: View {
 struct SavedArtistView: View {
   let model: AppModel
   let artist: Artist
+  @State private var identity: ArtistIdentity?
+  @State private var identityMessage: String?
   @State private var albums: [Album] = []
   @State private var loading = false
   @State private var more = true
   @State private var error: String?
   var body: some View {
     List {
+      if let identity {
+        NavigationLink("Explore artist catalogue") {
+          CatalogueArtistView(model: model, artistId: identity.id, name: identity.name)
+        }
+      } else {
+        Button("Find artist catalogue") { Task { await identify() } }
+        if let identityMessage { Text(identityMessage).font(PigType.footnote) }
+      }
       ForEach(albums) { album in
         NavigationLink {
           AlbumView(model: model, album: album)
@@ -133,6 +143,14 @@ struct SavedArtistView: View {
       if let error { Text(error).font(PigType.footnote) }
       if more { Button("Load albums") { Task { await load() } }.disabled(loading) }
     }.navigationTitle(artist.name).task { if albums.isEmpty { await load() } }
+  }
+  private func identify() async {
+    do {
+      identity = try await model.cachedCatalogue(key: "identity:" + artist.id) {
+        try await $0.artistIdentity(id: artist.id)
+      }
+      identityMessage = nil
+    } catch { identityMessage = error.localizedDescription }
   }
   private func load() async {
     guard !loading, let store = model.store else { return }

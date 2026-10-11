@@ -15,7 +15,9 @@ Confirmed in this scoping conversation:
 - Initial phone/tablet testing will use a free Apple account with Xcode Personal Team signing. Paid distribution remains a later decision.
 - Watch follows iPhone/iPad and precedes Mac.
 
-Recommended crossfade UX, still a proposal: a simple on/off control, a short duration selected through listening tests, and gapless album-order playback preserved by default. A duration slider is not needed for initial parity. Crossfade and gapless are different modes: gapless preserves the original boundary; crossfade intentionally overlaps it.
+Current implementation is recorded in [the 12 October phone/Watch build](native-phone-watch-build-20261012.md). The owner subsequently required Watch-owned offline downloads, requests from either device, and gapless/crossfade on Watch as well as phone. Devices: iPhone 16 Pro Max/iOS 27 and Watch Ultra 3/watchOS 27; Developer Mode on Watch will follow software build completion.
+
+Initial crossfade UX proposal: a simple on/off control, a short duration selected through listening tests, and gapless album-order playback preserved by default. A duration slider is not needed for initial parity. Crossfade and gapless are different modes: gapless preserves the original boundary; crossfade intentionally overlaps it.
 
 No delivery deadline, staffing level or budget has been supplied. Exact iPad inventory, OS versions and distribution method remain planning inputs. The earlier iPhone/Watch inventory is recorded in [native-spike.md](native-spike.md); it is historical device evidence, not a fresh inventory check.
 

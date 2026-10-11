@@ -1,6 +1,7 @@
 import AVKit
 import PigBrand
 import PigDomain
+import PigPlayback
 import SwiftUI
 
 struct LibraryView: View {
@@ -12,10 +13,15 @@ struct LibraryView: View {
         NavigationLink("Songs · \(model.songCount)") { SongsView(model: model) }
         NavigationLink("Albums") { AlbumsView(model: model) }
         NavigationLink("On this device") { DownloadsView(model: model) }
+        if model.watch?.supported == true {
+          NavigationLink("Apple Watch") { WatchDownloadsView(model: model) }
+        }
         NavigationLink("Create or import playlists") { PlaylistToolsView(model: model) }
         NavigationLink("Music requests") { RequestsView(model: model) }
         NavigationLink("Artists") {
           List {
+            LibrarySortPicker(
+              model: model, collection: .artists, selected: model.artistSort, artist: false)
             ForEach(model.artists) { artist in
               NavigationLink(artist.name) { SavedArtistView(model: model, artist: artist) }
             }
@@ -74,6 +80,7 @@ struct SongsView: View {
   @Bindable var model: AppModel
   var body: some View {
     List {
+      LibrarySortPicker(model: model, collection: .tracks, selected: model.songSort)
       Button("Shuffle all songs", systemImage: "shuffle") { Task { await model.shuffleLibrary() } }
       ForEach(Array(model.songs.enumerated()), id: \.element.id) { index, track in
         SongButton(model: model, track: track) { model.play(model.songs, at: index) }
@@ -90,6 +97,7 @@ struct AlbumsView: View {
   @Bindable var model: AppModel
   var body: some View {
     List {
+      LibrarySortPicker(model: model, collection: .albums, selected: model.albumSort)
       ForEach(model.albums) { album in
         NavigationLink {
           AlbumView(model: model, album: album)
@@ -131,6 +139,9 @@ struct AlbumView: View {
         Text(album.artist).font(PigType.headline)
         Button("Play album", systemImage: "play.fill") { model.play(tracks) }.disabled(
           tracks.isEmpty)
+        Button("Send to Apple Watch", systemImage: "applewatch") {
+          Task { await model.watch?.enqueue(tracks) }
+        }.disabled(tracks.isEmpty)
         Button("Download originals", systemImage: "arrow.down.circle") {
           Task { await model.download(tracks) }
         }.disabled(tracks.isEmpty)
@@ -189,12 +200,15 @@ struct AccountView: View {
         NavigationLink("Devices and sessions") { SessionsView(model: model) }
         NavigationLink("Server quality") { QualityView(model: model) }
         NavigationLink("Personal Plex") { PlexView(model: model) }
+        NavigationLink("Pending edits (\(model.pendingEdits.count))") {
+          PendingEditsView(model: model)
+        }
       }
       Section("Library") {
         Text("\(model.songCount) cached songs")
         Button("Sync now") { Task { await model.refresh() } }.disabled(model.syncing)
       }
-      Section("Playback testing") {
+      Section("Playback") {
         Toggle(
           "Seamless playback",
           isOn: Binding(
@@ -209,7 +223,7 @@ struct AccountView: View {
           ).font(PigType.footnote)
         }
         Text(
-          "Seamless playback prepares temporary audio files. Turn it off to use streaming if preparation fails. Changing modes stops playback."
+          "Seamless playback may take longer to start while it prepares songs. Turn it off to use streaming if a song cannot be prepared. Changing modes stops playback."
         ).font(PigType.footnote)
       }
       Section {
@@ -284,7 +298,29 @@ struct NowPlayingView: View {
             }.accessibilityLabel("Next song")
           }
           if player.preparing { ProgressView("Preparing audio…").font(PigType.footnote) }
-          if let error = player.error { Text(error).font(PigType.footnote).foregroundStyle(.red) }
+          HStack {
+            Button(player.shuffled ? "Shuffle on" : "Shuffle", systemImage: "shuffle") {
+              player.toggleShuffle()
+            }
+            Picker(
+              "Repeat",
+              selection: Binding(get: { player.repeatMode }, set: { player.repeatMode = $0 })
+            ) {
+              Text("Off").tag(PlaybackRepeat.off)
+              Text("All").tag(PlaybackRepeat.all)
+              Text("One").tag(PlaybackRepeat.one)
+            }
+          }
+          if let error = player.error {
+            Text(error).font(PigType.footnote).foregroundStyle(.red)
+            HStack {
+              Button("Retry") { player.retry() }
+              Button("Skip song") { player.next() }
+              if player.seamlessEnabled {
+                Button("Use streaming") { player.retry(streaming: true) }
+              }
+            }
+          }
           NavigationLink("Edit full queue") { QueueEditorView(player: player) }
           Text("Up next").font(PigType.headline).frame(maxWidth: .infinity, alignment: .leading)
           ForEach(player.queue.items.dropFirst(player.queue.index + 1).prefix(50)) { item in
@@ -361,5 +397,26 @@ struct QueueEditorView: View {
         }
       }
     }.navigationTitle("Playback queue")
+  }
+}
+
+private struct LibrarySortPicker: View {
+  let model: AppModel
+  let collection: LibraryCollection
+  let selected: LibrarySort
+  var artist = true
+  var body: some View {
+    Picker(
+      "Sort",
+      selection: Binding(
+        get: { selected },
+        set: { value in
+          Task { await model.sortLibrary(collection, by: value) }
+        })
+    ) {
+      Text("Title A–Z").tag(LibrarySort.title)
+      Text("Title Z–A").tag(LibrarySort.titleDescending)
+      if artist { Text("Artist, then title").tag(LibrarySort.artist) }
+    }.disabled(model.loadingMore || model.syncing)
   }
 }

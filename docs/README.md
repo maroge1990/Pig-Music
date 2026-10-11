@@ -33,3 +33,5 @@ Credentials, appdata, music exports, private measurements and screenshots remain
 - [Download-source implementation and acceptance handoff](download-source-implementation-20261011.md) — all seven acquisition paths, owner controls, pinned runtime, network boundaries and isolated acceptance harness.
 
 - [Expanded everyday native build](native-everyday-build-20261011.md): phone/tablet features, original/AAC server and device copies, validation and remaining package ledger.
+
+- [Phone/tablet parity candidate and production Watch build](native-phone-watch-build-20261012.md): background downloads, transactional edit replay, import selection/sorting, independent Watch music and remaining hardware gates.

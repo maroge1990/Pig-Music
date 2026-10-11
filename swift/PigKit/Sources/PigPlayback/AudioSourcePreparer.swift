@@ -19,6 +19,11 @@ public struct PreparedAudioSource: Sendable {
   public let id: UUID
   public let file: URL
   public let byteCount: Int
+  public init(id: UUID = UUID(), file: URL, byteCount: Int) {
+    self.id = id
+    self.file = file
+    self.byteCount = byteCount
+  }
 }
 
 private final class NoMediaRedirects: NSObject, URLSessionTaskDelegate, Sendable {

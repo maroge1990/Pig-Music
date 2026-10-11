@@ -17,6 +17,22 @@ public protocol DeviceCopySource: Sendable {
   func deviceCopy(trackId: String, quality: String, create: Bool) async throws -> DeviceCopy
   func copyRequest(trackId: String, quality: String) async throws -> URLRequest
 }
+public struct RetainedDownload: Codable, Sendable {
+  public var quality: String
+  public var bytes: Int64
+  public var fileName: String
+  public var checksum: String?
+  public var sourceRevision: String?
+  public init(
+    quality: String, bytes: Int64, fileName: String, checksum: String?, sourceRevision: String?
+  ) {
+    self.quality = quality
+    self.bytes = bytes
+    self.fileName = fileName
+    self.checksum = checksum
+    self.sourceRevision = sourceRevision
+  }
+}
 public struct DownloadRecord: Codable, Sendable, Identifiable {
   public let track: Track
   public var quality: String
@@ -26,6 +42,7 @@ public struct DownloadRecord: Codable, Sendable, Identifiable {
   public var fileName: String?
   public var checksum: String?
   public var error: String?
+  public var retained: RetainedDownload?
   public var id: String { track.id }
   public init(track: Track, quality: String) {
     self.track = track

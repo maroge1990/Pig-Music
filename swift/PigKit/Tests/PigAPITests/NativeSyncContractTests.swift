@@ -154,6 +154,21 @@ final class NativeSyncContractTests: XCTestCase {
     XCTAssertEqual((personalPlaylist.entries ?? []).count, 1)
     try await service.deletePlaylist(
       id: personalPlaylist.id, revision: try XCTUnwrap(personalPlaylist.revision))
+    let offlineCreate = OfflineMutation(action: "create", name: "Native offline ledger")
+    let createdReceipt = try await service.applyMutation(offlineCreate)
+    let replayedReceipt = try await service.applyMutation(offlineCreate)
+    XCTAssertEqual(createdReceipt.playlistId, replayedReceipt.playlistId)
+    let createdId = try XCTUnwrap(createdReceipt.playlistId)
+    let appendEdit = OfflineMutation(action: "append", playlistId: createdId, track: tracks[0])
+    _ = try await service.applyMutation(appendEdit)
+    _ = try await service.applyMutation(appendEdit)
+    let replayedPlaylist = try await service.playlist(id: createdId)
+    XCTAssertEqual(replayedPlaylist.entries?.count, 1)
+    let matches = try await service.lookupSongs([
+      tracks[0], Track(id: "unknown", title: "Unmatched title", artist: "Unmatched artist"),
+    ])
+    XCTAssertEqual(matches[0]?.id, tracks[0].id)
+    XCTAssertNil(matches[1])
     let monitoredArtist = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     let artistSettings = try await service.configureArtist(
       id: monitoredArtist, kinds: ["album", "ep"], monitor: false, request: false)

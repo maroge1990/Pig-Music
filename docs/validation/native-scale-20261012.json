@@ -1,0 +1,25 @@
+{
+  "users": [
+    {
+      "songs": 50000,
+      "first_page_seconds": 1.802,
+      "full_sync_seconds": 7.615,
+      "warm_page_p95_seconds": 0.011
+    },
+    {
+      "songs": 50000,
+      "first_page_seconds": 3.403,
+      "full_sync_seconds": 7.62,
+      "warm_page_p95_seconds": 0.011
+    },
+    {
+      "songs": 50000,
+      "first_page_seconds": 5.062,
+      "full_sync_seconds": 7.624,
+      "warm_page_p95_seconds": 0.011
+    }
+  ],
+  "concurrent_elapsed_seconds": 7.625,
+  "database_bytes": 238252032,
+  "limitations": "Local metadata-only benchmark; excludes HTTP, NAS, audio, devices and provider traffic."
+}

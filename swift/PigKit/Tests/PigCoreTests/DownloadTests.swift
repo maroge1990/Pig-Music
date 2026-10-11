@@ -86,6 +86,75 @@ private final class CopyProtocol: URLProtocol, @unchecked Sendable {
     #expect(await archive.localFile(song) == nil)
     #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["downloads.json"])
   }
+  @Test func qualityReplacementKeepsExistingCopyUntilVerifiedCommit() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let archive = try archive(root)
+    let song = try track()
+    let request = URLRequest(url: URL(string: "https://server.invalid/song")!)
+    try await archive.enqueue([song], quality: "original")
+    try await archive.transfer(
+      try #require(await archive.snapshot().first), manifest: copy(), request: request,
+      budget: 1_000_000)
+    let original = try #require(await archive.localFile(song))
+    try await archive.enqueue([song], quality: "aac")
+    #expect(await archive.localFile(song) == original)
+    #expect(await archive.usedBytes() == Int64(CopyProtocol.payload.count))
+    let recovered = try self.archive(root)
+    #expect(await recovered.localFile(song) == original)
+    let hash = SHA256.hash(data: CopyProtocol.payload).map { String(format: "%02x", $0) }.joined()
+    let manifest = try LibraryCodec.decoder().decode(
+      DeviceCopy.self,
+      from: JSONSerialization.data(withJSONObject: [
+        "state": "ready", "quality": "aac", "sha256": hash, "source_sha256": hash,
+        "bytes": CopyProtocol.payload.count, "extension": "m4a", "key": "test",
+      ]))
+    let replacement = try #require(await recovered.snapshot().first)
+    await #expect(throws: OfflineFailure.self) {
+      try await recovered.transfer(
+        replacement, manifest: manifest, request: request, budget: Int64(CopyProtocol.payload.count)
+      )
+    }
+    #expect(await recovered.localFile(song) == original)
+    try await recovered.transfer(
+      replacement, manifest: manifest, request: request, budget: 1_000_000)
+    let aac = try #require(await recovered.localFile(song))
+    #expect(aac.pathExtension == "m4a")
+    #expect(!FileManager.default.fileExists(atPath: original.path))
+    #expect(await recovered.usedBytes() == Int64(CopyProtocol.payload.count))
+  }
+  @Test func backgroundPublicationChecksHashSourceAndConcurrentReservations() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let archive = try archive(root)
+    let song = try track()
+    var second = song
+    second.id = "second"
+    try await archive.enqueue([song, second], quality: "original")
+    let records = await archive.snapshot()
+    let first = try #require(records.first(where: { $0.id == song.id }))
+    let other = try #require(records.first(where: { $0.id == second.id }))
+    let manifest = try copy()
+    try await archive.prepareFileTransfer(first, manifest: manifest, budget: 200_000)
+    await #expect(throws: OfflineFailure.self) {
+      try await archive.prepareFileTransfer(other, manifest: manifest, budget: 200_000)
+    }
+    let incoming = root.appendingPathComponent("incoming")
+    try Data(repeating: 0, count: CopyProtocol.payload.count).write(to: incoming)
+    await #expect(throws: OfflineFailure.self) {
+      try await archive.publishFile(incoming, record: first, manifest: manifest, budget: 200_000)
+    }
+    #expect(await archive.localFile(song) == nil)
+    try CopyProtocol.payload.write(to: incoming)
+    try await archive.publishFile(incoming, record: first, manifest: manifest, budget: 200_000)
+    #expect(await archive.localFile(song) != nil)
+    try await archive.reconcile([song.id: "v2"])
+    try CopyProtocol.payload.write(to: incoming)
+    await #expect(throws: OfflineFailure.self) {
+      try await archive.publishFile(incoming, record: first, manifest: manifest, budget: 200_000)
+    }
+    #expect(await archive.localFile(song) == nil)
+  }
   @Test func queueEditingPreservesRepeatedOccurrencesAndCurrentIdentity() throws {
     let song = try track()
     var queue = PlaybackQueue()

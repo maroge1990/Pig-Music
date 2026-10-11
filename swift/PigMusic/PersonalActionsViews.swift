@@ -58,6 +58,9 @@ struct SongActionsView: View {
             Button("Download original", systemImage: "arrow.down.circle") {
               Task { await model.download([track]) }
             }
+            Button("Send to Apple Watch", systemImage: "applewatch") {
+              Task { await model.watch?.enqueue([track]) }
+            }
             Button("Download smaller AAC copy") {
               Task { await model.download([track], quality: "aac") }
             }
@@ -75,9 +78,18 @@ struct SongActionsView: View {
     guard !loading else { return }
     loading = true
     defer { loading = false }
-    do {
-      favourite = try await model.readCatalogue { try await $0.favourite(track) }
-    } catch is CancellationError {} catch { message = error.localizedDescription }
+    let key = "favourite:" + track.id
+    if let pending = model.pendingEdits.last(where: {
+      $0.mutation.action == "favourite" && $0.mutation.track?.id == track.id
+    }) {
+      favourite = pending.mutation.favourite
+    } else {
+      favourite = (try? await model.store?.cached(key, as: Bool.self)) ?? false
+      if let confirmed = try? await model.readCatalogue({ try await $0.favourite(track) }) {
+        favourite = confirmed
+        try? await model.store?.cache(confirmed, key: key)
+      }
+    }
   }
   private func changeFavourite(_ value: Bool) async {
     guard !loading else { return }
@@ -85,8 +97,14 @@ struct SongActionsView: View {
     message = nil
     defer { loading = false }
     do {
-      favourite = try await model.performPersonal { try await $0.favourite(track, value: value) }
-      message = favourite == true ? "Added to favourites." : "Removed from favourites."
+      let confirmed = try await model.saveEdit(
+        OfflineMutation(action: "favourite", track: track, favourite: value))
+      favourite = value
+      try? await model.store?.cache(value, key: "favourite:" + track.id)
+      message =
+        confirmed
+        ? (value ? "Added to favourites." : "Removed from favourites.")
+        : "Favourite edit saved on this phone; waiting to sync."
     } catch is CancellationError {} catch { message = error.localizedDescription }
   }
   private func add() async {
@@ -143,6 +161,23 @@ struct RequestsView: View {
                 do {
                   _ = try await model.performPersonal { try await $0.retryRequest(id: item.id) }
                   await load(reset: true)
+                } catch { self.error = error.localizedDescription }
+              }
+            }.disabled(loading || !model.canMutate)
+          }
+          if ["waiting_for_sources", "searching", "downloading", "validating"].contains(item.status)
+          {
+            Button("Cancel my request", role: .destructive) {
+              Task {
+                do {
+                  let result = try await model.performPersonal {
+                    try await $0.cancelRequest(id: item.id)
+                  }
+                  await load(reset: true)
+                  if result.continuesForOthers {
+                    self.error =
+                      "Your request was cancelled. The shared download continues for another person."
+                  }
                 } catch { self.error = error.localizedDescription }
               }
             }.disabled(loading || !model.canMutate)

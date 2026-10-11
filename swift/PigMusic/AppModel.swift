@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Observation
 import PigAPI
@@ -13,6 +14,7 @@ import UIKit
     var server: String
     var person: Person
   }
+  var watch: WatchPhoneController?
   var downloads: DownloadController?
   var preferences = AccountPreferences()
   var person: Person?
@@ -20,6 +22,9 @@ import UIKit
   var busy = false
   var syncing = false
   var message: String?
+  var songSort: LibrarySort = .title
+  var albumSort: LibrarySort = .title
+  var artistSort: LibrarySort = .title
   var songs: [Track] = []
   var albums: [Album] = []
   var artists: [Artist] = []
@@ -29,6 +34,8 @@ import UIKit
   var homeLoading: Set<HomeSection> = []
   var searchSession: SearchSession?
   var actionTrack: Track?
+  var pendingEdits: [PendingMutation] = []
+  @ObservationIgnored private var flushingEdits = false
   var mutationActive = false
   var canMutate: Bool { service != nil && !busy && !syncing && !mutationActive }
   var songCount = 0
@@ -51,6 +58,7 @@ import UIKit
   @ObservationIgnored private let defaults: UserDefaults
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
+    watch = WatchPhoneController(model: self, defaults: defaults)
     artworkMemory.countLimit = 128
     artworkMemory.totalCostLimit = 24 * 1024 * 1024
   }
@@ -90,9 +98,11 @@ import UIKit
     liveTask?.cancel()
     liveTask = nil
     if !active {
-      await downloads?.pause()
+      await downloads?.suspendPreparation()
+      await watch?.pause()
       return
     }
+    downloads?.resumePreparation()
     await refresh()
     startLiveUpdates()
   }
@@ -225,7 +235,10 @@ import UIKit
     server = origin.absoluteString
     self.service = service
     store = database
-    let archive = try DownloadArchive(directory: directory.appendingPathComponent("Downloads"))
+    let backgroundIdentifier = "au.com.pig.music.downloads." + artworkNamespace
+    let archive =
+      try BackgroundTransferHub.archive(for: backgroundIdentifier)
+      ?? DownloadArchive(directory: directory.appendingPathComponent("Downloads"))
     downloads = DownloadController(archive: archive, source: service) { [weak self] error in
       if error as? NativeFailure == .authentication {
         self?.revoked(generation: stamp)
@@ -238,7 +251,11 @@ import UIKit
     downloads?.budgetBytes = Int64(
       defaults.object(forKey: "pig.download-budget:" + artworkNamespace) as? Int
         ?? (5 * 1024 * 1024 * 1024))
+    try downloads?.enableBackground(
+      identifier: backgroundIdentifier,
+      directory: directory.appendingPathComponent("BackgroundTransfers"))
     await downloads?.reload()
+    try await watch?.configure(directory: directory, namespace: artworkNamespace)
     var restoredQueue = try? await database.cached("playback", as: PlaybackCheckpoint.self)
     if let old = restoredQueue,
       let position = try? await database.cached("playback-position", as: PlaybackPosition.self)
@@ -283,6 +300,7 @@ import UIKit
         "home:" + section.rawValue, as: HomeContent.self)
     }
     try await loadCache()
+    pendingEdits = (try? await database.pendingMutations()) ?? []
   }
   func refresh(afterMutation: Bool = false) async {
     guard !syncing, !mutationActive || afterMutation, let service, let sync else { return }
@@ -297,6 +315,7 @@ import UIKit
         message = "The server account changed. Please sign in again."
         return
       }
+      watch?.confirmAccount()
       try await sync.refresh()
       guard generation == stamp else { return }
       try await loadCache()
@@ -326,15 +345,28 @@ import UIKit
         if invalid { await player.invalidateSources() }
         await downloads.reconcile(allowed)
         guard generation == stamp else { return }
-        downloads.resume()
+        downloads.resume(automatic: true)
       } else if invalid {
         await player.invalidateSources()
       }
       guard generation == stamp else { return }
-      if let settings = try? await service.preferences(), generation == stamp {
+      if !pendingEdits.contains(where: { $0.mutation.action == "preferences" }),
+        let settings = try? await service.preferences(), generation == stamp
+      {
         preferences = settings
         await cachePreferences()
       }
+      let editsApplied = await flushEdits()
+      guard generation == stamp else { return }
+      if editsApplied {
+        try await sync.refresh()
+        try await loadCache()
+        if let settings = try? await service.preferences(), generation == stamp {
+          preferences = settings
+          await cachePreferences()
+        }
+      }
+      try await watch?.reconcile()
       await flushHistory()
       guard generation == stamp else { return }
       message =
@@ -350,9 +382,9 @@ import UIKit
   private func loadCache() async throws {
     guard let store else { return }
     let stamp = generation
-    let tracks = try await store.tracks()
-    let albums = try await store.albums()
-    let artists = try await store.artists()
+    let tracks = try await store.tracks(sort: songSort)
+    let albums = try await store.albums(sort: albumSort)
+    let artists = try await store.artists(sort: artistSort)
     let playlists = try await store.playlists()
     let count = try await store.count(.tracks)
     let albumCount = try await store.count(.albums)
@@ -448,6 +480,113 @@ import UIKit
     }
   }
 
+  @discardableResult func saveEdit(_ mutation: OfflineMutation) async throws -> Bool {
+    guard let store, person != nil else { throw NativeFailure.authentication }
+    let stamp = generation
+    try await store.enqueueMutation(mutation)
+    guard generation == stamp else { throw CancellationError() }
+    pendingEdits = try await store.pendingMutations()
+    let applied = await flushEdits()
+    guard generation == stamp else { throw CancellationError() }
+    if applied { await refresh() }
+    return !pendingEdits.contains { $0.id == mutation.id }
+  }
+  @discardableResult func flushEdits() async -> Bool {
+    guard !flushingEdits, let store, let service, person != nil else { return false }
+    flushingEdits = true
+    let stamp = generation
+    defer { flushingEdits = false }
+    var applied = false
+    do {
+      while let first = try await store.pendingMutations().first, first.state == "queued" {
+        guard generation == stamp else { return applied }
+        do {
+          let receipt = try await service.applyMutation(first.mutation)
+          guard receipt.applied, receipt.operationId == first.id, generation == stamp else {
+            return applied
+          }
+          try await store.acknowledgeMutation(first.id)
+          applied = true
+        } catch NativeFailure.authentication {
+          revoked(generation: stamp)
+          return applied
+        } catch NativeFailure.changed {
+          var changed = first
+          changed.state = "conflict"
+          changed.message =
+            "This playlist changed on the server. Discard this edit or review the current playlist before reapplying it."
+          try await store.updateMutation(changed)
+          break
+        } catch is MutationRejection {
+          var rejected = first
+          rejected.state = "rejected"
+          rejected.message = "The server could not apply this edit. Review its song or playlist."
+          try await store.updateMutation(rejected)
+          break
+        } catch {
+          break
+        }
+      }
+      if generation == stamp { pendingEdits = try await store.pendingMutations() }
+    } catch { if generation == stamp { message = error.localizedDescription } }
+    return applied
+  }
+  func discardEdit(_ id: String) async {
+    guard !flushingEdits, let store else { return }
+    try? await store.acknowledgeMutation(id)
+    pendingEdits = (try? await store.pendingMutations()) ?? []
+    _ = await flushEdits()
+    await refresh()
+  }
+  func cachedCatalogue<T: Codable & Sendable>(
+    key: String, load: @Sendable (NativeService) async throws -> T
+  ) async throws -> T {
+    let stamp = generation
+    let database = store
+    do {
+      let result = try await readCatalogue(load)
+      guard generation == stamp else { throw CancellationError() }
+      try? await database?.cache(result, key: "catalogue:" + key)
+      return result
+    } catch NativeFailure.authentication {
+      throw NativeFailure.authentication
+    } catch is CancellationError { throw CancellationError() } catch {
+      guard generation == stamp else { throw CancellationError() }
+      if let saved = try? await database?.cached("catalogue:" + key, as: T.self) { return saved }
+      throw error
+    }
+  }
+  func artistArtwork(id: String) async -> UIImage? {
+    guard let service, let cache = artworkCache, UUID(uuidString: id) != nil else { return nil }
+    let stamp = generation
+    let sha = SHA256.hash(data: Data(("catalogue-artist:" + id).utf8)).map {
+      String(format: "%02x", $0)
+    }.joined()
+    guard let request = try? ArtworkRequest(sha: sha, width: 512) else { return nil }
+    do {
+      let data = try await cache.data(for: request) {
+        try await service.artistArtwork(id: id, request: $0)
+      }
+      let thumbnail = try await Task.detached(priority: .utility) {
+        try ArtworkCache.thumbnail(data, width: 512)
+      }.value
+      guard generation == stamp else { return nil }
+      return UIImage(cgImage: thumbnail)
+    } catch NativeFailure.authentication {
+      revoked(generation: stamp)
+      return nil
+    } catch { return nil }
+  }
+  func sortLibrary(_ collection: LibraryCollection, by sort: LibrarySort) async {
+    guard !loadingMore, !syncing else { return }
+    switch collection {
+    case .tracks: songSort = sort
+    case .albums: albumSort = sort
+    case .artists: artistSort = sort
+    case .playlists: return
+    }
+    do { try await loadCache() } catch { message = error.localizedDescription }
+  }
   func more(_ collection: LibraryCollection) async {
     guard let store, !loadingMore, !syncing else { return }
     let stamp = generation
@@ -456,15 +595,15 @@ import UIKit
     do {
       switch collection {
       case .tracks:
-        let next = try await store.tracks(offset: songs.count)
+        let next = try await store.tracks(offset: songs.count, sort: songSort)
         guard generation == stamp else { return }
         songs += next
       case .albums:
-        let next = try await store.albums(offset: albums.count)
+        let next = try await store.albums(offset: albums.count, sort: albumSort)
         guard generation == stamp else { return }
         albums += next
       case .artists:
-        let next = try await store.artists(offset: artists.count)
+        let next = try await store.artists(offset: artists.count, sort: artistSort)
         guard generation == stamp else { return }
         artists += next
       case .playlists: break
@@ -510,7 +649,7 @@ import UIKit
       return nil
     } catch { return nil }
   }
-  private func flushHistory() async {
+  func flushHistory() async {
     guard !flushingHistory, let database = store, let service else { return }
     let stamp = generation
     flushingHistory = true
@@ -593,6 +732,7 @@ import UIKit
     } catch { message = error.localizedDescription }
   }
   private func detach() {
+    watch?.disconnect()
     generation += 1
     liveTask?.cancel()
     liveTask = nil
@@ -602,6 +742,7 @@ import UIKit
     searchSession = nil
     actionTrack = nil
     mutationActive = false
+    pendingEdits = []
     player.clearAccount()
     preferences = AccountPreferences()
     person = nil

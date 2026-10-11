@@ -524,6 +524,24 @@
         "title": "ArtistDetail",
         "type": "object"
       },
+      "ArtistIdentityDTO": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ArtistIdentityDTO",
+        "type": "object"
+      },
       "ArtistLink": {
         "properties": {
           "id": {
@@ -595,6 +613,24 @@
           "user_ids"
         ],
         "title": "Assignment",
+        "type": "object"
+      },
+      "CancelledRequestDTO": {
+        "properties": {
+          "cancelled": {
+            "title": "Cancelled",
+            "type": "boolean"
+          },
+          "continues_for_others": {
+            "title": "Continues For Others",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "cancelled",
+          "continues_for_others"
+        ],
+        "title": "CancelledRequestDTO",
         "type": "object"
       },
       "CatalogueArtistDTO": {
@@ -781,6 +817,116 @@
           "releases"
         ],
         "title": "CatalogueGroupsDTO",
+        "type": "object"
+      },
+      "CataloguePopularSongDTO": {
+        "properties": {
+          "album": {
+            "title": "Album",
+            "type": "string"
+          },
+          "artist": {
+            "title": "Artist",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "release_id": {
+            "title": "Release Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "artist",
+          "album",
+          "release_id"
+        ],
+        "title": "CataloguePopularSongDTO",
+        "type": "object"
+      },
+      "CataloguePopularityDTO": {
+        "properties": {
+          "albums": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogueGroupDTO"
+            },
+            "title": "Albums",
+            "type": "array"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "ranked_album_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ranked Album Ids",
+            "type": "array"
+          },
+          "songs": {
+            "items": {
+              "$ref": "#/components/schemas/CataloguePopularSongDTO"
+            },
+            "title": "Songs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "CataloguePopularityDTO",
+        "type": "object"
+      },
+      "CatalogueProfileDTO": {
+        "properties": {
+          "begin": {
+            "default": "",
+            "title": "Begin",
+            "type": "string"
+          },
+          "country": {
+            "default": "",
+            "title": "Country",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "end": {
+            "default": "",
+            "title": "End",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "default": "",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "CatalogueProfileDTO",
         "type": "object"
       },
       "CatalogueReleaseDTO": {
@@ -1606,6 +1752,32 @@
         "title": "Lookup",
         "type": "object"
       },
+      "LookupMatchDTO": {
+        "properties": {
+          "track": {
+            "$ref": "#/components/schemas/TrackDTO",
+            "nullable": true
+          }
+        },
+        "title": "LookupMatchDTO",
+        "type": "object"
+      },
+      "LookupResultDTO": {
+        "properties": {
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/LookupMatchDTO"
+            },
+            "title": "Matches",
+            "type": "array"
+          }
+        },
+        "required": [
+          "matches"
+        ],
+        "title": "LookupResultDTO",
+        "type": "object"
+      },
       "LookupSong": {
         "properties": {
           "artist": {
@@ -1704,6 +1876,115 @@
           "revision"
         ],
         "title": "MembershipResultDTO",
+        "type": "object"
+      },
+      "NativeMutationInput": {
+        "properties": {
+          "action": {
+            "enum": [
+              "create",
+              "append",
+              "rename",
+              "reorder",
+              "remove",
+              "delete",
+              "favourite",
+              "preferences"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "favourite": {
+            "nullable": true,
+            "title": "Favourite",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 100,
+            "nullable": true,
+            "title": "Name",
+            "type": "string"
+          },
+          "operation_id": {
+            "maxLength": 36,
+            "minLength": 36,
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "order": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 10000,
+            "nullable": true,
+            "title": "Order",
+            "type": "array"
+          },
+          "playlist_id": {
+            "maxLength": 128,
+            "nullable": true,
+            "title": "Playlist Id",
+            "type": "string"
+          },
+          "position": {
+            "minimum": 0.0,
+            "nullable": true,
+            "title": "Position",
+            "type": "integer"
+          },
+          "preferences": {
+            "$ref": "#/components/schemas/Preferences",
+            "nullable": true
+          },
+          "revision": {
+            "minimum": 0.0,
+            "nullable": true,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "track": {
+            "$ref": "#/components/schemas/TrackInput",
+            "nullable": true
+          }
+        },
+        "required": [
+          "operation_id",
+          "action"
+        ],
+        "title": "NativeMutationInput",
+        "type": "object"
+      },
+      "NativeMutationReceipt": {
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "favourited": {
+            "nullable": true,
+            "title": "Favourited",
+            "type": "boolean"
+          },
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "playlist_id": {
+            "nullable": true,
+            "title": "Playlist Id",
+            "type": "string"
+          },
+          "revision": {
+            "nullable": true,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "operation_id",
+          "applied"
+        ],
+        "title": "NativeMutationReceipt",
         "type": "object"
       },
       "OrganiseRequest": {
@@ -1949,6 +2230,10 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "plex": {
+            "$ref": "#/components/schemas/PlaylistPlexDTO",
+            "nullable": true
           },
           "review_count": {
             "default": 0,
@@ -2205,6 +2490,37 @@
           "name"
         ],
         "title": "PlaylistName",
+        "type": "object"
+      },
+      "PlaylistPlexDTO": {
+        "properties": {
+          "available_count": {
+            "nullable": true,
+            "title": "Available Count",
+            "type": "integer"
+          },
+          "pending_count": {
+            "nullable": true,
+            "title": "Pending Count",
+            "type": "integer"
+          },
+          "repeated_count": {
+            "nullable": true,
+            "title": "Repeated Count",
+            "type": "integer"
+          },
+          "status": {
+            "nullable": true,
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "nullable": true,
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "title": "PlaylistPlexDTO",
         "type": "object"
       },
       "PlexAccount": {
@@ -5449,7 +5765,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CataloguePopularityDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -5551,6 +5869,133 @@
           }
         ],
         "summary": "Popular Artist",
+        "tags": [
+          "personal-library"
+        ]
+      }
+    },
+    "/api/v1/catalogue/artists/{artist_id}/profile": {
+      "get": {
+        "operationId": "artist_profile_api_v1_catalogue_artists__artist_id__profile_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "artist_id",
+            "required": true,
+            "schema": {
+              "title": "Artist Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogueProfileDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Artist Profile",
         "tags": [
           "personal-library"
         ]
@@ -5858,7 +6303,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ArtistIdentityDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -7858,6 +8305,132 @@
         ]
       }
     },
+    "/api/v1/library/matches": {
+      "post": {
+        "operationId": "matches_api_v1_library_matches_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Lookup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LookupResultDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Matches",
+        "tags": [
+          "personal-library"
+        ]
+      }
+    },
     "/api/v1/library/membership": {
       "post": {
         "operationId": "add_api_v1_library_membership_post",
@@ -8983,6 +9556,132 @@
         "summary": "Revoke",
         "tags": [
           "accounts"
+        ]
+      }
+    },
+    "/api/v1/mutations": {
+      "post": {
+        "operationId": "native_mutation_api_v1_mutations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeMutationInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NativeMutationReceipt"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Native Mutation",
+        "tags": [
+          "personal-library"
         ]
       }
     },
@@ -12105,6 +12804,133 @@
           }
         ],
         "summary": "Request Tracks",
+        "tags": [
+          "personal-library"
+        ]
+      }
+    },
+    "/api/v1/requests/{request_id}/cancel": {
+      "post": {
+        "operationId": "cancel_request_api_v1_requests__request_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelledRequestDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Cancel Request",
         "tags": [
           "personal-library"
         ]

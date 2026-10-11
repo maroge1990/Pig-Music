@@ -7,12 +7,61 @@ import PigDomain
   public private(set) var records: [DownloadRecord] = []
   public private(set) var progress: [String: Double] = [:]
   public private(set) var running = false
-  public var budgetBytes: Int64 = 5 * 1024 * 1024 * 1024
+  public var budgetBytes: Int64 = 5 * 1024 * 1024 * 1024 {
+    didSet {
+      #if os(iOS)
+        background?.budgetBytes = budgetBytes
+      #endif
+    }
+  }
+  public var allowsCellular = false
+  public var usesBackgroundTransfers: Bool {
+    #if os(iOS)
+      return background != nil
+    #else
+      return false
+    #endif
+  }
+  #if os(iOS)
+    @ObservationIgnored private var background: BackgroundDownloadTransport?
+    public func enableBackground(identifier: String, directory: URL) throws {
+      let transport = try BackgroundTransferHub.transport(
+        identifier: identifier, directory: directory, archive: archive)
+      background = transport
+      transport.budgetBytes = budgetBytes
+      allowsCellular = transport.allowsCellular
+      userPaused = transport.userPaused
+      transport.onUpdate = { [weak self] _, failure, message in
+        guard let self else { return }
+        await reload()
+        if let failure {
+          onFailure(failure)
+        } else if let message {
+          onFailure(
+            NSError(
+              domain: "PigMusicDownloads", code: 1, userInfo: [NSLocalizedDescriptionKey: message]))
+        }
+        if preparationAllowed { resume(automatic: true) }
+      }
+      transport.onProgress = { [weak self] id, bytes, total in
+        guard let self else { return }
+        progress[id] = total > 0 ? Double(bytes) / Double(total) : 0
+      }
+    }
+    public func setCellular(_ enabled: Bool) async {
+      await pause()
+      allowsCellular = enabled
+      background?.allowsCellular = enabled
+      resume()
+    }
+  #endif
   public let archive: DownloadArchive
   @ObservationIgnored private let source: any DeviceCopySource
   @ObservationIgnored private let onFailure: @MainActor (any Error) -> Void
   @ObservationIgnored private var worker: Task<Void, Never>?
   @ObservationIgnored private var generation = 0
+  @ObservationIgnored private var userPaused = false
+  @ObservationIgnored private var preparationAllowed = true
   public init(
     archive: DownloadArchive, source: any DeviceCopySource,
     onFailure: @escaping @MainActor (any Error) -> Void = { _ in }
@@ -27,8 +76,19 @@ import PigDomain
     await reload()
     resume()
   }
-  public func resume() {
-    guard worker == nil else { return }
+  public func resume(automatic: Bool = false) {
+    guard !automatic || !userPaused else { return }
+    if !automatic {
+      userPaused = false
+      preparationAllowed = true
+      #if os(iOS)
+        background?.userPaused = false
+      #endif
+    }
+    guard preparationAllowed, worker == nil else { return }
+    #if os(iOS)
+      if let background, !background.ready { return }
+    #endif
     let stamp = generation
     running = true
     worker = Task {
@@ -39,6 +99,9 @@ import PigDomain
         }
       }
       while !Task.isCancelled, generation == stamp {
+        #if os(iOS)
+          if let background, background.activeCount >= 128 { break }
+        #endif
         let all = await archive.snapshot()
         guard let record = all.first(where: { $0.state == "queued" }) else { break }
         do {
@@ -55,11 +118,16 @@ import PigDomain
               trackId: record.id, quality: record.quality, create: false)
           }
           let request = try await source.copyRequest(trackId: record.id, quality: record.quality)
-          try await archive.transfer(
-            record, manifest: manifest, request: request, budget: budgetBytes
-          ) { [weak self] bytes, total in
-            await self?.updateProgress(id: record.id, bytes: bytes, total: total, stamp: stamp)
-          }
+          #if os(iOS)
+            if let background {
+              try await background.enqueue(record: record, manifest: manifest, request: request)
+            } else {
+              try await foregroundTransfer(
+                record, manifest: manifest, request: request, stamp: stamp)
+            }
+          #else
+            try await foregroundTransfer(record, manifest: manifest, request: request, stamp: stamp)
+          #endif
         } catch is CancellationError { break } catch {
           guard generation == stamp else { break }
           try? await archive.fail(id: record.id, message: error.localizedDescription)
@@ -71,6 +139,14 @@ import PigDomain
       }
     }
   }
+  private func foregroundTransfer(
+    _ record: DownloadRecord, manifest: DeviceCopy, request: URLRequest, stamp: Int
+  ) async throws {
+    try await archive.transfer(record, manifest: manifest, request: request, budget: budgetBytes) {
+      [weak self] bytes, total in
+      await self?.updateProgress(id: record.id, bytes: bytes, total: total, stamp: stamp)
+    }
+  }
   private func updateProgress(id: String, bytes: Int64, total: Int64, stamp: Int) async {
     if generation == stamp {
       progress[id] = total > 0 ? Double(bytes) / Double(total) : 0
@@ -80,28 +156,60 @@ import PigDomain
   }
   public func remove(id: String) async {
     await pause()
+    #if os(iOS)
+      let retained = Set(records.map(\.id)).subtracting([id])
+      await background?.reconcile(retained)
+    #endif
     try? await archive.remove(id: id)
     await reload()
     progress[id] = nil
     resume()
   }
-  public func pause() async {
+  /// Preparation pauses with the scene, while OS-managed transfers continue.
+  public func suspendPreparation() async {
+    preparationAllowed = false
+    await stopWorker()
+    if !usesBackgroundTransfers { try? await archive.interruptRunning() }
+    await reload()
+  }
+  public func resumePreparation() {
+    preparationAllowed = true
+    resume(automatic: true)
+  }
+  private func stopWorker() async {
     generation += 1
     let previous = worker
     previous?.cancel()
     await previous?.value
     worker = nil
     running = false
+  }
+  public func pause() async {
+    userPaused = true
+    #if os(iOS)
+      background?.userPaused = true
+    #endif
+    await stopWorker()
+    #if os(iOS)
+      await background?.pause()
+    #endif
     try? await archive.interruptRunning()
     await reload()
   }
   public func reconcile(_ allowed: [String: String?]) async {
-    await pause()
+    await stopWorker()
+    #if os(iOS)
+      await background?.reconcile(Set(allowed.keys), revisions: allowed)
+    #endif
+    if !usesBackgroundTransfers { try? await archive.interruptRunning() }
     try? await archive.reconcile(allowed)
     await reload()
   }
   public func clear() async {
     await pause()
+    #if os(iOS)
+      await background?.clear()
+    #endif
     try? await archive.clear()
     await reload()
     progress = [:]

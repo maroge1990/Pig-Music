@@ -465,6 +465,34 @@ class UserLibrary:
                 cleared += 1
         return {"cleared": cleared}
 
+    @coordinated
+    def cancel_request(self, user_id, request_id):
+        """Withdraw one beneficiary; shared downloads continue for remaining people."""
+        with self.store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT status,payload FROM queue WHERE id=?", (request_id,)
+            ).fetchone()
+            if not row or user_id not in json.loads(row[1]).get("requested_by", []):
+                raise LookupError("Request not found")
+            if row[0] not in {
+                "waiting_for_sources",
+                "searching",
+                "downloading",
+                "validating",
+            }:
+                raise ValueError("Only active requests can be cancelled")
+            payload = json.loads(row[1])
+            payload["requested_by"] = [
+                identity for identity in payload["requested_by"] if identity != user_id
+            ]
+            remaining = bool(payload["requested_by"])
+            conn.execute(
+                "UPDATE queue SET payload=?,status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (json.dumps(payload), row[0] if remaining else "cancelled", request_id),
+            )
+        return {"cancelled": True, "continues_for_others": remaining}
+
     def retry_request(self, user_id, request_id):
         """Requeue one of this person's failed or cancelled requests."""
         with self.store.connect() as conn:

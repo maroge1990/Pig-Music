@@ -1,14 +1,19 @@
 import PigBrand
+import PigDownloads
 import SwiftUI
+import UIKit
 
 @main struct PigMusicApp: App {
+  @UIApplicationDelegateAdaptor(PigMusicAppDelegate.self) private var delegate
   @State private var model = AppModel()
   @Environment(\.scenePhase) private var phase
   var body: some Scene {
     WindowGroup {
       RootView(model: model)
         .task { await model.restore() }
-        .onChange(of: phase) { _, value in Task { await model.sceneActive(value == .active) } }
+        .onChange(of: phase, initial: true) { _, value in
+          Task { await model.sceneActive(value == .active) }
+        }
     }
   }
 }
@@ -163,4 +168,13 @@ private struct PigCanvas: ViewModifier {
 }
 extension View {
   func pigCanvas() -> some View { modifier(PigCanvas()) }
+}
+
+@MainActor final class PigMusicAppDelegate: NSObject, UIApplicationDelegate {
+  func application(
+    _ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+    completionHandler: @escaping () -> Void
+  ) {
+    BackgroundTransferHub.handleEvents(identifier: identifier, completion: completionHandler)
+  }
 }

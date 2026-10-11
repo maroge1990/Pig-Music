@@ -51,6 +51,11 @@ jobs:
           xcodebuild -quiet -project swift/PigMusic.xcodeproj -scheme PigMusic \
             -destination 'generic/platform=iOS Simulator' -derivedDataPath swift/build/PigMusic \
             -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO build
+      - name: Unsigned production Watch build
+        run: |
+          xcodebuild -quiet -project swift/PigMusic.xcodeproj -scheme PigMusicWatch \
+            -destination 'generic/platform=watchOS Simulator' -derivedDataPath swift/build/PigMusic \
+            -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO build
       - name: Shared core tests
         run: swift test --package-path swift/NativeSpike
       - name: Unsigned iPhone and embedded Watch simulator build

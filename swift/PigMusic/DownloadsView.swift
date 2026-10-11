@@ -32,10 +32,19 @@ private struct DownloadList: View {
           downloads.budgetBytes = Int64(value) * 1024 * 1024 * 1024
           model.saveDownloadBudget(downloads.budgetBytes)
         }
+        if downloads.usesBackgroundTransfers {
+          Toggle(
+            "Allow cellular downloads",
+            isOn: Binding(
+              get: { downloads.allowsCellular },
+              set: { value in Task { await downloads.setCellular(value) } }))
+        }
         Text(
-          "Downloads use Wi-Fi. Originals are the default; AAC copies use less storage. Use AAC for originals your device cannot decode. Keep the app open while downloading. Access changes reconcile when you next connect."
+          (downloads.allowsCellular
+            ? "Downloads can use Wi-Fi and cellular. " : "Downloads use Wi-Fi. ")
+            + "Originals are the default; AAC copies use less storage. Use AAC for originals your device cannot decode. Scheduled file transfers continue in the background. Preparing new downloads and AAC copies resumes when the app opens. Access changes reconcile when you next connect."
         ).font(PigType.footnote)
-        if downloads.running {
+        if downloads.running || downloads.records.contains(where: { $0.state == "downloading" }) {
           Button("Pause downloads") { Task { await downloads.pause() } }
         } else {
           Button("Resume queued downloads") { downloads.resume() }

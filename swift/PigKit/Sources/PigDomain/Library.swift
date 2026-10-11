@@ -74,6 +74,7 @@ public struct Playlist: Codable, Sendable, Identifiable, Hashable {
   public var revision: Int
   public var favourites: Bool?
   public var trackCount: Int?
+  public var plex: PlaylistPlexStatus?
   public var entries: [PlaylistEntry]?
 }
 
@@ -166,4 +167,8 @@ extension PlaylistEntry {
       householdAvailable == true && savedId != nil ? "household_available" : "not_in_library"
     return track
   }
+}
+
+public enum LibrarySort: String, Codable, Sendable, CaseIterable {
+  case title, artist, titleDescending
 }

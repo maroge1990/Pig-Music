@@ -75,6 +75,24 @@ import PigPlayback
       stop()
     }
   }
+  var repeatMode: PlaybackRepeat = .off {
+    didSet {
+      defaults.set(repeatMode.rawValue, forKey: "pig.playback.repeat")
+      if usingEngine { engine?.setRepeatMode(repeatMode) }
+    }
+  }
+  private(set) var shuffled = false
+  @ObservationIgnored private var originalOrder: [PlaybackOccurrence] = []
+  func toggleShuffle() {
+    if shuffled {
+      queue.restoreUpcoming(originalOrder)
+    } else {
+      originalOrder = queue.items
+      queue.shuffleUpcoming()
+    }
+    shuffled.toggle()
+    engineQueueChanged()
+  }
   var crossfadeEnabled: Bool {
     didSet { defaults.set(crossfadeEnabled, forKey: "pig.playback.crossfade") }
   }
@@ -99,7 +117,9 @@ import PigPlayback
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
-    seamlessEnabled = defaults.bool(forKey: "pig.playback.seamless")
+    repeatMode =
+      PlaybackRepeat(rawValue: defaults.string(forKey: "pig.playback.repeat") ?? "off") ?? .off
+    seamlessEnabled = defaults.object(forKey: "pig.playback.seamless") as? Bool ?? true
     crossfadeEnabled = defaults.object(forKey: "pig.playback.crossfade") as? Bool ?? true
     #if DEBUG
       if ProcessInfo.processInfo.arguments.contains("--seamless-demo") { seamlessEnabled = true }
@@ -112,7 +132,7 @@ import PigPlayback
           guard let self, !self.usingEngine, let item = self.player.currentItem,
             identity == ObjectIdentifier(item)
           else { return }
-          self.next()
+          self.finishedStreaming()
         }
       })
     observations.append(
@@ -247,6 +267,8 @@ import PigPlayback
       queue = restored.queue
     } else {
       queue.replace(tracks, startingAt: startingAt)
+      shuffled = false
+      originalOrder = []
     }
     pendingSeek = restored?.elapsed ?? 0
     elapsed = pendingSeek
@@ -263,7 +285,7 @@ import PigPlayback
       }
       engine.replace(
         queue.items, startingAt: queue.index, autoplay: intent.canPlay,
-        crossfade: crossfadeEnabled,
+        crossfade: crossfadeEnabled, repeatMode: repeatMode,
         acquire: { item in
           let url = try await resolve(item.track)
           if url.isFileURL { return try await repository.acquireLocal(item.track, file: url) }
@@ -282,6 +304,7 @@ import PigPlayback
   private func accept(_ snapshot: QueuePlaybackSnapshot) {
     guard usingEngine else { return }
     queue.select(index: snapshot.index)
+    if let id = snapshot.occurrenceID { queue.renewOccurrence(at: snapshot.index, id: id) }
     elapsed = snapshot.elapsed
     duration = snapshot.duration
     playing = snapshot.state == .playing
@@ -434,10 +457,39 @@ import PigPlayback
     suspend()
     checkpoint(force: true)
   }
+  private func finishedStreaming() {
+    if repeatMode == .one {
+      queue.renewOccurrence(at: queue.index, id: UUID())
+      prepareStreaming()
+    } else {
+      next()
+    }
+  }
+  func retry(streaming: Bool = false, fromBeginning: Bool = false) {
+    guard let resolve else { return }
+    let checkpoint = PlaybackCheckpoint(
+      queue: queue, elapsed: fromBeginning || elapsed >= duration ? 0 : elapsed)
+    if streaming { seamlessEnabled = false }
+    play(
+      checkpoint.queue.items.map(\.track), startingAt: checkpoint.queue.index,
+      restored: checkpoint,
+      artwork: artworkSource ?? { _ in nil }, resolve: resolve)
+  }
   func next() {
     if usingEngine {
-      if queue.index + 1 < queue.items.count { engine?.next() } else { pause() }
+      if queue.index + 1 < queue.items.count {
+        engine?.next()
+      } else if repeatMode == .all {
+        queue.select(index: 0)
+        retry(fromBeginning: true)
+      } else {
+        pause()
+      }
     } else if queue.next() {
+      prepareStreaming()
+    } else if repeatMode == .all, !queue.items.isEmpty {
+      queue.select(index: 0)
+      for index in queue.items.indices { queue.renewOccurrence(at: index, id: UUID()) }
       prepareStreaming()
     } else {
       pause()

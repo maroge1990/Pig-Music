@@ -1,8 +1,8 @@
 # Pig Music blueprint and engineering handover
 
-Primary handover document. Updated 11 October 2026 (Australia/Melbourne).
+Primary handover document. Updated 12 October 2026 (Australia/Melbourne).
 
-Latest native candidate: [expanded everyday iPhone/iPad build](docs/native-everyday-build-20261011.md), with [installation and acceptance handoff](docs/native-testing-handoff-20261011.md). The owner authorized pushing this candidate to main; live deployment is separate. Core personal actions, foreground original/AAC downloads, SSE and queue/history persistence are implemented; hardware acceptance, OS background transfers, deeper parity workflows, production Watch and Mac remain open.
+Latest native candidate: [iPhone/iPad parity software and production Watch build](docs/native-phone-watch-build-20261012.md), version 0.2.0 (2), with the [testing handoff](docs/native-testing-handoff-20261011.md). Everyday reads/actions, transactional offline edits, background file downloads, import selection, library sorting and a credential-free Watch AAC archive/player are implemented. Three 50k-user metadata syncs pass locally. Publishing to main is authorized; live deployment is separate. Signing currently needs a usable Apple Account session/profiles; Watch Developer Mode follows build completion. Physical phone/iPad/Watch, provider, accessibility and Linux image acceptance remain open. Mac remains later scope.
 
 Read this document first. It records the product contract, current implementation, prioritised future work and the decisions behind it. Update it at the end of every meaningful delivery, including verification and any remaining gaps. A plan is not evidence of delivery: distinguish **delivered**, **in progress**, **planned**, **proposed** and **unverified**.
 

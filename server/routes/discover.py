@@ -15,6 +15,9 @@ from ..api_models import (
     CatalogueReleaseDTO,
     CatalogueTrackDTO,
     CatalogueArtistsDTO,
+    CataloguePopularityDTO,
+    CatalogueProfileDTO,
+    ArtistIdentityDTO,
 )
 from ..user_library import track_dto
 
@@ -108,11 +111,26 @@ def discover_router(store, catalogue, popularity=None, warmer=None):
             ],
         }
 
-    @router.get("/artists/{artist_id}/popularity")
+    @router.get(
+        "/artists/{artist_id}/popularity", response_model=CataloguePopularityDTO
+    )
     async def popular_artist(artist_id: str, request: Request):
         return await popularity.get(request.app.state.http, valid(artist_id))
 
-    @router.get("/library-artists/{artist_id}")
+    @router.get("/artists/{artist_id}/profile", response_model=CatalogueProfileDTO)
+    async def artist_profile(artist_id: str, request: Request):
+        found = await metadata(request, "artist/" + valid(artist_id))
+        return {
+            "id": valid(artist_id),
+            "name": found.get("name") or "",
+            "description": found.get("disambiguation") or "",
+            "type": found.get("type") or "",
+            "country": found.get("country") or "",
+            "begin": (found.get("life-span") or {}).get("begin") or "",
+            "end": (found.get("life-span") or {}).get("end") or "",
+        }
+
+    @router.get("/library-artists/{artist_id}", response_model=ArtistIdentityDTO)
     async def saved_identity(artist_id: str, request: Request):
         projection = await asyncio.to_thread(
             store.user_libraries.projection, request.state.user["id"]
