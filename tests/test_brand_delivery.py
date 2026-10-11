@@ -44,6 +44,10 @@ def test_vendored_radiance_matches_approved_release():
     provenance = json.loads((SOURCE / "docs/brand-asset-provenance.json").read_text())
     tokens = json.loads((SOURCE / "docs/pig-family-brand-tokens.json").read_text())
     assert provenance["version"] == tokens["version"]
+    for asset in provenance["assets"]:
+        copied = (SOURCE / asset["copiedTo"]).read_bytes()
+        assert len(copied) == asset["bytes"], asset["path"]
+        assert hashlib.sha256(copied).hexdigest() == asset["sha256"], asset["path"]
     radiance = next(
         a for a in provenance["assets"] if a["path"] == "tokens/pig-radiance.css"
     )

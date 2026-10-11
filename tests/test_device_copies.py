@@ -3,6 +3,8 @@ import hashlib
 import json
 import shutil
 import wave
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -27,7 +29,9 @@ def test_original_copy_checks_membership_and_supports_ranges(tmp_path, monkeypat
         assert client.get("/api/v1/tracks/song/copy").status_code == 404
         assert client.get("/api/v1/tracks/song/copy/file").status_code == 404
         app.state.store.user_libraries.add(member, ["song"])
-        response = client.post("/api/v1/tracks/song/copy").json()
+        response = client.post("/api/v1/tracks/song/copy")
+        assert response.status_code == 200, response.text
+        response = response.json()
         assert response["state"] == "ready"
         assert response["sha256"] == hashlib.sha256(payload).hexdigest()
         assert response["bytes"] == len(payload)
@@ -235,3 +239,51 @@ def test_compatible_aac_reuses_audio_packets_and_preserves_cover(tmp_path, monke
         await copies.close()
 
     asyncio.run(exercise())
+
+
+def test_hashing_ignores_access_time_only_change(tmp_path, monkeypatch):
+    source, copies = audio_fixture(tmp_path, monkeypatch)
+    actual_stat = Path.stat
+    actual_checksum = checksum
+    read = [False]
+
+    def filesystem_stat(path, *args, **kwargs):
+        result = actual_stat(path, *args, **kwargs)
+        if path == source:
+            values = {
+                name: getattr(result, name)
+                for name in dir(result)
+                if name.startswith("st_")
+            }
+            if read[0]:
+                values["st_atime"] += 1
+                values["st_atime_ns"] += 1_000_000_000
+            return SimpleNamespace(**values)
+        return result
+
+    def read_checksum(path):
+        digest = actual_checksum(path)
+        read[0] = True
+        return digest
+
+    monkeypatch.setattr(Path, "stat", filesystem_stat)
+    monkeypatch.setattr("server.device_copies.checksum", read_checksum)
+    ready = copies.manifest("song", "original", True)
+    assert ready["state"] == "ready"
+    assert ready["sha256"] == actual_checksum(source)
+
+
+def test_hashing_rejects_content_changed_during_read(tmp_path, monkeypatch):
+    source, copies = audio_fixture(tmp_path, monkeypatch)
+    actual_checksum = checksum
+
+    def changed_checksum(path):
+        digest = actual_checksum(path)
+        with path.open("ab") as stream:
+            stream.write(b"changed after hash")
+        return digest
+
+    monkeypatch.setattr("server.device_copies.checksum", changed_checksum)
+    with pytest.raises(ValueError, match="source changed"):
+        copies.manifest("song", "original", True)
+    assert not copies.hashes

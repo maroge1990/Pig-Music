@@ -21,6 +21,17 @@ def checksum(path):
     return digest.hexdigest()
 
 
+def source_stamp(stat):
+    """Content/identity metadata; reading may legitimately change access time."""
+    return (
+        stat.st_dev,
+        stat.st_ino,
+        stat.st_size,
+        stat.st_mtime_ns,
+        stat.st_ctime_ns,
+    )
+
+
 @lru_cache(maxsize=1)
 def encoder_version():
     try:
@@ -67,19 +78,12 @@ class DeviceCopies:
         stat = path.stat()
         if not 0 < stat.st_size <= 2 * 1024**3:
             raise ValueError("This source is outside the supported device-copy size.")
-        signature = (
-            str(path),
-            stat.st_dev,
-            stat.st_ino,
-            stat.st_size,
-            stat.st_mtime_ns,
-            stat.st_ctime_ns,
-        )
+        signature = (str(path), *source_stamp(stat))
         with self.lock:
             digest = self.hashes.get(signature)
         if digest is None:
             digest = checksum(path)
-            if path.stat() != stat:
+            if source_stamp(path.stat()) != source_stamp(stat):
                 raise ValueError("The source changed. Request it again after scanning.")
             with self.lock:
                 self.hashes[signature] = digest

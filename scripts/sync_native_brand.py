@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import shutil
+import struct
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +28,37 @@ def sync(source):
     copy(
         source / "tokens/brand-tokens.json", ROOT / "docs/pig-family-brand-tokens.json"
     )
+
+    # Tokens are shared by web and native. Refresh the existing shared receipt and
+    # its already-vendored assets together, without changing web layout or behavior.
+    receipt_path = ROOT / "docs/brand-asset-provenance.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt["version"] = tokens["version"]
+    for entry in receipt["assets"]:
+        src = source / entry["path"]
+        payload = src.read_bytes()
+        if entry["path"] == "tokens/brand-tokens.json":
+            destination = ROOT / "docs/pig-family-brand-tokens.json"
+        elif entry["path"] == "tokens/pig-radiance.css":
+            destination = ROOT / "client/src/brand/pig-radiance.css"
+        elif "/Apple/" in entry["path"]:
+            destination = (
+                ROOT / "swift/PigMusic/Assets.xcassets/AppIcon.appiconset" / src.name
+            )
+        else:
+            destination = ROOT / "client/public/brand" / src.name
+        shutil.copy2(src, destination)
+        entry.update(
+            copiedTo=str(destination.relative_to(ROOT)),
+            bytes=len(payload),
+            sha256=hashlib.sha256(payload).hexdigest(),
+        )
+        if src.suffix == ".png":
+            entry["width"], entry["height"] = struct.unpack(">II", payload[16:24])
+            entry["mode"] = {2: "RGB", 6: "RGBA"}[payload[25]]
+        elif src.suffix == ".svg":
+            entry["svgType"] = "self-contained-vector"
+    receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
 
     def imageset(catalog, name, files, vector=False):
         folder = catalog / (name + ".imageset")

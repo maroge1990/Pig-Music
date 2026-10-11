@@ -1,125 +1,139 @@
 {
-  "version": "1.5.1",
+  "version": "1.7.0",
   "source": "https://github.com/maroge1990/Pig-Branding",
   "assets": [
     {
       "path": "tokens/brand-tokens.json",
-      "bytes": 7254,
-      "sha256": "3676aefa37a63906fc356e5b6a890ce3956a266a11d85ca227deb4bf23b2e0b9",
-      "status": "production"
+      "bytes": 10996,
+      "sha256": "fc28d72153063243b80f18e45cee3965b7a8643c1d0f11be1fbadce731d628ae",
+      "status": "production",
+      "copiedTo": "docs/pig-family-brand-tokens.json"
     },
     {
       "path": "tokens/pig-radiance.css",
       "status": "production",
       "copiedTo": "client/src/brand/pig-radiance.css",
       "bytes": 3498,
-      "sha256": "dc837c535c4f06a2663d953988505dd567bebd6b17a14324ea729afa75e0798c"
+      "sha256": "9ee418dfe79ee66abb53d49ec1db059364ddf1de4014060682141a88a6f1c7dc"
     },
     {
       "path": "assets/products/pig-music/mark.png",
-      "bytes": 355110,
-      "sha256": "ad8ddf1b2e022c0a20aa3759dc4b74d8c05d03da5117f35220052c7f6516b937",
+      "bytes": 27891,
+      "sha256": "2acbe67d4e52d3cd87a00e46b3b9579b0ef042b9244219af15957ccddbdc1b6b",
       "status": "production",
       "width": 1024,
       "height": 1024,
-      "mode": "RGBA"
+      "mode": "RGBA",
+      "copiedTo": "client/public/brand/mark.png"
     },
     {
       "path": "assets/products/pig-music/lockup-horizontal-light.svg",
-      "bytes": 295586,
-      "sha256": "4206499f5a2f75bb6b8d26a08e88353801422a833af00cf3238565fe035d591a",
+      "bytes": 35253,
+      "sha256": "e66bc66156e73665c028c42b8eb502fb4513ad142421e9393b2cc7e8e4287e24",
       "status": "production",
-      "svgType": "hybrid-raster-and-paths"
+      "svgType": "self-contained-vector",
+      "copiedTo": "client/public/brand/lockup-horizontal-light.svg"
     },
     {
       "path": "assets/products/pig-music/lockup-horizontal-dark.svg",
-      "bytes": 295586,
-      "sha256": "9cc1932d01438c41a48452d163b4fb50c5eeac3759e9c847dce7c5f95b20eedc",
+      "bytes": 35253,
+      "sha256": "8de1c4d91fc94d35ff8d6427ce30cde404f21d360489de2433061d54695c0110",
       "status": "production",
-      "svgType": "hybrid-raster-and-paths"
+      "svgType": "self-contained-vector",
+      "copiedTo": "client/public/brand/lockup-horizontal-dark.svg"
     },
     {
       "path": "assets/products/pig-music/wordmark-light.svg",
       "bytes": 7281,
       "sha256": "c2385950292799c28f534946feaee3ba63cf9347e1b182f5477ab65f561f9625",
       "status": "production",
-      "svgType": "outlined-vector"
+      "svgType": "self-contained-vector",
+      "copiedTo": "client/public/brand/wordmark-light.svg"
     },
     {
       "path": "assets/products/pig-music/wordmark-dark.svg",
       "bytes": 7281,
       "sha256": "b0e306224739c1403cfb7c20a9b5e076cae1121716b158e2dd22c9c4b01f759c",
       "status": "production",
-      "svgType": "outlined-vector"
+      "svgType": "self-contained-vector",
+      "copiedTo": "client/public/brand/wordmark-dark.svg"
     },
     {
       "path": "assets/products/pig-music/icons/web-light-32.png",
-      "bytes": 1885,
-      "sha256": "18651e1f3b6114c9f081c2c5a66ac4bbf93577bd5cca2fa81cd11a0362fa7073",
+      "bytes": 1902,
+      "sha256": "c4f0ca103a81faf2a89c5e6678438bf4494848ed965d732893db8b26be0656f3",
       "status": "production",
       "width": 32,
       "height": 32,
-      "mode": "RGB"
+      "mode": "RGB",
+      "copiedTo": "client/public/brand/web-light-32.png"
     },
     {
       "path": "assets/products/pig-music/icons/web-dark-32.png",
-      "bytes": 1806,
-      "sha256": "bf7f9b4f78f9f128d487acbcc6192adda98c78822d0ba4f9436c65c03f0f5f33",
+      "bytes": 1799,
+      "sha256": "2cd041caaefa751b45d629726be1b3092d0959f2f2666429787bc6b871d4341f",
       "status": "production",
       "width": 32,
       "height": 32,
-      "mode": "RGB"
+      "mode": "RGB",
+      "copiedTo": "client/public/brand/web-dark-32.png"
     },
     {
       "path": "assets/products/pig-music/icons/web-light-180.png",
-      "bytes": 30352,
-      "sha256": "d0125328a2bc43fff3e6259da5e9d0cecf2713b81d1097a633941b8c577c5a9c",
+      "bytes": 27101,
+      "sha256": "99d1e0b450a8a4b2fe9e2c48d7e50b2429761d8028ed299d1176daf08703241c",
       "status": "production",
       "width": 180,
       "height": 180,
-      "mode": "RGB"
+      "mode": "RGB",
+      "copiedTo": "client/public/brand/web-light-180.png"
     },
     {
       "path": "assets/products/pig-music/icons/web-light-192.png",
-      "bytes": 34032,
-      "sha256": "0ad5b18f5413ae9866e2b92a1381c1c8dc95e3e35b66676e4057ec8d78a3aa5b",
+      "bytes": 30040,
+      "sha256": "e2dd6c78541be94f76b212db82b25785dc7de49935112d101da88ca077134508",
       "status": "production",
       "width": 192,
       "height": 192,
-      "mode": "RGB"
+      "mode": "RGB",
+      "copiedTo": "client/public/brand/web-light-192.png"
     },
     {
       "path": "assets/products/pig-music/icons/web-light-512.png",
-      "bytes": 168877,
-      "sha256": "59105d4c49fb712d267c99fbdc6be7652a744bac887da44f34ff22c4083c77fd",
+      "bytes": 120364,
+      "sha256": "8b601347f6c1806ba0416b92516564a188d5ac0fd9be39dd8a68ebee732ecf9e",
       "status": "production",
       "width": 512,
       "height": 512,
-      "mode": "RGB"
+      "mode": "RGB",
+      "copiedTo": "client/public/brand/web-light-512.png"
     },
     {
       "path": "assets/products/pig-music/Apple/AppIcon.appiconset/Contents.json",
       "bytes": 444,
       "sha256": "c17dcfcb61a5a2b1d11a6565986917bee7d025ac66902fd55cb2722b7aa12e68",
-      "status": "production"
+      "status": "production",
+      "copiedTo": "swift/PigMusic/Assets.xcassets/AppIcon.appiconset/Contents.json"
     },
     {
       "path": "assets/products/pig-music/Apple/AppIcon.appiconset/light.png",
-      "bytes": 456624,
-      "sha256": "a407d15818c3b46d38c022602a4ed718a5dd3c1265d97cf69d08d112a287f289",
+      "bytes": 182847,
+      "sha256": "5a769b86cb209a74eabd2aeab4c48a7d3075194e93ba3723ac416bdafb224294",
       "status": "production",
       "width": 1024,
       "height": 1024,
-      "mode": "RGB"
+      "mode": "RGB",
+      "copiedTo": "swift/PigMusic/Assets.xcassets/AppIcon.appiconset/light.png"
     },
     {
       "path": "assets/products/pig-music/Apple/AppIcon.appiconset/dark.png",
-      "bytes": 428148,
-      "sha256": "567273402be16103ea673f35aef5767d68913cf1f7574830b446c1154cb25284",
+      "bytes": 174263,
+      "sha256": "c0ee445b32ecc938180813da23207f013087b44c2f14ae285fd7ed0b2ac4edc1",
       "status": "production",
       "width": 1024,
       "height": 1024,
-      "mode": "RGB"
+      "mode": "RGB",
+      "copiedTo": "swift/PigMusic/Assets.xcassets/AppIcon.appiconset/dark.png"
     }
   ]
 }
