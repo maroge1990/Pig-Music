@@ -6,6 +6,8 @@
   /* Space between the floating phone dock and the screen edge. */
   --dock-gap: max(var(--space-8), env(safe-area-inset-bottom));
   --radius-dock: 1.5rem;
+  /* Height of each dock row: the tabs and, while playing, the player. */
+  --dock-row: 3.25rem;
   --dock-surface: var(--surface);
 }
 
@@ -601,11 +603,22 @@
     box-shadow: 0 0.5rem 1.5rem var(--shadow-soft);
     grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   }
+  /* The tab row and the player row share one height. */
+  .personal-header .app-nav {
+    padding: 2px var(--space-4);
+  }
   .personal-header .app-nav a {
     min-width: 0;
-    padding: var(--space-4) 0;
+    min-height: calc(var(--dock-row) - 4px);
+    padding: 0;
+    gap: 1px;
     border-radius: var(--radius-capsule);
     letter-spacing: -0.2px;
+    font-size: 0.6875rem;
+  }
+  .personal-header .app-nav a svg {
+    width: 18px;
+    height: 18px;
   }
   .personal-header .app-nav a span:not(.nav-badge) {
     max-width: 100%;
@@ -641,7 +654,8 @@
     width: auto;
     transform: none;
     bottom: calc(var(--dock-gap) + var(--mobile-nav-height, 4rem));
-    padding: var(--space-8) var(--space-8) var(--space-4) var(--space-8);
+    min-height: var(--dock-row);
+    padding: 0 var(--space-8);
     border: 0;
     border-radius: var(--radius-dock) var(--radius-dock) 0 0;
     background: none;
