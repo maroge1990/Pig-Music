@@ -143,11 +143,12 @@ public actor NativeService: LibrarySource {
         var track: Track
         if let saved = item.saved_track {
           track = try LibraryCodec.convert(saved)
+        } else if let household = item.household_track {
+          track = try LibraryCodec.convert(household)
         } else {
           track = try LibraryCodec.convert(item)
+          track.serverState = "not_in_library"
         }
-        // Household and requested songs still require remote resolution, never file access.
-        if item.saved_track == nil { track.serverState = "not_in_library" }
         track.trackNumber = item.track_number
         track.discNumber = item.disc_number
         return CatalogueSong(
@@ -156,6 +157,96 @@ public actor NativeService: LibrarySource {
       return CatalogueRelease(id: value.id, title: value.title, artist: value.artist, songs: songs)
     case .unauthorized: throw NativeFailure.authentication
     default: throw NativeFailure.unavailable("This album is unavailable. Try again shortly.")
+    }
+  }
+
+  public func searchServer(query: String, offset: Int = 0, revision: String? = nil) async throws
+    -> ServerSearchPage
+  {
+    switch try await client.search_api_v1_search_get(
+      .init(
+        query: .init(q: SearchText.clean(query), offset: offset, limit: 100, revision: revision)))
+    {
+    case .ok(let response): return try LibraryCodec.convert(response.body.json)
+    case .unauthorized: throw NativeFailure.authentication
+    case .conflict: throw NativeFailure.changed
+    default:
+      throw NativeFailure.unavailable(
+        "Server search is unavailable. Your cached results are still accessible.")
+    }
+  }
+  public func catalogueArtists(query: String, offset: Int = 0) async throws -> CatalogueArtistPage {
+    switch try await client.artists_api_v1_catalogue_artists_get(
+      .init(query: .init(q: SearchText.clean(query), offset: offset, limit: 20)))
+    {
+    case .ok(let response): return try LibraryCodec.convert(response.body.json)
+    case .unauthorized: throw NativeFailure.authentication
+    default:
+      throw NativeFailure.unavailable(
+        "Catalogue search is unavailable. Your library is still accessible.")
+    }
+  }
+  private func input(_ track: Track) -> Components.Schemas.TrackInput {
+    .init(
+      album: track.album,
+      album_artist: (track.albumArtist?.isEmpty == false ? track.albumArtist : track.artist),
+      artist: track.artist, disc_number: track.discNumber, duration: track.duration,
+      musicbrainz_recording_id: track.musicbrainzRecordingId,
+      musicbrainz_release_id: track.musicbrainzReleaseId,
+      title: track.title, track_number: track.trackNumber, year: track.year?.text)
+  }
+  public func favourite(_ track: Track, value: Bool? = nil) async throws -> Bool {
+    switch try await client.favourite_api_v1_favourites_post(
+      .init(body: .json(.init(favourite: value, track: input(track)))))
+    {
+    case .ok(let response): return try response.body.json.favourited
+    case .unauthorized: throw NativeFailure.authentication
+    default:
+      throw NativeFailure.unavailable(
+        "The favourite change could not be confirmed. Refresh before trying again.")
+    }
+  }
+  public func addMembership(trackIds: [String]) async throws -> Int {
+    switch try await client.add_api_v1_library_membership_post(
+      .init(body: .json(.init(track_ids: trackIds))))
+    {
+    case .ok(let response): return try response.body.json.added
+    case .unauthorized: throw NativeFailure.authentication
+    default:
+      throw NativeFailure.unavailable(
+        "The library change could not be confirmed. Refresh before trying again.")
+    }
+  }
+  public func requestMusic(_ tracks: [Track]) async throws -> AcquisitionResult {
+    guard !tracks.isEmpty, tracks.count <= 500 else {
+      throw NativeFailure.unavailable("Choose between one and 500 songs per request.")
+    }
+    switch try await client.request_tracks_api_v1_requests_post(
+      .init(body: .json(.init(tracks: tracks.map(input)))))
+    {
+    case .ok(let response): return try LibraryCodec.convert(response.body.json)
+    case .unauthorized: throw NativeFailure.authentication
+    default:
+      throw NativeFailure.unavailable(
+        "The request could not be confirmed. Refresh Requests before trying again.")
+    }
+  }
+  public func requests(offset: Int = 0) async throws -> AcquisitionPage {
+    switch try await client.requests_api_v1_requests_get(
+      .init(query: .init(offset: offset, limit: 200)))
+    {
+    case .ok(let response): return try LibraryCodec.convert(response.body.json)
+    case .unauthorized: throw NativeFailure.authentication
+    default: throw NativeFailure.unavailable("Your requests are unavailable. Try again shortly.")
+    }
+  }
+  public func clearFinishedRequests() async throws -> Int {
+    switch try await client.clear_requests_api_v1_requests_delete(.init()) {
+    case .ok(let response): return try response.body.json.cleared
+    case .unauthorized: throw NativeFailure.authentication
+    default:
+      throw NativeFailure.unavailable(
+        "The request history change could not be confirmed. Refresh before trying again.")
     }
   }
 
@@ -273,6 +364,9 @@ public actor NativeService: LibrarySource {
     }
   }
   public func resolve(_ track: Track) async throws -> URL {
+    if track.serverState == "household_available" {
+      throw NativeFailure.unavailable("Add this household song to your library before playing it.")
+    }
     if track.serverState != "not_in_library" { return try await playbackURL(trackId: track.id) }
     let response = try await client.playback_remote_api_v1_remote_playback_post(
       .init(
@@ -294,7 +388,7 @@ public actor NativeService: LibrarySource {
     case .unauthorized: throw NativeFailure.authentication
     case .conflict:
       throw NativeFailure.unavailable(
-        "Remote streaming is disabled. You can still play saved songs or request this song using the web app."
+        "Remote streaming is disabled. You can still play saved songs or request this song in Song actions."
       )
     case .notFound:
       throw NativeFailure.unavailable(

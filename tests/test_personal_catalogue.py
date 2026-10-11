@@ -39,6 +39,10 @@ def test_member_catalogue_is_scoped_and_contract_published(tmp_path, monkeypatch
         assert response.status_code == 200, response.text
         assert response.json()["tracks"][0]["server_state"] == "household_available"
         assert response.json()["tracks"][0]["saved_track"] is None
+        shared = response.json()["tracks"][0]["household_track"]
+        assert shared["id"] == "physical-file-id"
+        assert shared["server_state"] == "household_available"
+        assert shared["source_revision"]
         assert "/private/" not in response.text and owner not in response.text
         app.state.store.user_libraries.add(member, [track["id"]])
         personal_track = client.get(path).json()["tracks"][0]
@@ -152,3 +156,43 @@ def test_typed_catalogue_pages_accept_unknown_provider_metadata(tmp_path, monkey
         assert editions.json()["editions"][0]["country"] == ""
         assert editions.json()["editions"][0]["formats"] == [""]
         assert editions.json()["editions"][0]["track_count"] == 0
+
+
+def test_artist_search_forwards_paging_and_normalises_unknown_description(
+    tmp_path, monkeypatch
+):
+    monkeypatch.delenv("PIG_MUSIC_TEST_LEGACY_API", raising=False)
+    store = Store(tmp_path)
+    auth = Auth(store)
+    auth.create_owner("mark", "catalogue fixture password")
+    token = auth.login(
+        "mark", "catalogue fixture password", "device", "phone", "ios", "fixture"
+    )["token"]
+    calls = []
+
+    async def provider(self, client, path, **params):
+        calls.append((path, params))
+        return {
+            "count": "23",
+            "artists": [{"id": ARTIST, "name": "Artist", "disambiguation": None}],
+        }
+
+    monkeypatch.setattr(Catalogue, "get", provider)
+    with TestClient(
+        create_app(tmp_path),
+        base_url="https://private.ts.net",
+        headers={"Authorization": "Bearer " + token},
+    ) as client:
+        page = client.get(
+            "/api/v1/catalogue/artists",
+            params={"q": "Artist", "offset": 20, "limit": 1},
+        )
+        assert page.status_code == 200, page.text
+        assert page.json() == {
+            "offset": 20,
+            "total": 23,
+            "next_offset": 21,
+            "artists": [{"id": ARTIST, "name": "Artist", "description": ""}],
+        }
+        assert calls == [("artist/", {"query": "Artist", "offset": 20, "limit": 1})]
+        assert client.get("/api/v1/catalogue/artists?offset=-1").status_code == 422

@@ -126,6 +126,14 @@ class SearchResults(BaseModel):
     tracks: list[TrackDTO]
     household_tracks: list[TrackDTO]
     artists: list[ArtistDTO]
+    albums: list[AlbumDTO] = Field(default_factory=list)
+    total_tracks: int = 0
+    total_household_tracks: int = 0
+    total_artists: int = 0
+    total_albums: int = 0
+    offset: int = 0
+    next_offset: int | None = None
+    revision: str = ""
 
 
 class Entities(BaseModel):
@@ -268,6 +276,7 @@ class CatalogueTrackDTO(TrackDTO):
     id: str
     # Only populated for a file in the caller's personal library.
     saved_track: TrackDTO | None = None
+    household_track: TrackDTO | None = None
 
 
 class CatalogueReleaseDTO(BaseModel):
@@ -275,3 +284,36 @@ class CatalogueReleaseDTO(BaseModel):
     title: str
     artist: str
     tracks: list[CatalogueTrackDTO]
+
+
+class CatalogueArtistDTO(BaseModel):
+    id: str
+    name: str
+    description: str
+
+
+class CatalogueArtistsDTO(BaseModel):
+    artists: list[CatalogueArtistDTO]
+    total: int
+    offset: int
+    next_offset: int | None
+
+
+class FavouriteResultDTO(BaseModel):
+    favourited: bool
+
+
+class MembershipResultDTO(BaseModel):
+    added: int
+    revision: str
+
+
+class AcquisitionResultDTO(BaseModel):
+    created: int
+    existing: int
+    skipped: int
+    downloads_enabled: bool
+
+
+class ClearedRequestsDTO(BaseModel):
+    cleared: int

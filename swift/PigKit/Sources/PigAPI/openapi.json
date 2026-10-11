@@ -16,6 +16,34 @@
         ],
         "type": "object"
       },
+      "AcquisitionResultDTO": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "downloads_enabled": {
+            "title": "Downloads Enabled",
+            "type": "boolean"
+          },
+          "existing": {
+            "title": "Existing",
+            "type": "integer"
+          },
+          "skipped": {
+            "title": "Skipped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created",
+          "existing",
+          "skipped",
+          "downloads_enabled"
+        ],
+        "title": "AcquisitionResultDTO",
+        "type": "object"
+      },
       "Activation": {
         "properties": {
           "code": {
@@ -521,6 +549,61 @@
         "title": "Assignment",
         "type": "object"
       },
+      "CatalogueArtistDTO": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description"
+        ],
+        "title": "CatalogueArtistDTO",
+        "type": "object"
+      },
+      "CatalogueArtistsDTO": {
+        "properties": {
+          "artists": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogueArtistDTO"
+            },
+            "title": "Artists",
+            "type": "array"
+          },
+          "next_offset": {
+            "nullable": true,
+            "title": "Next Offset",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "artists",
+          "total",
+          "offset",
+          "next_offset"
+        ],
+        "title": "CatalogueArtistsDTO",
+        "type": "object"
+      },
       "CatalogueEditionDTO": {
         "properties": {
           "country": {
@@ -769,6 +852,10 @@
             "title": "Household Available",
             "type": "boolean"
           },
+          "household_track": {
+            "$ref": "#/components/schemas/TrackDTO",
+            "nullable": true
+          },
           "id": {
             "title": "Id",
             "type": "string"
@@ -862,6 +949,19 @@
           "category"
         ],
         "title": "Category",
+        "type": "object"
+      },
+      "ClearedRequestsDTO": {
+        "properties": {
+          "cleared": {
+            "title": "Cleared",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cleared"
+        ],
+        "title": "ClearedRequestsDTO",
         "type": "object"
       },
       "CookieUpload": {
@@ -1132,6 +1232,19 @@
           "track"
         ],
         "title": "Favourite",
+        "type": "object"
+      },
+      "FavouriteResultDTO": {
+        "properties": {
+          "favourited": {
+            "title": "Favourited",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "favourited"
+        ],
+        "title": "FavouriteResultDTO",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -1407,6 +1520,24 @@
           "track_ids"
         ],
         "title": "Membership",
+        "type": "object"
+      },
+      "MembershipResultDTO": {
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "integer"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "added",
+          "revision"
+        ],
+        "title": "MembershipResultDTO",
         "type": "object"
       },
       "OrganiseRequest": {
@@ -2143,6 +2274,13 @@
       },
       "SearchResults": {
         "properties": {
+          "albums": {
+            "items": {
+              "$ref": "#/components/schemas/AlbumDTO"
+            },
+            "title": "Albums",
+            "type": "array"
+          },
           "artists": {
             "items": {
               "$ref": "#/components/schemas/ArtistDTO"
@@ -2156,6 +2294,41 @@
             },
             "title": "Household Tracks",
             "type": "array"
+          },
+          "next_offset": {
+            "nullable": true,
+            "title": "Next Offset",
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "revision": {
+            "default": "",
+            "title": "Revision",
+            "type": "string"
+          },
+          "total_albums": {
+            "default": 0,
+            "title": "Total Albums",
+            "type": "integer"
+          },
+          "total_artists": {
+            "default": 0,
+            "title": "Total Artists",
+            "type": "integer"
+          },
+          "total_household_tracks": {
+            "default": 0,
+            "title": "Total Household Tracks",
+            "type": "integer"
+          },
+          "total_tracks": {
+            "default": 0,
+            "title": "Total Tracks",
+            "type": "integer"
           },
           "tracks": {
             "items": {
@@ -4604,13 +4777,39 @@
               "title": "Q",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 10000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 12,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogueArtistsDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -5642,7 +5841,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/FavouriteResultDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -7019,7 +7220,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/MembershipResultDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -10837,7 +11040,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ClearedRequestsDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -11095,7 +11300,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AcquisitionResultDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -11338,6 +11545,40 @@
             "schema": {
               "default": "",
               "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 1000000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "revision",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "title": "Revision",
               "type": "string"
             }
           }

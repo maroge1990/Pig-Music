@@ -39,6 +39,10 @@ TRACK_FIELDS = frozenset(
 )
 
 
+class SearchChanged(ValueError):
+    pass
+
+
 def track_dto(track):
     source_revision = hashlib.sha256(
         json.dumps(
@@ -262,12 +266,14 @@ class UserLibrary:
                 self.cache.popitem(last=False)
             return value
 
-    def search(self, user_id, query):
-        from itertools import islice
-
+    def search(self, user_id, query, offset=0, limit=100, revision=None):
+        if offset < 0 or offset > 1000000 or not 1 <= limit <= 200:
+            raise ValueError("Invalid search page")
         query = normalise(query[:150])
         with self.store.library_lock:
             data = self.projection(user_id)
+            if revision is not None and revision != data["revision"]:
+                raise SearchChanged("Search changed. Refresh before loading more.")
             personal_ids = {t["id"] for t in data["tracks"]}
 
             def matches(track):
@@ -275,37 +281,50 @@ class UserLibrary:
                     track["artist"] + " " + track["title"] + " " + track["album"]
                 )
 
+            tracks = [t for t in data["tracks"] if matches(t)]
+            household = [
+                t
+                for album in self.store.library["albums"]
+                for t in album["tracks"]
+                if t["id"] not in personal_ids
+                and t.get("available", True)
+                and matches(t)
+            ]
+            artists = [
+                a for a in data["artists"] if query and query in normalise(a["name"])
+            ]
+            albums = [
+                a
+                for a in data["albums"]
+                if query and query in normalise(a["artist"] + " " + a["title"])
+            ]
+            end = offset + limit
             return {
-                "tracks": list(
-                    islice((track_dto(t) for t in data["tracks"] if matches(t)), 100)
+                "tracks": [track_dto(t) for t in tracks[offset:end]],
+                "household_tracks": [
+                    {
+                        **track_dto(t),
+                        "household_available": True,
+                        "server_state": "household_available",
+                    }
+                    for t in household[offset:end]
+                ],
+                "artists": artists[offset:end],
+                "albums": [
+                    {k: v for k, v in a.items() if k not in {"tracks", "cover_key"}}
+                    for a in albums[offset:end]
+                ],
+                "total_tracks": len(tracks),
+                "total_household_tracks": len(household),
+                "total_artists": len(artists),
+                "total_albums": len(albums),
+                "offset": offset,
+                "next_offset": (
+                    end
+                    if end < max(len(tracks), len(household), len(artists), len(albums))
+                    else None
                 ),
-                "artists": list(
-                    islice(
-                        (
-                            a
-                            for a in data["artists"]
-                            if query and query in normalise(a["name"])
-                        ),
-                        30,
-                    )
-                ),
-                "household_tracks": list(
-                    islice(
-                        (
-                            {
-                                **track_dto(t),
-                                "household_available": True,
-                                "server_state": "household_available",
-                            }
-                            for album in self.store.library["albums"]
-                            for t in album["tracks"]
-                            if t["id"] not in personal_ids
-                            and t.get("available", True)
-                            and matches(t)
-                        ),
-                        100,
-                    )
-                ),
+                "revision": data["revision"],
             }
 
     def lookup(self, user_id, songs):

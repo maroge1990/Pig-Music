@@ -3,7 +3,7 @@
 import asyncio
 from uuid import UUID
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from ..artist_identity import Ambiguous, resolve_artist
@@ -14,6 +14,7 @@ from ..api_models import (
     CatalogueEditionsDTO,
     CatalogueReleaseDTO,
     CatalogueTrackDTO,
+    CatalogueArtistsDTO,
 )
 from ..user_library import track_dto
 
@@ -35,23 +36,38 @@ def discover_router(store, catalogue, popularity=None, warmer=None):
         except (httpx.HTTPError, ValueError, KeyError):
             raise HTTPException(502, "catalogue_unavailable")
 
-    @router.get("/artists")
-    async def artists(request: Request, q: str = ""):
+    @router.get("/artists", response_model=CatalogueArtistsDTO)
+    async def artists(
+        request: Request,
+        q: str = "",
+        offset: int = Query(default=0, ge=0, le=10000),
+        limit: int = Query(default=12, ge=1, le=100),
+    ):
         if len(q.strip()) < 2:
-            return {"artists": []}
-        result = await metadata(request, "artist/", query=q.strip()[:150], limit=12)
+            return {"artists": [], "offset": offset, "total": 0, "next_offset": None}
+        result = await metadata(
+            request, "artist/", query=q.strip()[:150], limit=limit, offset=offset
+        )
         if warmer is not None:
             # Prepare the likely next tap on the server, for every device.
             warmer.search([a["id"] for a in result.get("artists", []) if "id" in a])
+        found = result.get("artists", [])
+        total = int(
+            result.get("count") or result.get("artist-count") or (offset + len(found))
+        )
+        end = offset + len(found)
         return {
+            "offset": offset,
+            "total": total,
+            "next_offset": end if found and end < min(total, 10000) else None,
             "artists": [
                 {
                     "id": a["id"],
                     "name": a["name"],
-                    "description": a.get("disambiguation", ""),
+                    "description": a.get("disambiguation") or "",
                 }
                 for a in result.get("artists", [])
-            ]
+            ],
         }
 
     @router.get("/artists/{artist_id}/releases", response_model=CatalogueGroupsDTO)
@@ -225,6 +241,14 @@ def discover_router(store, catalogue, popularity=None, warmer=None):
                         "server_state": state,
                         "saved_track": (
                             track_dto(matched.track) if state == "in_library" else None
+                        ),
+                        "household_track": (
+                            {
+                                **track_dto(matched.track),
+                                "server_state": "household_available",
+                            }
+                            if state == "household_available"
+                            else None
                         ),
                     }
                 ).model_dump(mode="json")

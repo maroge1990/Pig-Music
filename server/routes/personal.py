@@ -3,7 +3,7 @@
 import asyncio
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, SecretStr
 
@@ -15,9 +15,13 @@ from ..api_models import (
     PlaylistList,
     SearchResults,
     RequestList,
+    FavouriteResultDTO,
+    MembershipResultDTO,
+    AcquisitionResultDTO,
+    ClearedRequestsDTO,
 )
 from ..playlists import Playlists, PlaylistConflict
-from ..user_library import track_dto
+from ..user_library import track_dto, SearchChanged
 from ..personal_removal import PersonalRemoval, RemovalChanged
 from ..household_policy import HouseholdPolicy
 from ..plex_accounts import PlexAccounts
@@ -263,15 +267,26 @@ def personal_router(store, artist_jobs, recovery):
         return await run(artist_jobs.scoped(identity(request)).cancel, artist_id)
 
     @router.get("/search", response_model=SearchResults)
-    async def search(request: Request, q: str = ""):
-        return await run(users.search, identity(request), q)
+    async def search(
+        request: Request,
+        q: str = "",
+        offset: int = Query(default=0, ge=0, le=1000000),
+        limit: int = Query(default=100, ge=1, le=200),
+        revision: str | None = None,
+    ):
+        try:
+            return await asyncio.to_thread(
+                users.search, identity(request), q, offset, limit, revision
+            )
+        except SearchChanged as exc:
+            raise HTTPException(409, str(exc))
 
     @router.post("/library/lookup")
     async def lookup(body: Lookup, request: Request):
         songs = [s.model_dump() for s in body.songs]
         return {"tracks": await run(users.lookup, identity(request), songs)}
 
-    @router.post("/library/membership")
+    @router.post("/library/membership", response_model=MembershipResultDTO)
     async def add(body: Membership, request: Request):
         return await run(users.add, identity(request), body.track_ids)
 
@@ -367,7 +382,7 @@ def personal_router(store, artist_jobs, recovery):
     async def delete(playlist_id: str, revision: int, request: Request):
         return await edit_playlist(request, playlist_id, revision, delete=True)
 
-    @router.post("/favourites")
+    @router.post("/favourites", response_model=FavouriteResultDTO)
     async def favourite(body: Favourite, request: Request):
         return await run(
             Playlists(store, identity(request)).favourite,
@@ -384,7 +399,7 @@ def personal_router(store, artist_jobs, recovery):
                 raise HTTPException(413, "Import is larger than 20MB")
         return await run(users.import_playlists, identity(request), bytes(body))
 
-    @router.post("/requests")
+    @router.post("/requests", response_model=AcquisitionResultDTO)
     async def request_tracks(body: Tracks, request: Request):
         return await run(
             users.request,
@@ -392,7 +407,7 @@ def personal_router(store, artist_jobs, recovery):
             [t.model_dump(exclude_none=True) for t in body.tracks],
         )
 
-    @router.delete("/requests")
+    @router.delete("/requests", response_model=ClearedRequestsDTO)
     async def clear_requests(request: Request):
         return await run(users.clear_requests, identity(request))
 

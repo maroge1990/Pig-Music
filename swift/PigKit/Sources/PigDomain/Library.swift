@@ -7,6 +7,7 @@ public struct Track: Codable, Sendable, Identifiable, Hashable {
   public var artist: String
   public var album: String?
   public var albumArtist: String?
+  public var year: MusicYear?
   public var albumId: String?
   public var duration: Double?
   public var trackNumber: Int?

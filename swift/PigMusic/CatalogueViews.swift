@@ -111,6 +111,8 @@ struct CatalogueReleaseView: View {
   let releaseId: String
   let title: String
   @State private var release: CatalogueRelease?
+  @State private var requesting = false
+  @State private var requestMessage: String?
   @State private var loading = false
   @State private var error: String?
   var body: some View {
@@ -126,8 +128,19 @@ struct CatalogueReleaseView: View {
           Text(release.artist).font(PigType.headline)
           Button("Play album", systemImage: "play.fill") { model.play(release.songs.map(\.track)) }
             .disabled(release.songs.isEmpty)
+          let missing = release.songs.filter {
+            $0.availability != "in_library" && $0.availability != "requested"
+          }.map(\.track)
+          if !missing.isEmpty {
+            Button("Add or request album", systemImage: "plus.circle") {
+              Task { await request(missing) }
+            }
+            .disabled(requesting || !model.canMutate || missing.count > 500)
+          }
+          if requesting { ProgressView("Sending request…") }
+          if let requestMessage { Text(requestMessage).font(PigType.footnote) }
           Text(
-            "Songs outside your library use experimental streaming. If no matching stream is available, saved music remains available."
+            "Add household songs to your library to stream the server file. Other catalogue songs use experimental streaming; an unavailable provider will report a playback error. Adding or requesting music is a separate action."
           )
           .font(PigType.footnote).foregroundStyle(.secondary)
         }
@@ -141,6 +154,20 @@ struct CatalogueReleaseView: View {
         }
       }
     }.navigationTitle(release?.title ?? title).task { await load() }
+  }
+  private func request(_ tracks: [Track]) async {
+    guard !requesting else { return }
+    requesting = true
+    defer { requesting = false }
+    do {
+      let result = try await model.performPersonal { try await $0.requestMusic(tracks) }
+      requestMessage =
+        "Server confirmed: \(result.created) new, \(result.existing) existing, \(result.skipped) skipped."
+      if !result.downloadsEnabled {
+        requestMessage! += " Server downloads are disabled; requests will wait."
+      }
+      await load()
+    } catch is CancellationError {} catch { requestMessage = error.localizedDescription }
   }
   private func availability(_ state: String) -> String {
     switch state {

@@ -23,6 +23,10 @@ import UIKit
   var homeContent: [HomeSection: HomeContent] = [:]
   var homeErrors: [HomeSection: String] = [:]
   var homeLoading: Set<HomeSection> = []
+  var searchSession: SearchSession?
+  var actionTrack: Track?
+  var mutationActive = false
+  var canMutate: Bool { service != nil && !busy && !syncing && !mutationActive }
   var songCount = 0
   var albumCount = 0
   var artistCount = 0
@@ -120,12 +124,15 @@ import UIKit
     server = origin.absoluteString
     self.service = service
     store = database
+    searchSession = SearchSession(cached: database, online: service) { [weak self] in
+      self?.revoked(generation: stamp)
+    }
     sync = SyncCoordinator(source: service, store: database)
     person = user
     try await loadCache()
   }
-  func refresh() async {
-    guard !syncing, let service, let sync else { return }
+  func refresh(afterMutation: Bool = false) async {
+    guard !syncing, !mutationActive || afterMutation, let service, let sync else { return }
     let stamp = generation
     syncing = true
     defer { if generation == stamp { syncing = false } }
@@ -240,13 +247,28 @@ import UIKit
     }
   }
 
-  func search(_ query: String) async -> [Track] {
-    guard let store else { return [] }
-    do { return try await store.tracks(query: query) } catch {
-      message = error.localizedDescription
-      return []
+  func performPersonal<T: Sendable>(
+    _ operation: @Sendable (NativeService) async throws -> T
+  ) async throws -> T {
+    guard canMutate, let service else {
+      throw NativeFailure.unavailable("Connect to your server and wait for sync to finish.")
+    }
+    let stamp = generation
+    mutationActive = true
+    defer { if generation == stamp { mutationActive = false } }
+    do {
+      let result = try await operation(service)
+      try Task.checkCancellation()
+      guard generation == stamp else { throw CancellationError() }
+      await refresh(afterMutation: true)
+      guard generation == stamp else { throw CancellationError() }
+      return result
+    } catch NativeFailure.authentication {
+      revoked(generation: stamp)
+      throw NativeFailure.authentication
     }
   }
+
   func more(_ collection: LibraryCollection) async {
     guard let store, !loadingMore, !syncing else { return }
     let stamp = generation
@@ -339,7 +361,7 @@ import UIKit
     )
   }
   func signOut() async {
-    guard !busy else { return }
+    guard !busy, !mutationActive else { return }
     guard let service else {
       detach()
       return
@@ -353,6 +375,10 @@ import UIKit
   }
   private func detach() {
     generation += 1
+    searchSession?.clear()
+    searchSession = nil
+    actionTrack = nil
+    mutationActive = false
     player.clearAccount()
     person = nil
     service = nil
@@ -407,6 +433,7 @@ import UIKit
         artworkCache = try ArtworkCache(directory: demoDirectory)
         artworkNamespace = "synthetic-demo"
         store = database
+        searchSession = SearchSession(cached: database)
         person = try LibraryCodec.decoder().decode(
           Person.self,
           from: Data(

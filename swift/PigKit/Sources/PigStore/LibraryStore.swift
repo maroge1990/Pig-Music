@@ -37,6 +37,22 @@ public actor LibraryStore {
           "INSERT INTO track_search(rowid,id,title,artist,album) SELECT rowid,id,json_extract(CAST(payload AS TEXT),'$.title'),json_extract(CAST(payload AS TEXT),'$.artist'),coalesce(json_extract(CAST(payload AS TEXT),'$.album'),'') FROM tracks"
       )
     }
+    migrator.registerMigration("entity-search-v3") { db in
+      try db.execute(
+        sql:
+          "CREATE VIRTUAL TABLE album_search USING fts5(id UNINDEXED, title, artist, tokenize='unicode61 remove_diacritics 2')"
+      )
+      try db.execute(
+        sql:
+          "CREATE VIRTUAL TABLE artist_search USING fts5(id UNINDEXED, name, tokenize='unicode61 remove_diacritics 2')"
+      )
+      try db.execute(
+        sql:
+          "INSERT INTO album_search(rowid,id,title,artist) SELECT rowid,id,json_extract(CAST(payload AS TEXT),'$.title'),json_extract(CAST(payload AS TEXT),'$.artist') FROM albums"
+      )
+      try db.execute(
+        sql: "INSERT INTO artist_search(rowid,id,name) SELECT rowid,id,name FROM artists")
+    }
     try migrator.migrate(queue)
     database = queue
   }
@@ -90,6 +106,60 @@ public actor LibraryStore {
       }
     }
   }
+  public func albums(artistId: String, offset: Int = 0, limit: Int = 100) throws -> [Album] {
+    guard offset >= 0, (1...200).contains(limit) else { throw StoreSearchFailure.invalidPage }
+    return try database.read { db in
+      let rows = try Row.fetchAll(
+        db,
+        sql:
+          "SELECT payload FROM albums WHERE id IN (SELECT value FROM artists, json_each(CAST(artists.payload AS TEXT), '$.album_ids') WHERE artists.id=?) ORDER BY name COLLATE NOCASE,id LIMIT ? OFFSET ?",
+        arguments: [artistId, limit, offset])
+      return try rows.map {
+        try LibraryCodec.decoder().decode(Album.self, from: $0["payload"] as Data)
+      }
+    }
+  }
+
+  public func searchPage(query: String, offset: Int = 0, limit: Int = 100) throws
+    -> LibrarySearchPage
+  {
+    guard offset >= 0, offset <= 1_000_000, (1...200).contains(limit) else {
+      throw StoreSearchFailure.invalidPage
+    }
+    let query = SearchText.clean(query)
+    guard !query.isEmpty else { return LibrarySearchPage() }
+    let terms = query.split(whereSeparator: { $0.isWhitespace }).map {
+      "\"" + $0.replacingOccurrences(of: "\"", with: "\"\"") + "\"*"
+    }.joined(separator: " AND ")
+    return try database.read { db in
+      func page<T: Decodable>(_ table: String, _ index: String, _ type: T.Type) throws -> ([T], Int)
+      {
+        let rows = try Row.fetchAll(
+          db,
+          sql:
+            "SELECT t.payload FROM \(table) t JOIN \(index) s ON t.rowid=s.rowid WHERE \(index) MATCH ? ORDER BY rank, t.id LIMIT ? OFFSET ?",
+          arguments: [terms, limit, offset])
+        let count =
+          try Int.fetchOne(
+            db, sql: "SELECT count(*) FROM \(index) WHERE \(index) MATCH ?", arguments: [terms])
+          ?? 0
+        return (
+          try rows.map { try LibraryCodec.decoder().decode(T.self, from: $0["payload"] as Data) },
+          count
+        )
+      }
+      let (tracks, trackCount) = try page("tracks", "track_search", Track.self)
+      let (albums, albumCount) = try page("albums", "album_search", Album.self)
+      let (artists, artistCount) = try page("artists", "artist_search", Artist.self)
+      let end = offset + limit
+      let revision =
+        try String.fetchOne(db, sql: "SELECT value FROM metadata WHERE key='revision'") ?? ""
+      return LibrarySearchPage(
+        tracks: tracks, albums: albums, artists: artists, offset: offset,
+        nextOffset: end < max(trackCount, albumCount, artistCount) ? end : nil, revision: revision)
+    }
+  }
+
   public func albums(offset: Int = 0, limit: Int = 100) throws -> [Album] {
     try read(.albums, offset: offset, limit: limit)
   }
@@ -115,7 +185,9 @@ public actor LibraryStore {
   public func replace(_ snapshot: LibrarySnapshot) throws {
     try database.write { db in
       for kind in LibraryCollection.allCases { try db.execute(sql: "DELETE FROM \(kind.rawValue)") }
-      try db.execute(sql: "DELETE FROM track_search")
+      for index in ["track_search", "album_search", "artist_search"] {
+        try db.execute(sql: "DELETE FROM \(index)")
+      }
       try Self.upsert(snapshot, db: db)
     }
   }
@@ -126,9 +198,17 @@ public actor LibraryStore {
         (.artists, delta.deletes.artists), (.playlists, delta.deletes.playlists),
       ] {
         for id in ids {
-          if kind == .tracks {
+          let index: String? =
+            switch kind {
+            case .tracks: "track_search"
+            case .albums: "album_search"
+            case .artists: "artist_search"
+            case .playlists: nil
+            }
+          if let index {
             try db.execute(
-              sql: "DELETE FROM track_search WHERE rowid=(SELECT rowid FROM tracks WHERE id=?)",
+              sql:
+                "DELETE FROM \(index) WHERE rowid=(SELECT rowid FROM \(kind.rawValue) WHERE id=?)",
               arguments: [id])
           }
           try db.execute(sql: "DELETE FROM \(kind.rawValue) WHERE id=?", arguments: [id])
@@ -151,8 +231,26 @@ public actor LibraryStore {
           "INSERT INTO track_search(rowid,id,title,artist,album) VALUES ((SELECT rowid FROM tracks WHERE id=?),?,?,?,?)",
         arguments: [track.id, track.id, track.title, track.artist, track.album ?? ""])
     }
-    for album in snapshot.albums { try save(album, kind: .albums, name: album.title, db: db) }
-    for artist in snapshot.artists { try save(artist, kind: .artists, name: artist.name, db: db) }
+    for album in snapshot.albums {
+      try save(album, kind: .albums, name: album.title, db: db)
+      try db.execute(
+        sql: "DELETE FROM album_search WHERE rowid=(SELECT rowid FROM albums WHERE id=?)",
+        arguments: [album.id])
+      try db.execute(
+        sql:
+          "INSERT INTO album_search(rowid,id,title,artist) VALUES ((SELECT rowid FROM albums WHERE id=?),?,?,?)",
+        arguments: [album.id, album.id, album.title, album.artist])
+    }
+    for artist in snapshot.artists {
+      try save(artist, kind: .artists, name: artist.name, db: db)
+      try db.execute(
+        sql: "DELETE FROM artist_search WHERE rowid=(SELECT rowid FROM artists WHERE id=?)",
+        arguments: [artist.id])
+      try db.execute(
+        sql:
+          "INSERT INTO artist_search(rowid,id,name) VALUES ((SELECT rowid FROM artists WHERE id=?),?,?)",
+        arguments: [artist.id, artist.id, artist.name])
+    }
     for playlist in snapshot.playlists {
       try save(playlist, kind: .playlists, name: playlist.name, db: db)
     }
@@ -171,3 +269,5 @@ public actor LibraryStore {
       arguments: [value.id, name, payload])
   }
 }
+
+public enum StoreSearchFailure: Error, Sendable { case invalidPage }

@@ -11,14 +11,11 @@ struct LibraryView: View {
       Section {
         NavigationLink("Songs · \(model.songCount)") { SongsView(model: model) }
         NavigationLink("Albums") { AlbumsView(model: model) }
+        NavigationLink("Music requests") { RequestsView(model: model) }
         NavigationLink("Artists") {
           List {
             ForEach(model.artists) { artist in
-              VStack(alignment: .leading) {
-                Text(artist.name)
-                Text("\(artist.trackCount ?? 0) songs").font(PigType.caption).foregroundStyle(
-                  .secondary)
-              }
+              NavigationLink(artist.name) { SavedArtistView(model: model, artist: artist) }
             }
             if model.artists.count < model.artistCount {
               Button("Load more artists") { Task { await model.more(.artists) } }.disabled(
@@ -51,7 +48,7 @@ struct LibraryView: View {
           description: Text(
             model.syncing
               ? "Syncing your music…"
-              : "Sync to see your saved music. Add music using the web app while the native client is being built."
+              : "Sync to see your saved music, or search for songs and albums to add."
           ))
       }
     }
@@ -175,7 +172,9 @@ struct SongButton: View {
   let track: Track
   let play: () -> Void
   var body: some View {
-    Button(action: play) {
+    Button {
+      if track.serverState == "household_available" { model.actionTrack = track } else { play() }
+    } label: {
       HStack {
         ArtworkView(model: model, sha: track.coverSha, size: 44)
         VStack(alignment: .leading) {
@@ -187,31 +186,17 @@ struct SongButton: View {
           systemName: track.serverState == "not_in_library"
             ? "antenna.radiowaves.left.and.right" : "icloud"
         ).foregroundStyle(.secondary).accessibilityLabel(
-          track.serverState == "not_in_library" ? "Remote streaming" : "On the server")
+          track.serverState == "household_available"
+            ? "Add from household"
+            : (track.serverState == "not_in_library" ? "Remote streaming" : "On the server"))
       }.frame(minHeight: 44)
     }.accessibilityLabel(
-      "Play \(track.title) by \(track.artist). \(track.serverState == "not_in_library" ? "Remote streaming" : "On the server")."
+      "\(track.serverState == "household_available" ? "Add" : "Play") \(track.title) by \(track.artist). \(track.serverState == "not_in_library" ? "Remote streaming" : "On the server")."
     )
-  }
-}
-
-struct SearchView: View {
-  @Bindable var model: AppModel
-  @State private var query = ""
-  @State private var results: [Track] = []
-  var body: some View {
-    List(results) { song in SongButton(model: model, track: song) { model.play([song]) } }
-      .navigationTitle("Search").searchable(text: $query, prompt: "Search your cached songs")
-      .task(id: query) {
-        do {
-          try await Task.sleep(for: .milliseconds(200))
-          try Task.checkCancellation()
-        } catch { return }
-        let found = await model.search(query)
-        guard !Task.isCancelled else { return }
-        results = found
-      }
-      .overlay { if results.isEmpty { ContentUnavailableView.search(text: query) } }
+    .contextMenu {
+      Button("Song actions…", systemImage: "ellipsis.circle") { model.actionTrack = track }
+    }
+    .accessibilityAction(named: "Song actions") { model.actionTrack = track }
   }
 }
 
@@ -247,7 +232,7 @@ struct AccountView: View {
       }
       Section {
         Button("Sign out", role: .destructive) { Task { await model.signOut() } }.disabled(
-          model.busy)
+          model.busy || model.mutationActive)
       }
       if let message = model.message { Section { Text(message).font(PigType.footnote) } }
     }.navigationTitle("Account")

@@ -119,6 +119,7 @@ struct LibraryShell: View {
       }
     }
     .sheet(isPresented: $showPlayer) { NowPlayingView(model: model) }
+    .sheet(item: $model.actionTrack) { SongActionsView(model: model, track: $0) }
   }
   @ViewBuilder private func content(_ destination: Destination) -> some View {
     Group {
