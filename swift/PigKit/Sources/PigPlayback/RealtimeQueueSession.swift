@@ -177,6 +177,14 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
     }
     publish()
   }
+  /// Explicit queue edits invalidate prepared future audio while preserving the current position.
+  public func updateUpcoming(_ updated: [PlaybackOccurrence]) {
+    guard updated.indices.contains(snapshot.index), items.indices.contains(snapshot.index),
+      updated[snapshot.index].id == items[snapshot.index].id
+    else { return }
+    items = updated
+    restart(index: snapshot.index, seconds: snapshot.elapsed, autoplay: snapshot.wantsPlayback)
+  }
   public func seek(_ seconds: Double) {
     guard !items.isEmpty, seconds.isFinite else { return }
     refreshPosition()

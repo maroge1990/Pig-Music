@@ -53,8 +53,31 @@ public actor LibraryStore {
       try db.execute(
         sql: "INSERT INTO artist_search(rowid,id,name) SELECT rowid,id,name FROM artists")
     }
+    migrator.registerMigration("listening-outbox-v4") { db in
+      try db.execute(
+        sql: "CREATE TABLE listening_outbox (id TEXT PRIMARY KEY, payload BLOB NOT NULL)")
+    }
     try migrator.migrate(queue)
     database = queue
+  }
+
+  public func cached<T: Decodable & Sendable>(_ key: String, as type: T.Type) throws -> T? {
+    try database.read { db in
+      guard
+        let json = try String.fetchOne(
+          db, sql: "SELECT value FROM metadata WHERE key=?", arguments: ["cache:" + key])
+      else { return nil }
+      return try LibraryCodec.decoder().decode(T.self, from: Data(json.utf8))
+    }
+  }
+  public func cache<T: Encodable & Sendable>(_ value: T, key: String) throws {
+    let json = String(decoding: try LibraryCodec.encoder().encode(value), as: UTF8.self)
+    try database.write { db in
+      try db.execute(
+        sql:
+          "INSERT INTO metadata VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        arguments: ["cache:" + key, json])
+    }
   }
 
   public func revision() throws -> String? {
@@ -74,6 +97,29 @@ public actor LibraryStore {
           db, sql: "SELECT payload FROM tracks WHERE id=?", arguments: [id])
       else { return nil }
       return try LibraryCodec.decoder().decode(Track.self, from: data)
+    }
+  }
+  public func recordListen(_ event: ListeningEvent) throws {
+    try database.write { db in
+      try db.execute(
+        sql: "INSERT OR IGNORE INTO listening_outbox VALUES (?,?)",
+        arguments: [event.id, try LibraryCodec.encoder().encode(event)])
+    }
+  }
+  public func pendingListens(now: Int = Int(Date().timeIntervalSince1970)) throws
+    -> [ListeningEvent]
+  {
+    try database.read { db in
+      try Row.fetchAll(db, sql: "SELECT payload FROM listening_outbox LIMIT 200").map {
+        try LibraryCodec.decoder().decode(ListeningEvent.self, from: $0["payload"] as Data)
+      }
+    }
+  }
+  public func acknowledgeListens(_ ids: [String]) throws {
+    try database.write { db in
+      for id in ids {
+        try db.execute(sql: "DELETE FROM listening_outbox WHERE id=?", arguments: [id])
+      }
     }
   }
   public func tracks(query: String = "", albumId: String? = nil, offset: Int = 0, limit: Int = 100)

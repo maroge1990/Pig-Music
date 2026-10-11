@@ -2,6 +2,8 @@ import Foundation
 import Observation
 import PigAPI
 import PigDomain
+import PigDownloads
+import PigPlayback
 import PigStore
 import PigSync
 import UIKit
@@ -11,6 +13,8 @@ import UIKit
     var server: String
     var person: Person
   }
+  var downloads: DownloadController?
+  var preferences = AccountPreferences()
   var person: Person?
   var server = ""
   var busy = false
@@ -31,6 +35,7 @@ import UIKit
   var albumCount = 0
   var artistCount = 0
   var loadingMore = false
+  @ObservationIgnored private var flushingHistory = false
   let player = PlayerController()
   var artworkNamespace = ""
   var artworkRefresh = 0
@@ -41,6 +46,8 @@ import UIKit
   @ObservationIgnored private var sync: SyncCoordinator?
   @ObservationIgnored private var generation = 0
   @ObservationIgnored private var restoring = false
+  @ObservationIgnored private var liveTask: Task<Void, Never>?
+  @ObservationIgnored private var activeScene = true
   @ObservationIgnored private let defaults: UserDefaults
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
@@ -75,6 +82,99 @@ import UIKit
       let service = try NativeService(server: connection.server, vault: vault)
       try await attach(connection.person, service: service)
       await refresh()
+      startLiveUpdates()
+    } catch { message = error.localizedDescription }
+  }
+  func sceneActive(_ active: Bool) async {
+    activeScene = active
+    liveTask?.cancel()
+    liveTask = nil
+    if !active {
+      await downloads?.pause()
+      return
+    }
+    await refresh()
+    startLiveUpdates()
+  }
+  private func startLiveUpdates() {
+    guard activeScene, liveTask == nil, let service else { return }
+    let stamp = generation
+    liveTask = Task { [weak self] in
+      var delay = 1
+      while !Task.isCancelled {
+        guard let self, generation == stamp else { return }
+        do {
+          let events = try await service.events()
+          for try await event in events {
+            guard generation == stamp, !Task.isCancelled else { return }
+            delay = 1
+            if event == "revoked" {
+              revoked(generation: stamp)
+              return
+            }
+            if event == "revision" { await refresh() }
+          }
+        } catch NativeFailure.authentication {
+          revoked(generation: stamp)
+          return
+        } catch is CancellationError { return } catch {
+          // Cached browsing and manual refresh remain available.
+        }
+        guard generation == stamp, !Task.isCancelled else { return }
+        do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+        delay = min(30, delay * 2)
+        await refresh()
+      }
+    }
+  }
+  func saveDownloadBudget(_ bytes: Int64) {
+    defaults.set(Int(bytes), forKey: "pig.download-budget:" + artworkNamespace)
+  }
+  func download(_ tracks: [Track], quality: String = "original") async {
+    guard let downloads else { return }
+    do {
+      try await downloads.enqueue(tracks, quality: quality)
+      let stamp = generation
+      let covers = Set(tracks.compactMap(\.coverSha))
+      for sha in covers {
+        guard generation == stamp, !Task.isCancelled else { return }
+        _ = await artwork(sha: sha, width: 512)
+        _ = await artwork(sha: sha, width: 256)
+      }
+    } catch { message = error.localizedDescription }
+  }
+  func cachePreferences() async { try? await store?.cache(preferences, key: "preferences") }
+  func join(invitation: String, password: String) async {
+    guard !busy else { return }
+    busy = true
+    message = nil
+    defer { busy = false }
+    do {
+      let invite: Invite
+      if invitation.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("https://") {
+        invite = try Invite.parse(invitation)
+      } else {
+        let code = invitation.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard Invite.codeLengths.contains(code.count),
+          code.allSatisfy({ Invite.codeAlphabet.contains($0) })
+        else {
+          throw NativeFailure.unavailable("Enter a valid invitation code or full invitation link.")
+        }
+        invite = Invite(server: try ServerAddress.validate(server), code: code)
+      }
+      let saved = try await Onboarding().join(
+        invite, password: password, deviceName: UIDevice.current.name)
+      server = saved.origin.absoluteString
+      let service = try NativeService(server: server, vault: TokenVault(account: server))
+      let user = try await service.me()
+      try await attach(user, service: service)
+      defaults.set(
+        try JSONEncoder().encode(Connection(server: server, person: user)), forKey: "pig.connection"
+      )
+      await refresh()
+      startLiveUpdates()
+    } catch OnboardingError.accountCreatedSignInFailed(let username) {
+      message = "Account created for \(username). Sign in to finish connecting."
     } catch { message = error.localizedDescription }
   }
   func signIn(username: String, password: String) async {
@@ -94,6 +194,7 @@ import UIKit
         try JSONEncoder().encode(Connection(server: server, person: user)), forKey: "pig.connection"
       )
       await refresh()
+      startLiveUpdates()
     } catch { message = error.localizedDescription }
   }
   private func attach(_ user: Person, service: NativeService) async throws {
@@ -124,11 +225,63 @@ import UIKit
     server = origin.absoluteString
     self.service = service
     store = database
+    let archive = try DownloadArchive(directory: directory.appendingPathComponent("Downloads"))
+    downloads = DownloadController(archive: archive, source: service) { [weak self] error in
+      if error as? NativeFailure == .authentication {
+        self?.revoked(generation: stamp)
+      } else if case OfflineFailure.authentication = error {
+        self?.revoked(generation: stamp)
+      } else {
+        self?.message = error.localizedDescription
+      }
+    }
+    downloads?.budgetBytes = Int64(
+      defaults.object(forKey: "pig.download-budget:" + artworkNamespace) as? Int
+        ?? (5 * 1024 * 1024 * 1024))
+    await downloads?.reload()
+    var restoredQueue = try? await database.cached("playback", as: PlaybackCheckpoint.self)
+    if let old = restoredQueue,
+      let position = try? await database.cached("playback-position", as: PlaybackPosition.self)
+    {
+      var queue = old.queue
+      queue.select(index: position.index)
+      restoredQueue = PlaybackCheckpoint(queue: queue, elapsed: position.elapsed)
+    }
+    var savedOccurrenceIds = restoredQueue?.queue.items.map(\.id) ?? []
+    player.onListen = { [weak self] event in
+      Task {
+        try? await database.recordListen(event)
+        await self?.flushHistory()
+      }
+    }
+    player.onCheckpoint = { checkpoint in
+      let ids = checkpoint.queue.items.map(\.id)
+      let changed = ids != savedOccurrenceIds
+      savedOccurrenceIds = ids
+      Task {
+        if changed { try? await database.cache(checkpoint, key: "playback") }
+        try? await database.cache(
+          PlaybackPosition(index: checkpoint.queue.index, elapsed: checkpoint.elapsed),
+          key: "playback-position")
+      }
+    }
+    if let restoredQueue, restoredQueue.queue.current != nil {
+      play(
+        restoredQueue.queue.items.map(\.track), at: restoredQueue.queue.index,
+        restored: restoredQueue)
+    }
     searchSession = SearchSession(cached: database, online: service) { [weak self] in
       self?.revoked(generation: stamp)
     }
     sync = SyncCoordinator(source: service, store: database)
     person = user
+    preferences =
+      (try? await database.cached("preferences", as: AccountPreferences.self))
+      ?? AccountPreferences()
+    for section in HomeSection.allCases {
+      homeContent[section] = try? await database.cached(
+        "home:" + section.rawValue, as: HomeContent.self)
+    }
     try await loadCache()
   }
   func refresh(afterMutation: Bool = false) async {
@@ -158,7 +311,31 @@ import UIKit
         }
       }
       guard generation == stamp else { return }
-      if invalid { await player.invalidateSources() }
+      if let downloads {
+        var allowed: [String: String?] = [:]
+        for record in downloads.records {
+          if let track = try await store?.track(id: record.id) {
+            allowed.updateValue(track.sourceRevision, forKey: record.id)
+            if record.state == "ready" && record.track.sourceRevision != track.sourceRevision {
+              invalid = true
+            }
+          } else if record.state == "ready" {
+            invalid = true
+          }
+        }
+        if invalid { await player.invalidateSources() }
+        await downloads.reconcile(allowed)
+        guard generation == stamp else { return }
+        downloads.resume()
+      } else if invalid {
+        await player.invalidateSources()
+      }
+      guard generation == stamp else { return }
+      if let settings = try? await service.preferences(), generation == stamp {
+        preferences = settings
+        await cachePreferences()
+      }
+      await flushHistory()
       guard generation == stamp else { return }
       message =
         invalid ? "Playback stopped because the server changed or removed cached music." : nil
@@ -218,7 +395,9 @@ import UIKit
         }
         homeLoading.remove(section)
         switch result {
-        case .success(let content): homeContent[section] = content
+        case .success(let content):
+          homeContent[section] = content
+          try? await store?.cache(content, key: "home:" + section.rawValue)
         case .failure(.authentication):
           group.cancelAll()
           revoked(generation: stamp)
@@ -331,7 +510,43 @@ import UIKit
       return nil
     } catch { return nil }
   }
-  func play(_ tracks: [Track], at index: Int = 0) {
+  private func flushHistory() async {
+    guard !flushingHistory, let database = store, let service else { return }
+    let stamp = generation
+    flushingHistory = true
+    defer { flushingHistory = false }
+    do {
+      let pending = try await database.pendingListens()
+      var valid: [ListeningEvent] = []
+      var discarded: [String] = []
+      let now = Int(Date().timeIntervalSince1970)
+      for event in pending {
+        let exists = try await database.track(id: event.trackId) != nil
+        if event.playedAt < now - 30 * 86400 || event.playedAt > now + 300 || !exists {
+          discarded.append(event.id)
+        } else {
+          valid.append(event)
+        }
+      }
+      try await database.acknowledgeListens(discarded)
+      guard generation == stamp else { return }
+      try await service.recordListens(valid)
+      guard generation == stamp else { return }
+      try await database.acknowledgeListens(valid.map(\.id))
+    } catch NativeFailure.authentication { revoked(generation: stamp) } catch {
+      // Durable events remain queued until the next confirmed connection.
+    }
+  }
+  func shuffleLibrary() async {
+    guard let store else { return }
+    let stamp = generation
+    do {
+      let tracks = try await store.tracks(limit: max(songCount, 1))
+      guard generation == stamp else { return }
+      play(tracks.shuffled())
+    } catch { message = error.localizedDescription }
+  }
+  func play(_ tracks: [Track], at index: Int = 0, restored: PlaybackCheckpoint? = nil) {
     #if DEBUG
       if ProcessInfo.processInfo.arguments.contains("--demo"),
         let url = Bundle.main.url(forResource: "demo-tone", withExtension: "m4a")
@@ -345,15 +560,19 @@ import UIKit
         return
       }
     #endif
-    guard let service else { return }
+    guard !busy || restored != nil, let service else { return }
+    let archive = downloads?.archive
     let stamp = generation
     player.play(
-      tracks, startingAt: index,
+      tracks, startingAt: index, autoplay: restored == nil, restored: restored,
       artwork: { [weak self] track in
         await self?.artwork(sha: track.coverSha, width: 512)
       },
       resolve: { [weak self] track in
-        do { return try await service.resolve(track) } catch NativeFailure.authentication {
+        do {
+          if let local = await archive?.localFile(track) { return local }
+          return try await service.resolve(track)
+        } catch NativeFailure.authentication {
           await self?.revoked(generation: stamp)
           throw NativeFailure.authentication
         }
@@ -375,11 +594,16 @@ import UIKit
   }
   private func detach() {
     generation += 1
+    liveTask?.cancel()
+    liveTask = nil
+    if let downloads { Task { await downloads.clear() } }
+    downloads = nil
     searchSession?.clear()
     searchSession = nil
     actionTrack = nil
     mutationActive = false
     player.clearAccount()
+    preferences = AccountPreferences()
     person = nil
     service = nil
     store = nil

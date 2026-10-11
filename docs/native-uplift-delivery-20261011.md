@@ -88,3 +88,8 @@ Verification: 351 backend tests; 67 native tests against a disposable contract s
 Saved entity search, household/catalogue paging, saved artist album navigation, explicit favourites/membership, song/album acquisition requests and personal request status/clear are now implemented locally. Server search uses revision checks; existing caches receive additive album/artist full-text indexes. Household file playback still requires an explicit personal membership action enforced by the existing security guard. See [the candidate, verification and remaining work](native-search-actions-20261011.md).
 
 This candidate has not been pushed or deployed. The owner's latest instruction requires approval before a push to main. Playlist/account parity, durable offline actions/downloads and physical playback acceptance remain pending.
+
+
+## Expanded everyday build
+
+The latest owner authorization supersedes the previous push hold. The [expanded candidate](native-everyday-build-20261011.md) adds core playlist/import/account/acquisition journeys, foreground originals/AAC offline media with a bounded server copy service, SSE/cache recovery and queue/history persistence. Its package ledger records implementation separately from still-open physical-device, background transfer, richer feature, Watch and Mac gates. See the current [testing handoff](native-testing-handoff-20261011.md) for final validation results and installation.

@@ -1,0 +1,81 @@
+import PigBrand
+import PigDownloads
+import SwiftUI
+
+struct DownloadsView: View {
+  let model: AppModel
+  var body: some View {
+    Group {
+      if let downloads = model.downloads {
+        DownloadList(model: model, downloads: downloads)
+      } else {
+        ContentUnavailableView("Connect your library", systemImage: "arrow.down.circle")
+      }
+    }.navigationTitle("On this device")
+  }
+}
+private struct DownloadList: View {
+  let model: AppModel
+  @Bindable var downloads: DownloadController
+  @State private var budget = 5
+  @State private var clearing = false
+  var body: some View {
+    List {
+      Section("Storage") {
+        Text(
+          "\(ByteCountFormatter.string(fromByteCount:downloads.records.filter{$0.state == "ready"}.reduce(0){$0+$1.total},countStyle:.file)) downloaded"
+        )
+        Picker("Download budget", selection: $budget) {
+          ForEach([1, 2, 5, 10, 20, 50], id: \.self) { Text("\($0) GB").tag($0) }
+        }
+        .onChange(of: budget) { _, value in
+          downloads.budgetBytes = Int64(value) * 1024 * 1024 * 1024
+          model.saveDownloadBudget(downloads.budgetBytes)
+        }
+        Text(
+          "Downloads use Wi-Fi. Originals are the default; AAC copies use less storage. Use AAC for originals your device cannot decode. Keep the app open while downloading. Access changes reconcile when you next connect."
+        ).font(PigType.footnote)
+        if downloads.running {
+          Button("Pause downloads") { Task { await downloads.pause() } }
+        } else {
+          Button("Resume queued downloads") { downloads.resume() }
+        }
+        Button("Remove all device downloads", role: .destructive) { clearing = true }
+      }
+      if downloads.records.isEmpty {
+        Text("No downloads yet. Choose songs, albums or playlists to download.").foregroundStyle(
+          .secondary)
+      }
+      ForEach(downloads.records) { record in
+        VStack(alignment: .leading) {
+          Text(record.track.title)
+          Text(
+            "\(record.track.artist) · \(record.quality == "aac" ? "AAC" : "Original") · \(record.state)"
+          ).font(PigType.caption)
+          if record.state == "ready" {
+            Button("Play", systemImage: "play.fill") { model.play([record.track]) }
+          }
+          if let value = downloads.progress[record.id], record.state != "ready" {
+            ProgressView(value: value)
+          }
+          if let error = record.error { Text(error).font(PigType.footnote) }
+          if record.state == "failed" {
+            Button("Retry") {
+              Task { try? await downloads.enqueue([record.track], quality: record.quality) }
+            }
+          }
+          Button(
+            record.state == "ready" ? "Remove download" : "Cancel download", role: .destructive
+          ) { Task { await downloads.remove(id: record.id) } }
+        }
+      }
+    }.task {
+      await downloads.reload()
+      budget = Int(downloads.budgetBytes / (1024 * 1024 * 1024))
+    }
+    .confirmationDialog(
+      "Remove all music downloaded to this device? Server music is retained.",
+      isPresented: $clearing
+    ) { Button("Remove device downloads", role: .destructive) { Task { await downloads.clear() } } }
+  }
+}

@@ -31,3 +31,5 @@ Credentials, appdata, music exports, private measurements and screenshots remain
 - [Audit verification, review and combined roadmap](review-roadmap-20261007.md): both audits checked, new findings, admin/member experience and delivery status.
 
 - [Download-source implementation and acceptance handoff](download-source-implementation-20261011.md) — all seven acquisition paths, owner controls, pinned runtime, network boundaries and isolated acceptance harness.
+
+- [Expanded everyday native build](native-everyday-build-20261011.md): phone/tablet features, original/AAC server and device copies, validation and remaining package ledger.

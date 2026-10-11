@@ -1,0 +1,135 @@
+import CryptoKit
+import Foundation
+import PigDomain
+import PigDownloads
+import PigPlayback
+import PigStore
+import PigSync
+import Testing
+
+private final class CopyProtocol: URLProtocol, @unchecked Sendable {
+  static let payload = Data(repeating: 42, count: 150000)
+  override class func canInit(with request: URLRequest) -> Bool { true }
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+  override func startLoading() {
+    client?.urlProtocol(
+      self,
+      didReceive: HTTPURLResponse(
+        url: request.url!, statusCode: 200,
+        httpVersion: "HTTP/1.1",
+        headerFields: [
+          "Content-Type": "application/octet-stream", "Content-Length": String(Self.payload.count),
+        ])!, cacheStoragePolicy: .notAllowed)
+    client?.urlProtocol(self, didLoad: Self.payload)
+    client?.urlProtocolDidFinishLoading(self)
+  }
+  override func stopLoading() {}
+}
+@Suite struct DownloadTests {
+  func track() throws -> Track {
+    try LibraryCodec.decoder().decode(
+      Track.self,
+      from: Data(#"{"id":"song","title":"Song","artist":"Artist","source_revision":"v1"}"#.utf8))
+  }
+  func copy(sha: String? = nil) throws -> DeviceCopy {
+    let hash =
+      sha ?? SHA256.hash(data: CopyProtocol.payload).map { String(format: "%02x", $0) }.joined()
+    let json: [String: Any] = [
+      "state": "ready", "quality": "original", "sha256": hash, "source_sha256": hash,
+      "bytes": CopyProtocol.payload.count, "extension": "mp3", "key": "test",
+    ]
+    return try LibraryCodec.decoder().decode(
+      DeviceCopy.self, from: JSONSerialization.data(withJSONObject: json))
+  }
+  func archive(_ root: URL) throws -> DownloadArchive {
+    let config = URLSessionConfiguration.ephemeral
+    config.protocolClasses = [CopyProtocol.self]
+    return try DownloadArchive(directory: root, configuration: config)
+  }
+  @Test func verifiedCopySurvivesRestartThenReconcilesOnlyAuthoritativeChanges() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let archive = try archive(root)
+    let song = try track()
+    try await archive.enqueue([song], quality: "original")
+    let record = try #require(await archive.snapshot().first)
+    try await archive.transfer(
+      record, manifest: copy(),
+      request: URLRequest(url: URL(string: "https://server.invalid/song")!), budget: 1_000_000)
+    let file = try #require(await archive.localFile(song))
+    #expect(try Data(contentsOf: file) == CopyProtocol.payload)
+    let reopened = try self.archive(root)
+    #expect(await reopened.localFile(song) != nil)
+    try await reopened.reconcile(["song": "v1"])
+    #expect(await reopened.localFile(song) != nil)
+    try await reopened.reconcile(["song": "v2"])
+    #expect(await reopened.localFile(song) == nil)
+    #expect(await reopened.snapshot().isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: file.path))
+  }
+  @Test func corruptDownloadsAndQuotaCannotPublishAudio() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let archive = try archive(root)
+    let song = try track()
+    try await archive.enqueue([song], quality: "original")
+    let record = try #require(await archive.snapshot().first)
+    let request = URLRequest(url: URL(string: "https://server.invalid/song")!)
+    await #expect(throws: OfflineFailure.self) {
+      try await archive.transfer(record, manifest: copy(), request: request, budget: 1)
+    }
+    await #expect(throws: OfflineFailure.self) {
+      try await archive.transfer(
+        record, manifest: copy(sha: String(repeating: "0", count: 64)), request: request,
+        budget: 1_000_000)
+    }
+    #expect(await archive.localFile(song) == nil)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: root.path) == ["downloads.json"])
+  }
+  @Test func queueEditingPreservesRepeatedOccurrencesAndCurrentIdentity() throws {
+    let song = try track()
+    var queue = PlaybackQueue()
+    queue.replace([song, song, song])
+    let current = queue.current?.id
+    let next = queue.items[1].id
+    queue.moveUpcoming(next, by: 1)
+    #expect(queue.current?.id == current)
+    #expect(queue.items[2].id == next)
+    queue.removeUpcoming(current!)
+    #expect(queue.items.count == 3)
+    queue.removeUpcoming(next)
+    queue.append([song], next: true)
+    let saved = PlaybackCheckpoint(queue: queue, elapsed: 17)
+    let decoded = try LibraryCodec.decoder().decode(
+      PlaybackCheckpoint.self, from: LibraryCodec.encoder().encode(saved))
+    #expect(decoded.queue.items == queue.items)
+    #expect(decoded.elapsed == 17)
+  }
+  @Test func listeningOutboxIsDurableIdempotentAndDoesNotLoseUnacknowledgedEvents() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let path = root.appendingPathComponent("library.sqlite3").path
+    let store = try LibraryStore(path: path)
+    let first = ListeningEvent(eventId: "one", trackId: "song", playedAt: 10, seconds: 30)
+    let second = ListeningEvent(eventId: "two", trackId: "song", playedAt: 20, seconds: 30)
+    try await store.recordListen(first)
+    try await store.recordListen(first)
+    try await store.recordListen(second)
+    let reopened = try LibraryStore(path: path)
+    #expect(try await reopened.pendingListens().count == 2)
+    try await reopened.acknowledgeListens(["one"])
+    #expect(try await reopened.pendingListens().map(\.id) == ["two"])
+  }
+  @Test func eventsParseBoundedFramesAndIgnoreKeepalives() throws {
+    var parser = EventParser()
+    var events: [String] = []
+    for byte in Data(": ping\r\n\r\nevent: revision\r\ndata: {}\r\n\r\nevent: revoked\n\n".utf8) {
+      if let event = try parser.append(byte) { events.append(event) }
+    }
+    #expect(events == ["revision", "revoked"])
+    #expect(throws: NativeFailure.self) {
+      for _ in 0...2 * 1024 * 1024 + 1 { _ = try parser.append(65) }
+    }
+  }
+}

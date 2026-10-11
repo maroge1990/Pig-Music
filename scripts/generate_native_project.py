@@ -82,6 +82,7 @@ def generate():
         "PigStore",
         "PigSync",
         "PigPlayback",
+        "PigDownloads",
     ):
         dependency = add(
             name, "XCSwiftPackageProductDependency", package=package, productName=name

@@ -1,6 +1,8 @@
 # Pig Music blueprint and engineering handover
 
-Primary handover document. Updated 7 October 2026 (Australia/Melbourne).
+Primary handover document. Updated 11 October 2026 (Australia/Melbourne).
+
+Latest native candidate: [expanded everyday iPhone/iPad build](docs/native-everyday-build-20261011.md), with [installation and acceptance handoff](docs/native-testing-handoff-20261011.md). The owner authorized pushing this candidate to main; live deployment is separate. Core personal actions, foreground original/AAC downloads, SSE and queue/history persistence are implemented; hardware acceptance, OS background transfers, deeper parity workflows, production Watch and Mac remain open.
 
 Read this document first. It records the product contract, current implementation, prioritised future work and the decisions behind it. Update it at the end of every meaningful delivery, including verification and any remaining gaps. A plan is not evidence of delivery: distinguish **delivered**, **in progress**, **planned**, **proposed** and **unverified**.
 
@@ -420,4 +422,9 @@ Verification: 351 backend tests, 67 native tests with the disposable server (no 
 
 Local saved song/album/artist full-text search, paged household/catalogue search, artist saved albums and explicit favourite/membership/acquisition actions are implemented, alongside personal acquisition status and clearing finished requests. Existing server download clients remain behind the typed request/status contract. Household file playback preserves the security guard's personal-membership requirement; adding is visible and separate from playback. Cache migration and stale/account-change regressions pass. N02/N04/N06 advance; everyday parity remains incomplete.
 
-Verification and outstanding acceptance are recorded in [the local candidate](docs/native-search-actions-20261011.md). **Publishing hold:** the owner requires approval before any push to main. Next: revision-aware playlist/import journeys, then account/quality and remaining offline/realtime/playback acceptance. Watch and Mac remain later phases.
+Verification and outstanding acceptance are recorded in [the local candidate](docs/native-search-actions-20261011.md). **Historical publishing hold:** superseded by the latest owner authorization to publish the expanded build. Next: revision-aware playlist/import journeys, then account/quality and remaining offline/realtime/playback acceptance. Watch and Mac remain later phases.
+
+
+### 11 October — expanded everyday native candidate
+
+Playlist/import/account/artist acquisition journeys, foreground original/AAC downloads, an additive server copy cache (schema 8), SSE/cache recovery, full-library shuffle, queue editing/restoration and qualified-listening outbox (native v4) are implemented. The owner authorized pushing this candidate to main. [Current features, constraints and remaining roadmap](docs/native-everyday-build-20261011.md) and [testing handoff](docs/native-testing-handoff-20261011.md) supersede older milestone backlog summaries. No live deployment or physical-device acceptance is claimed.

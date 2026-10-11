@@ -48,6 +48,22 @@ struct SongActionsView: View {
             "Favourites do not download music. Requests are sent to your server and are separate from downloads to this device."
           ).font(PigType.footnote)
         }
+        Section {
+          if model.player.queue.current != nil && track.serverState != "household_available" {
+            Button("Play next") { model.player.enqueue([track], next: true) }
+            Button("Add to queue") { model.player.enqueue([track]) }
+          }
+          NavigationLink("Add to playlist") { AddToPlaylistView(model: model, track: track) }
+          if track.serverState == "in_library" || track.serverState == nil {
+            Button("Download original", systemImage: "arrow.down.circle") {
+              Task { await model.download([track]) }
+            }
+            Button("Download smaller AAC copy") {
+              Task { await model.download([track], quality: "aac") }
+            }
+            NavigationLink("Remove music") { RemovalView(model: model, tracks: [track]) }
+          }
+        }
         if loading { ProgressView() }
         if let message { Section { Text(message).font(PigType.footnote) } }
       }.navigationTitle("Song actions").navigationBarTitleDisplayMode(.inline)
@@ -121,6 +137,16 @@ struct RequestsView: View {
         VStack(alignment: .leading, spacing: 4) {
           Text(item.title)
           Text(item.artist).font(PigType.subhead).foregroundStyle(.secondary)
+          if ["failed", "cancelled"].contains(item.status) {
+            Button("Retry request") {
+              Task {
+                do {
+                  _ = try await model.performPersonal { try await $0.retryRequest(id: item.id) }
+                  await load(reset: true)
+                } catch { self.error = error.localizedDescription }
+              }
+            }.disabled(loading || !model.canMutate)
+          }
           Text(item.status.replacingOccurrences(of: "_", with: " ")).font(PigType.caption)
           if let progress = item.requestProgress {
             ProgressView(value: min(1, max(0, progress)))

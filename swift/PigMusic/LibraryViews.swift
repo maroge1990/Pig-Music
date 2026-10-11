@@ -11,6 +11,8 @@ struct LibraryView: View {
       Section {
         NavigationLink("Songs · \(model.songCount)") { SongsView(model: model) }
         NavigationLink("Albums") { AlbumsView(model: model) }
+        NavigationLink("On this device") { DownloadsView(model: model) }
+        NavigationLink("Create or import playlists") { PlaylistToolsView(model: model) }
         NavigationLink("Music requests") { RequestsView(model: model) }
         NavigationLink("Artists") {
           List {
@@ -72,6 +74,7 @@ struct SongsView: View {
   @Bindable var model: AppModel
   var body: some View {
     List {
+      Button("Shuffle all songs", systemImage: "shuffle") { Task { await model.shuffleLibrary() } }
       ForEach(Array(model.songs.enumerated()), id: \.element.id) { index, track in
         SongButton(model: model, track: track) { model.play(model.songs, at: index) }
       }
@@ -128,42 +131,16 @@ struct AlbumView: View {
         Text(album.artist).font(PigType.headline)
         Button("Play album", systemImage: "play.fill") { model.play(tracks) }.disabled(
           tracks.isEmpty)
+        Button("Download originals", systemImage: "arrow.down.circle") {
+          Task { await model.download(tracks) }
+        }.disabled(tracks.isEmpty)
+        Button("Download AAC copies") { Task { await model.download(tracks, quality: "aac") } }
+          .disabled(tracks.isEmpty)
       }
       ForEach(Array(tracks.enumerated()), id: \.element.id) { index, song in
         SongButton(model: model, track: song) { model.play(tracks, at: index) }
       }
     }.navigationTitle(album.title).task(id: album.id) { tracks = await model.albumTracks(album) }
-  }
-}
-
-struct PlaylistView: View {
-  @Bindable var model: AppModel
-  let playlist: Playlist
-  private var songs: [Track] {
-    (playlist.entries ?? []).map { entry in
-      if let saved = entry.savedTrack { return saved }
-      var song = Track(
-        id: entry.entryId, title: entry.title, artist: entry.artist, album: entry.album,
-        duration: entry.duration)
-      song.albumArtist = entry.albumArtist
-      song.trackNumber = entry.trackNumber
-      song.discNumber = entry.discNumber
-      song.serverState = "not_in_library"
-      song.musicbrainzReleaseId = entry.musicbrainzReleaseId
-      song.musicbrainzRecordingId = entry.musicbrainzRecordingId
-      return song
-    }
-  }
-  var body: some View {
-    List {
-      Section {
-        Button("Play playlist", systemImage: "play.fill") { model.play(songs) }.disabled(
-          songs.isEmpty)
-      }
-      ForEach(Array((playlist.entries ?? []).enumerated()), id: \.element.entryId) { index, _ in
-        SongButton(model: model, track: songs[index]) { model.play(songs, at: index) }
-      }
-    }.navigationTitle(playlist.name)
   }
 }
 
@@ -207,6 +184,11 @@ struct AccountView: View {
       Section("Your account") {
         Text(model.person?.displayName ?? "")
         Text(model.server).font(PigType.footnote).textSelection(.enabled)
+        NavigationLink("Appearance") { PreferencesView(model: model) }
+        NavigationLink("Password") { PasswordView(model: model) }
+        NavigationLink("Devices and sessions") { SessionsView(model: model) }
+        NavigationLink("Server quality") { QualityView(model: model) }
+        NavigationLink("Personal Plex") { PlexView(model: model) }
       }
       Section("Library") {
         Text("\(model.songCount) cached songs")
@@ -303,9 +285,17 @@ struct NowPlayingView: View {
           }
           if player.preparing { ProgressView("Preparing audio…").font(PigType.footnote) }
           if let error = player.error { Text(error).font(PigType.footnote).foregroundStyle(.red) }
+          NavigationLink("Edit full queue") { QueueEditorView(player: player) }
           Text("Up next").font(PigType.headline).frame(maxWidth: .infinity, alignment: .leading)
-          ForEach(player.queue.items.dropFirst(player.queue.index + 1)) { item in
-            Text(item.track.title).frame(maxWidth: .infinity, alignment: .leading)
+          ForEach(player.queue.items.dropFirst(player.queue.index + 1).prefix(50)) { item in
+            HStack {
+              Text(item.track.title).frame(maxWidth: .infinity, alignment: .leading)
+              Menu("Queue actions", systemImage: "ellipsis") {
+                Button("Move earlier") { player.moveUpcoming(item.id, by: -1) }
+                Button("Move later") { player.moveUpcoming(item.id, by: 1) }
+                Button("Remove from queue", role: .destructive) { player.removeUpcoming(item.id) }
+              }
+            }
           }
         }.padding()
       }
@@ -344,5 +334,32 @@ struct ArtworkView: View {
       guard !Task.isCancelled else { return }
       image = loaded
     }
+  }
+}
+
+struct QueueEditorView: View {
+  @Bindable var player: PlayerController
+  var body: some View {
+    List {
+      if let current = player.queue.current {
+        Section("Current song") { Text(current.track.title) }
+      }
+      Section("Up next") {
+        ForEach(player.queue.items.dropFirst(player.queue.index + 1)) { item in
+          HStack {
+            VStack(alignment: .leading) {
+              Text(item.track.title)
+              Text(item.track.artist).font(.caption)
+            }
+            Spacer()
+            Menu("Queue actions", systemImage: "ellipsis") {
+              Button("Move earlier") { player.moveUpcoming(item.id, by: -1) }
+              Button("Move later") { player.moveUpcoming(item.id, by: 1) }
+              Button("Remove", role: .destructive) { player.removeUpcoming(item.id) }
+            }
+          }
+        }
+      }
+    }.navigationTitle("Playback queue")
   }
 }

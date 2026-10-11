@@ -59,6 +59,9 @@ public struct PlaylistEntry: Codable, Sendable, Identifiable, Hashable {
   public var trackNumber: Int?
   public var discNumber: Int?
   public var position: Int
+  public var year: MusicYear?
+  public var serverState: String?
+  public var householdAvailable: Bool?
   public var savedId: String?
   public var savedTrack: Track?
   public var musicbrainzReleaseId: String?
@@ -145,5 +148,22 @@ public enum LibraryNamespace {
   public static func key(server: URL, personId: String) -> String {
     SHA256.hash(data: Data((server.absoluteString + "\n" + personId).utf8))
       .map { String(format: "%02x", $0) }.joined()
+  }
+}
+
+extension PlaylistEntry {
+  public var playbackTrack: Track {
+    if let savedTrack { return savedTrack }
+    var track = Track(
+      id: savedId ?? entryId, title: title, artist: artist, album: album, duration: duration)
+    track.albumArtist = albumArtist
+    track.year = year
+    track.trackNumber = trackNumber
+    track.discNumber = discNumber
+    track.musicbrainzReleaseId = musicbrainzReleaseId
+    track.musicbrainzRecordingId = musicbrainzRecordingId
+    track.serverState =
+      householdAvailable == true && savedId != nil ? "household_available" : "not_in_library"
+    return track
   }
 }

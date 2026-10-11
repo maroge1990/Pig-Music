@@ -3,6 +3,15 @@ import PigDomain
 
 /// Account-scoped, two-file temporary cache. Each decoder gets its own reference lease.
 /// This is transient playback storage, not durable offline access.
+private actor FirstResolution {
+  var value: URL?
+  init(_ value: URL?) { self.value = value }
+  func take() -> URL? {
+    defer { value = nil }
+    return value
+  }
+}
+
 public actor PlaybackSourceRepository {
   private struct Key: Hashable {
     let id: String
@@ -27,7 +36,9 @@ public actor PlaybackSourceRepository {
   private var generation = 0
   public init(preparer: AudioSourcePreparer) { self.preparer = preparer }
 
-  public func acquire(_ track: Track, resolve: @escaping @Sendable (Track) async throws -> URL)
+  public func acquire(
+    _ track: Track, initialURL: URL? = nil, resolve: @escaping @Sendable (Track) async throws -> URL
+  )
     async throws -> PreparedAudioSource
   {
     try Task.checkCancellation()
@@ -49,7 +60,11 @@ public actor PlaybackSourceRepository {
       await preparer.release(victim.value.source)
     }
     guard generation == stamp else { throw CancellationError() }
-    let source = try await preparer.prepare { try await resolve(track) }
+    let seed = FirstResolution(initialURL)
+    let source = try await preparer.prepare {
+      if let url = await seed.take() { return url }
+      return try await resolve(track)
+    }
     guard generation == stamp, !Task.isCancelled else {
       await preparer.release(source)
       throw CancellationError()

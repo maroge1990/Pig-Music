@@ -7,7 +7,15 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, SecretStr
 
 from ..auth import Auth, AuthError, COOKIE, DAY
-from ..api_models import ActivationDTO, DeviceSessionDTO, InviteDTO, UserDTO
+from ..api_models import (
+    ActivationDTO,
+    DeviceSessionDTO,
+    InviteDTO,
+    UserDTO,
+    SessionsDTO,
+    RevokedDTO,
+    PasswordChangedDTO,
+)
 
 
 class Credentials(BaseModel):
@@ -179,11 +187,11 @@ def auth_router(auth: Auth, security=None, origin: str | None = None):
     async def me(result=Depends(current)):
         return result[0]
 
-    @router.get("/me/sessions")
+    @router.get("/me/sessions", response_model=SessionsDTO)
     async def sessions(result=Depends(current)):
         return {"sessions": await run(auth.sessions, result[0]["id"])}
 
-    @router.delete("/me/sessions/{identity}")
+    @router.delete("/me/sessions/{identity}", response_model=RevokedDTO)
     async def revoke(identity: str, result=Depends(current)):
         await run(auth.revoke, result[0]["id"], identity)
         return {"revoked": True}
@@ -196,7 +204,7 @@ def auth_router(auth: Auth, security=None, origin: str | None = None):
         )
         return {"logged_out": True}
 
-    @router.post("/me/password")
+    @router.post("/me/password", response_model=PasswordChangedDTO)
     async def password(body: PasswordChange, result=Depends(current)):
         await run(
             auth.change_password,

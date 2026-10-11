@@ -1,7 +1,7 @@
 import Foundation
 import PigDomain
 
-public struct PlaybackOccurrence: Identifiable, Sendable, Equatable {
+public struct PlaybackOccurrence: Identifiable, Sendable, Equatable, Codable {
   public let id: UUID
   public let track: Track
   public init(track: Track, id: UUID = UUID()) {
@@ -10,7 +10,7 @@ public struct PlaybackOccurrence: Identifiable, Sendable, Equatable {
   }
 }
 
-public struct PlaybackQueue: Sendable {
+public struct PlaybackQueue: Sendable, Codable {
   public private(set) var items: [PlaybackOccurrence] = []
   public private(set) var index: Int = 0
   public var current: PlaybackOccurrence? { items.indices.contains(index) ? items[index] : nil }
@@ -22,6 +22,25 @@ public struct PlaybackQueue: Sendable {
   public mutating func select(index: Int) {
     guard items.indices.contains(index) else { return }
     self.index = index
+  }
+  public mutating func append(_ tracks: [Track], next: Bool = false) {
+    let additions = tracks.map { PlaybackOccurrence(track: $0) }
+    if next && current != nil {
+      items.insert(contentsOf: additions, at: index + 1)
+    } else {
+      items.append(contentsOf: additions)
+    }
+  }
+  public mutating func removeUpcoming(_ id: UUID) {
+    guard let position = items.firstIndex(where: { $0.id == id }), position > index else { return }
+    items.remove(at: position)
+  }
+  public mutating func moveUpcoming(_ id: UUID, by delta: Int) {
+    guard let position = items.firstIndex(where: { $0.id == id }), position > index else { return }
+    let destination = position + delta
+    guard destination > index, items.indices.contains(destination) else { return }
+    let item = items.remove(at: position)
+    items.insert(item, at: destination)
   }
   @discardableResult public mutating func next() -> Bool {
     guard index + 1 < items.count else { return false }
@@ -77,5 +96,22 @@ public enum TransitionPlanner {
     }
     result.append(contentsOf: incoming.dropFirst(overlap))
     return result
+  }
+}
+
+public struct PlaybackCheckpoint: Codable, Sendable {
+  public let queue: PlaybackQueue
+  public let elapsed: Double
+  public init(queue: PlaybackQueue, elapsed: Double) {
+    self.queue = queue
+    self.elapsed = elapsed.isFinite ? max(0, elapsed) : 0
+  }
+}
+public struct PlaybackPosition: Codable, Sendable {
+  public let index: Int
+  public let elapsed: Double
+  public init(index: Int, elapsed: Double) {
+    self.index = index
+    self.elapsed = elapsed
   }
 }

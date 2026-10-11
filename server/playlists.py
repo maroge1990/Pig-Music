@@ -181,7 +181,7 @@ class Playlists:
         return same_song(left, right)
 
     @coordinated
-    def add(self, playlist_id, track):
+    def add(self, playlist_id, track, *, allow_repeat=False):
         clause, params = self.clause()
         with self.store.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -192,8 +192,9 @@ class Playlists:
             if not row:
                 raise ValueError("Playlist not found.")
             payload = json.loads(row[0])
-            key = self.membership(track)
-            if not any(self.same_song(t, track) for t in payload["tracks"]):
+            if (allow_repeat and not payload.get("favourites")) or not any(
+                self.same_song(t, track) for t in payload["tracks"]
+            ):
                 payload["tracks"].append(track)
             payload["revision"] = payload.get("revision", 0) + 1
             conn.execute(

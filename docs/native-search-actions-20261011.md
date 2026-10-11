@@ -1,6 +1,6 @@
 # Native search and personal music actions
 
-11 October 2026. Local review candidate following the Home/catalogue milestone. The owner requires explicit approval before any push to main. This milestone has not been pushed, published or deployed.
+11 October 2026. Search/actions milestone following Home/catalogue. The earlier push hold was superseded by the owner’s authorization to publish the expanded build. See [the current candidate](native-everyday-build-20261011.md); no live deployment is claimed.
 
 ## Delivered
 

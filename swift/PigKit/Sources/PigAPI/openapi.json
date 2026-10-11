@@ -341,6 +341,54 @@
         "title": "AlbumQuality",
         "type": "object"
       },
+      "ArtistAcquisitionDTO": {
+        "properties": {
+          "created": {
+            "default": 0,
+            "title": "Created",
+            "type": "integer"
+          },
+          "done": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Done",
+            "type": "array"
+          },
+          "error": {
+            "nullable": true,
+            "title": "Error",
+            "type": "string"
+          },
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Kinds",
+            "type": "array"
+          },
+          "monitor": {
+            "title": "Monitor",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status",
+          "monitor",
+          "kinds"
+        ],
+        "title": "ArtistAcquisitionDTO",
+        "type": "object"
+      },
       "ArtistDTO": {
         "properties": {
           "album_count": {
@@ -1057,6 +1105,73 @@
         "title": "DeletedEntities",
         "type": "object"
       },
+      "DeletedPlaylistDTO": {
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "title": "DeletedPlaylistDTO",
+        "type": "object"
+      },
+      "DeviceCopyDTO": {
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "extension": {
+            "title": "Extension",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "quality": {
+            "enum": [
+              "original",
+              "aac"
+            ],
+            "title": "Quality",
+            "type": "string"
+          },
+          "sha256": {
+            "nullable": true,
+            "title": "Sha256",
+            "type": "string"
+          },
+          "source_sha256": {
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "not_requested",
+              "queued",
+              "preparing",
+              "ready",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "quality",
+          "source_sha256",
+          "bytes",
+          "extension",
+          "key"
+        ],
+        "title": "DeviceCopyDTO",
+        "type": "object"
+      },
       "DeviceCredentials": {
         "properties": {
           "device_name": {
@@ -1371,6 +1486,57 @@
         "title": "HomeItemDTO",
         "type": "object"
       },
+      "ImportPreviewDTO": {
+        "properties": {
+          "household": {
+            "title": "Household",
+            "type": "integer"
+          },
+          "missing": {
+            "title": "Missing",
+            "type": "integer"
+          },
+          "playlists": {
+            "title": "Playlists",
+            "type": "integer"
+          },
+          "saved": {
+            "title": "Saved",
+            "type": "integer"
+          },
+          "tracks": {
+            "title": "Tracks",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "playlists",
+          "tracks",
+          "saved",
+          "household",
+          "missing"
+        ],
+        "title": "ImportPreviewDTO",
+        "type": "object"
+      },
+      "ImportResultDTO": {
+        "properties": {
+          "playlists": {
+            "title": "Playlists",
+            "type": "integer"
+          },
+          "tracks": {
+            "title": "Tracks",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "playlists",
+          "tracks"
+        ],
+        "title": "ImportResultDTO",
+        "type": "object"
+      },
       "InviteDTO": {
         "description": "A one-use setup code. The link carries it in the fragment, which browsers\nnever send to the server, and is absent without a configured HTTPS origin.",
         "properties": {
@@ -1625,6 +1791,19 @@
           "password"
         ],
         "title": "PasswordChange",
+        "type": "object"
+      },
+      "PasswordChangedDTO": {
+        "properties": {
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "changed"
+        ],
+        "title": "PasswordChangedDTO",
         "type": "object"
       },
       "Person": {
@@ -2051,6 +2230,25 @@
         "title": "PlexAccount",
         "type": "object"
       },
+      "PlexStatusDTO": {
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "label": {
+            "nullable": true,
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "configured",
+          "label"
+        ],
+        "title": "PlexStatusDTO",
+        "type": "object"
+      },
       "Preferences": {
         "properties": {
           "appearance": {
@@ -2076,6 +2274,81 @@
           }
         },
         "title": "Preferences",
+        "type": "object"
+      },
+      "QualityDTO": {
+        "properties": {
+          "household_default": {
+            "title": "Household Default",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/QualityOptionDTO"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "preferences": {
+            "items": {
+              "$ref": "#/components/schemas/QualityItemDTO"
+            },
+            "title": "Preferences",
+            "type": "array"
+          }
+        },
+        "required": [
+          "preferences",
+          "options",
+          "household_default"
+        ],
+        "title": "QualityDTO",
+        "type": "object"
+      },
+      "QualityItemDTO": {
+        "properties": {
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "preferred": {
+            "title": "Preferred",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "item_id",
+          "preferred"
+        ],
+        "title": "QualityItemDTO",
+        "type": "object"
+      },
+      "QualityOptionDTO": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "number"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "label",
+          "rank"
+        ],
+        "title": "QualityOptionDTO",
         "type": "object"
       },
       "QualityPreference": {
@@ -2114,6 +2387,35 @@
         "title": "QualityPreference",
         "type": "object"
       },
+      "QualitySavedDTO": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "integer"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "preferred": {
+            "nullable": true,
+            "title": "Preferred",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "item_id",
+          "preferred",
+          "created"
+        ],
+        "title": "QualitySavedDTO",
+        "type": "object"
+      },
       "RecentAlbums": {
         "properties": {
           "albums": {
@@ -2133,6 +2435,19 @@
           "revision"
         ],
         "title": "RecentAlbums",
+        "type": "object"
+      },
+      "RecordedDTO": {
+        "properties": {
+          "recorded": {
+            "title": "Recorded",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "recorded"
+        ],
+        "title": "RecordedDTO",
         "type": "object"
       },
       "Removal": {
@@ -2158,6 +2473,96 @@
           "confirmation"
         ],
         "title": "Removal",
+        "type": "object"
+      },
+      "RemovalItemDTO": {
+        "properties": {
+          "delete_file": {
+            "title": "Delete File",
+            "type": "boolean"
+          },
+          "kept_for": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Kept For",
+            "type": "array"
+          },
+          "track_id": {
+            "title": "Track Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "track_id",
+          "delete_file",
+          "kept_for"
+        ],
+        "title": "RemovalItemDTO",
+        "type": "object"
+      },
+      "RemovalPreviewDTO": {
+        "properties": {
+          "confirmation": {
+            "title": "Confirmation",
+            "type": "string"
+          },
+          "delete_count": {
+            "title": "Delete Count",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RemovalItemDTO"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "keep_count": {
+            "title": "Keep Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "delete_count",
+          "keep_count",
+          "items",
+          "confirmation"
+        ],
+        "title": "RemovalPreviewDTO",
+        "type": "object"
+      },
+      "RemovalResultDTO": {
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kept": {
+            "title": "Kept",
+            "type": "integer"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "integer"
+          },
+          "undo_until": {
+            "title": "Undo Until",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "removed",
+          "deleted",
+          "kept",
+          "undo_until"
+        ],
+        "title": "RemovalResultDTO",
         "type": "object"
       },
       "RequestDTO": {
@@ -2272,6 +2677,45 @@
         "title": "RequestList",
         "type": "object"
       },
+      "RestoredDTO": {
+        "properties": {
+          "restored": {
+            "title": "Restored",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "restored"
+        ],
+        "title": "RestoredDTO",
+        "type": "object"
+      },
+      "RetriedDTO": {
+        "properties": {
+          "retried": {
+            "title": "Retried",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "retried"
+        ],
+        "title": "RetriedDTO",
+        "type": "object"
+      },
+      "RevokedDTO": {
+        "properties": {
+          "revoked": {
+            "title": "Revoked",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "revoked"
+        ],
+        "title": "RevokedDTO",
+        "type": "object"
+      },
       "SearchResults": {
         "properties": {
           "albums": {
@@ -2366,6 +2810,71 @@
           "selected"
         ],
         "title": "Selection",
+        "type": "object"
+      },
+      "SessionDTO": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "number"
+          },
+          "device_name": {
+            "title": "Device Name",
+            "type": "string"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "number"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "last_seen_at": {
+            "title": "Last Seen At",
+            "type": "number"
+          },
+          "platform": {
+            "title": "Platform",
+            "type": "string"
+          },
+          "revoked_at": {
+            "nullable": true,
+            "title": "Revoked At",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "device_name",
+          "platform",
+          "created_at",
+          "last_seen_at",
+          "expires_at",
+          "revoked_at"
+        ],
+        "title": "SessionDTO",
+        "type": "object"
+      },
+      "SessionsDTO": {
+        "properties": {
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/SessionDTO"
+            },
+            "title": "Sessions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "sessions"
+        ],
+        "title": "SessionsDTO",
         "type": "object"
       },
       "SongReference": {
@@ -3912,7 +4421,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ArtistAcquisitionDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -4035,7 +4546,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ArtistAcquisitionDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -4168,7 +4681,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ArtistAcquisitionDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -6301,11 +6816,24 @@
     "/api/v1/imports/apple": {
       "post": {
         "operationId": "import_apple_api_v1_imports_apple_post",
+        "requestBody": {
+          "content": {
+            "application/xml": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResultDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -6407,6 +6935,133 @@
           }
         ],
         "summary": "Import Apple",
+        "tags": [
+          "personal-library"
+        ]
+      }
+    },
+    "/api/v1/imports/apple/preview": {
+      "post": {
+        "operationId": "preview_import_api_v1_imports_apple_preview_post",
+        "requestBody": {
+          "content": {
+            "application/xml": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportPreviewDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Preview Import",
         "tags": [
           "personal-library"
         ]
@@ -7346,7 +8001,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RemovalPreviewDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -7471,7 +8128,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RestoredDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -7595,7 +8254,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RemovalResultDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -7973,7 +8634,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordChangedDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -8087,7 +8750,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/SessionsDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -8212,7 +8877,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RevokedDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -9062,7 +9729,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RecordedDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -9424,7 +10093,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -9558,7 +10229,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DeletedPlaylistDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -9816,7 +10489,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -9935,6 +10610,16 @@
               "title": "Playlist Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "allow_repeat",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Allow Repeat",
+              "type": "boolean"
+            }
           }
         ],
         "requestBody": {
@@ -9951,7 +10636,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -10094,7 +10781,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -10208,7 +10897,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PlexStatusDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -10330,7 +11021,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/PlexStatusDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -10444,7 +11137,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Preferences"
+                }
               }
             },
             "description": "Successful Response"
@@ -10566,7 +11261,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/Preferences"
+                }
               }
             },
             "description": "Successful Response"
@@ -10680,7 +11377,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/QualityDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -10802,7 +11501,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/QualitySavedDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -11427,7 +12128,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RetriedDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -12040,6 +12743,428 @@
         "summary": "Create First Owner",
         "tags": [
           "accounts"
+        ]
+      }
+    },
+    "/api/v1/tracks/{track_id}/copy": {
+      "get": {
+        "operationId": "copy_status_api_v1_tracks__track_id__copy_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "track_id",
+            "required": true,
+            "schema": {
+              "title": "Track Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "quality",
+            "required": false,
+            "schema": {
+              "default": "original",
+              "enum": [
+                "original",
+                "aac"
+              ],
+              "title": "Quality",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceCopyDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Copy Status",
+        "tags": [
+          "personal-library"
+        ]
+      },
+      "post": {
+        "operationId": "request_copy_api_v1_tracks__track_id__copy_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "track_id",
+            "required": true,
+            "schema": {
+              "title": "Track Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "quality",
+            "required": false,
+            "schema": {
+              "default": "original",
+              "enum": [
+                "original",
+                "aac"
+              ],
+              "title": "Quality",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceCopyDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Request Copy",
+        "tags": [
+          "personal-library"
+        ]
+      }
+    },
+    "/api/v1/tracks/{track_id}/copy/file": {
+      "get": {
+        "operationId": "copy_file_api_v1_tracks__track_id__copy_file_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "track_id",
+            "required": true,
+            "schema": {
+              "title": "Track Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "quality",
+            "required": false,
+            "schema": {
+              "default": "original",
+              "enum": [
+                "original",
+                "aac"
+              ],
+              "title": "Quality",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Copy File",
+        "tags": [
+          "personal-library"
         ]
       }
     },

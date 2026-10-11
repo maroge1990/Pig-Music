@@ -28,6 +28,8 @@ from .enrichment import Enrichment
 from .change_feed import ChangeFeed
 from .image_cache import public_image
 from .routes.artwork import artwork_router
+from .device_copies import DeviceCopies
+from .routes.device_copies import device_copy_router
 from .routes.household import household_router
 from .portraits import portrait_target
 from .artist_backgrounds import background_target
@@ -78,6 +80,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     store = Store(
         data_dir or Path(os.environ.get("PIG_MUSIC_DATA", ROOT / ".localdata"))
     )
+    device_copies = DeviceCopies(store)
     music_catalogue = Catalogue(store)
     artwork = Artwork(store, music_catalogue)
     fanart = Fanart(store)
@@ -169,6 +172,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             try:
                 yield
             finally:
+                await device_copies.close()
                 downloader.stopping.set()
                 scanner.stopping.set()
                 plex.stopping.set()
@@ -223,6 +227,8 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     from .routes.native import native_router
 
     app.include_router(native_router(store, auth, feed_health))
+    app.include_router(device_copy_router(device_copies))
+    app.state.device_copies = device_copies
     from .routes.discover import discover_router
 
     from .routes.home import home_router

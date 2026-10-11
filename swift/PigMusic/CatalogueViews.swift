@@ -14,6 +14,9 @@ struct CatalogueArtistView: View {
   @State private var error: String?
   var body: some View {
     List {
+      NavigationLink("Artist requests and monitoring") {
+        ArtistAcquisitionView(model: model, artistId: artistId)
+      }
       CatalogueStatus(loading: loading, loaded: loaded, empty: releases.isEmpty, error: error) {
         Task { await load(reset: !loaded) }
       }

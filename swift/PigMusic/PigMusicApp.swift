@@ -8,7 +8,7 @@ import SwiftUI
     WindowGroup {
       RootView(model: model)
         .task { await model.restore() }
-        .onChange(of: phase) { _, value in if value == .active { Task { await model.refresh() } } }
+        .onChange(of: phase) { _, value in Task { await model.sceneActive(value == .active) } }
     }
   }
 }
@@ -20,6 +20,10 @@ struct RootView: View {
     Group {
       if model.person == nil { SignInView(model: model) } else { LibraryShell(model: model) }
     }
+    .preferredColorScheme(
+      model.preferences.appearance == "dark"
+        ? .dark : (model.preferences.appearance == "light" ? .light : nil)
+    )
     .tint(PigBrand.accent(scheme))
     .scrollContentBackground(.hidden)
     .background(PigBrand.canvas(scheme))
@@ -30,6 +34,7 @@ struct SignInView: View {
   @Bindable var model: AppModel
   @State private var username = ""
   @State private var password = ""
+  @State private var invitation = ""
   var body: some View {
     NavigationStack {
       Form {
@@ -60,6 +65,21 @@ struct SignInView: View {
               if model.busy { ProgressView() }
             }
           }.disabled(model.busy || username.isEmpty || password.isEmpty || model.server.isEmpty)
+        }
+        Section("Join with an invitation") {
+          TextField("Invitation link or code", text: $invitation).textInputAutocapitalization(
+            .never
+          ).autocorrectionDisabled()
+          Text("Use the password above for your new account; at least 12 characters.").font(
+            PigType.footnote)
+          Button("Activate account") {
+            Task {
+              await model.join(invitation: invitation, password: password)
+              password = ""
+              invitation = ""
+            }
+          }
+          .disabled(model.busy || invitation.isEmpty || password.count < 12)
         }
         if let message = model.message {
           Section {

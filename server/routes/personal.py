@@ -19,6 +19,18 @@ from ..api_models import (
     MembershipResultDTO,
     AcquisitionResultDTO,
     ClearedRequestsDTO,
+    DeletedPlaylistDTO,
+    ImportResultDTO,
+    ImportPreviewDTO,
+    PlexStatusDTO,
+    QualityDTO,
+    QualitySavedDTO,
+    RemovalPreviewDTO,
+    RemovalResultDTO,
+    RestoredDTO,
+    RecordedDTO,
+    ArtistAcquisitionDTO,
+    RetriedDTO,
 )
 from ..playlists import Playlists, PlaylistConflict
 from ..user_library import track_dto, SearchChanged
@@ -248,11 +260,11 @@ def personal_router(store, artist_jobs, recovery):
             ],
         }
 
-    @router.get("/artists/{artist_id}/acquisition")
+    @router.get("/artists/{artist_id}/acquisition", response_model=ArtistAcquisitionDTO)
     async def artist_acquisition(artist_id: str, request: Request):
         return await run(artist_jobs.scoped(identity(request)).state, artist_id)
 
-    @router.put("/artists/{artist_id}/acquisition")
+    @router.put("/artists/{artist_id}/acquisition", response_model=ArtistAcquisitionDTO)
     async def configure_artist(artist_id: str, body: ArtistRequest, request: Request):
         return await run(
             artist_jobs.scoped(identity(request)).configure,
@@ -262,7 +274,9 @@ def personal_router(store, artist_jobs, recovery):
             body.request,
         )
 
-    @router.delete("/artists/{artist_id}/acquisition")
+    @router.delete(
+        "/artists/{artist_id}/acquisition", response_model=ArtistAcquisitionDTO
+    )
     async def cancel_artist(artist_id: str, request: Request):
         return await run(artist_jobs.scoped(identity(request)).cancel, artist_id)
 
@@ -303,17 +317,17 @@ def personal_router(store, artist_jobs, recovery):
                 "Removal or restore unavailable. Refresh or ask the administrator to check Recovery.",
             )
 
-    @router.post("/library/removal-preview")
+    @router.post("/library/removal-preview", response_model=RemovalPreviewDTO)
     async def preview_removal(body: Membership, request: Request):
         return await remove_call(removal.preview, identity(request), body.track_ids)
 
-    @router.post("/library/remove")
+    @router.post("/library/remove", response_model=RemovalResultDTO)
     async def remove_music(body: Removal, request: Request):
         return await remove_call(
             removal.remove, identity(request), body.track_ids, body.confirmation
         )
 
-    @router.post("/library/removals/{operation_id}/undo")
+    @router.post("/library/removals/{operation_id}/undo", response_model=RestoredDTO)
     async def undo_removal(operation_id: str, request: Request):
         return await remove_call(removal.undo, identity(request), operation_id)
 
@@ -321,7 +335,7 @@ def personal_router(store, artist_jobs, recovery):
     async def playlists(request: Request):
         return {"playlists": await run(Playlists(store, identity(request)).list)}
 
-    @router.post("/playlists")
+    @router.post("/playlists", response_model=PlaylistDTO)
     async def create(body: PlaylistName, request: Request):
         return playlist_dto(
             await run(Playlists(store, identity(request)).create, body.name)
@@ -337,14 +351,17 @@ def personal_router(store, artist_jobs, recovery):
             raise HTTPException(404, "Playlist not found")
         return playlist_dto(value)
 
-    @router.post("/playlists/{playlist_id}/songs")
-    async def add_song(playlist_id: str, body: TrackInput, request: Request):
+    @router.post("/playlists/{playlist_id}/songs", response_model=PlaylistDTO)
+    async def add_song(
+        playlist_id: str, body: TrackInput, request: Request, allow_repeat: bool = False
+    ):
         try:
             return playlist_dto(
                 await asyncio.to_thread(
                     Playlists(store, identity(request)).add,
                     playlist_id,
                     body.model_dump(exclude_none=True),
+                    allow_repeat=allow_repeat,
                 )
             )
         except ValueError:
@@ -366,19 +383,21 @@ def personal_router(store, artist_jobs, recovery):
         except ValueError as exc:
             raise HTTPException(400, str(exc))
 
-    @router.patch("/playlists/{playlist_id}")
+    @router.patch("/playlists/{playlist_id}", response_model=PlaylistDTO)
     async def edit(playlist_id: str, body: PlaylistEdit, request: Request):
         return await edit_playlist(
             request, playlist_id, body.revision, name=body.name, order=body.order
         )
 
-    @router.delete("/playlists/{playlist_id}/songs/{position}")
+    @router.delete(
+        "/playlists/{playlist_id}/songs/{position}", response_model=PlaylistDTO
+    )
     async def remove_song(
         playlist_id: str, position: int, revision: int, request: Request
     ):
         return await edit_playlist(request, playlist_id, revision, remove=position)
 
-    @router.delete("/playlists/{playlist_id}")
+    @router.delete("/playlists/{playlist_id}", response_model=DeletedPlaylistDTO)
     async def delete(playlist_id: str, revision: int, request: Request):
         return await edit_playlist(request, playlist_id, revision, delete=True)
 
@@ -390,7 +409,63 @@ def personal_router(store, artist_jobs, recovery):
             body.favourite,
         )
 
-    @router.post("/imports/apple")
+    @router.post(
+        "/imports/apple/preview",
+        response_model=ImportPreviewDTO,
+        openapi_extra={
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/xml": {
+                        "schema": {"type": "string", "format": "binary"}
+                    }
+                },
+            }
+        },
+    )
+    async def preview_import(request: Request):
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > 20 * 1024 * 1024:
+                raise HTTPException(413, "Import is larger than 20MB")
+
+        def prepare():
+            from ..library import parse_apple
+
+            source = parse_apple(bytes(body))
+            personal = {t["id"] for t in users.projection(identity(request))["tracks"]}
+            counts = {"saved": 0, "household": 0, "missing": 0}
+            for track in source["tracks"]:
+                matched = store.index.match(track)
+                state = (
+                    "saved"
+                    if matched.track and matched.track["id"] in personal
+                    else "household" if matched.track else "missing"
+                )
+                counts[state] += 1
+            return {
+                "playlists": len(source.get("playlists", [])),
+                "tracks": len(source["tracks"]),
+                **counts,
+            }
+
+        return await run(prepare)
+
+    @router.post(
+        "/imports/apple",
+        response_model=ImportResultDTO,
+        openapi_extra={
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/xml": {
+                        "schema": {"type": "string", "format": "binary"}
+                    }
+                },
+            }
+        },
+    )
     async def import_apple(request: Request):
         body = bytearray()
         async for chunk in request.stream():
@@ -411,7 +486,7 @@ def personal_router(store, artist_jobs, recovery):
     async def clear_requests(request: Request):
         return await run(users.clear_requests, identity(request))
 
-    @router.post("/requests/{request_id}/retry")
+    @router.post("/requests/{request_id}/retry", response_model=RetriedDTO)
     async def retry_request(request_id: str, request: Request):
         try:
             return await run(users.retry_request, identity(request), request_id)
@@ -422,7 +497,7 @@ def personal_router(store, artist_jobs, recovery):
     async def requests(request: Request, offset: int = 0, limit: int = 200):
         return await run(users.queue, identity(request), offset, limit)
 
-    @router.post("/play-events")
+    @router.post("/play-events", response_model=RecordedDTO)
     async def play_events(body: PlayEvents, request: Request):
         return await run(
             users.history,
@@ -445,11 +520,11 @@ def personal_router(store, artist_jobs, recovery):
                 )
             }
 
-    @router.get("/plex")
+    @router.get("/plex", response_model=PlexStatusDTO)
     async def plex_status(request: Request):
         return await run(PlexAccounts(store).status, identity(request))
 
-    @router.put("/plex")
+    @router.put("/plex", response_model=PlexStatusDTO)
     async def plex_account(body: PlexAccount, request: Request):
         return await run(
             PlexAccounts(store).set,
@@ -458,11 +533,11 @@ def personal_router(store, artist_jobs, recovery):
             body.label,
         )
 
-    @router.get("/quality")
+    @router.get("/quality", response_model=QualityDTO)
     async def quality(request: Request):
         return await run(HouseholdPolicy(store).quality, identity(request))
 
-    @router.put("/quality")
+    @router.put("/quality", response_model=QualitySavedDTO)
     async def save_quality(body: QualityPreference, request: Request):
         try:
             return await run(
@@ -475,7 +550,7 @@ def personal_router(store, artist_jobs, recovery):
         except LookupError:
             raise HTTPException(404, "Library item not found")
 
-    @router.get("/preferences")
+    @router.get("/preferences", response_model=Preferences)
     async def preferences(request: Request):
         import json
 
@@ -486,7 +561,7 @@ def personal_router(store, artist_jobs, recovery):
             ).fetchone()
         return json.loads(row[0]) if row else Preferences().model_dump()
 
-    @router.put("/preferences")
+    @router.put("/preferences", response_model=Preferences)
     async def save_preferences(body: Preferences, request: Request):
         import json
 

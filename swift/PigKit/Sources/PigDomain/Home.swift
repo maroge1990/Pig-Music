@@ -41,7 +41,7 @@ public struct DiscoveryFeed: Codable, Sendable {
   public let state: State?
 }
 
-public struct HomeContent: Sendable {
+public struct HomeContent: Codable, Sendable {
   public let albums: [Album]
   public let feed: DiscoveryFeed?
   public init(albums: [Album] = [], feed: DiscoveryFeed? = nil) {

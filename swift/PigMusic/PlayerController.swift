@@ -13,6 +13,62 @@ import PigPlayback
   private(set) var elapsed: Double = 0
   private(set) var duration: Double = 0
   var error: String?
+  @ObservationIgnored var onListen: (@MainActor (ListeningEvent) -> Void)?
+  @ObservationIgnored private var listenOccurrence: UUID?
+  @ObservationIgnored private var listenSeconds: Double = 0
+  @ObservationIgnored private var listenReported = false
+  @ObservationIgnored private var listenTick = ProcessInfo.processInfo.systemUptime
+  private func measureListen() {
+    let now = ProcessInfo.processInfo.systemUptime
+    let delta = min(1, max(0, now - listenTick))
+    listenTick = now
+    guard let item = queue.current else {
+      listenOccurrence = nil
+      return
+    }
+    if listenOccurrence != item.id {
+      listenOccurrence = item.id
+      listenSeconds = 0
+      listenReported = false
+      return
+    }
+    if playing { listenSeconds += delta }
+    if listenSeconds >= 30, !listenReported,
+      item.track.serverState == nil || item.track.serverState == "in_library"
+    {
+      listenReported = true
+      onListen?(
+        ListeningEvent(
+          eventId: item.id.uuidString, trackId: item.track.id,
+          playedAt: Int(Date().timeIntervalSince1970), seconds: 30))
+    }
+  }
+  @ObservationIgnored var onCheckpoint: (@MainActor (PlaybackCheckpoint) -> Void)?
+  @ObservationIgnored private var checkpointTime = Date.distantPast
+  @ObservationIgnored private var pendingSeek: Double = 0
+  private func checkpoint(force: Bool = false) {
+    guard force || Date().timeIntervalSince(checkpointTime) >= 5 else { return }
+    checkpointTime = Date()
+    onCheckpoint?(
+      PlaybackCheckpoint(queue: queue, elapsed: pendingSeek > 0 ? pendingSeek : elapsed))
+  }
+  func enqueue(_ tracks: [Track], next: Bool = false) {
+    guard queue.current != nil else { return }
+    queue.append(tracks, next: next)
+    engineQueueChanged()
+  }
+  func removeUpcoming(_ id: UUID) {
+    queue.removeUpcoming(id)
+    engineQueueChanged()
+  }
+  func moveUpcoming(_ id: UUID, by delta: Int) {
+    queue.moveUpcoming(id, by: delta)
+    engineQueueChanged()
+  }
+  private func engineQueueChanged() {
+    if usingEngine { engine?.updateUpcoming(queue.items) }
+    checkpoint(force: true)
+  }
   var seamlessEnabled: Bool {
     didSet {
       defaults.set(seamlessEnabled, forKey: "pig.playback.seamless")
@@ -148,6 +204,8 @@ import PigPlayback
     }
   }
   func clearAccount() {
+    onListen = nil
+    onCheckpoint = nil
     stop()
     let old = repository
     repository = nil
@@ -167,7 +225,8 @@ import PigPlayback
   }
 
   func play(
-    _ tracks: [Track], startingAt: Int = 0,
+    _ tracks: [Track], startingAt: Int = 0, autoplay: Bool = true,
+    restored: PlaybackCheckpoint? = nil,
     artwork: @escaping @MainActor (Track) async -> UIImage? = { _ in nil },
     resolve: @escaping @Sendable (Track) async throws -> URL
   ) {
@@ -181,10 +240,16 @@ import PigPlayback
     player.pause()
     player.replaceCurrentItem(with: nil)
     generation += 1
-    intent.play()
+    if autoplay { intent.play() } else { intent.pause() }
     self.resolve = resolve
     artworkSource = artwork
-    queue.replace(tracks, startingAt: startingAt)
+    if let restored {
+      queue = restored.queue
+    } else {
+      queue.replace(tracks, startingAt: startingAt)
+    }
+    pendingSeek = restored?.elapsed ?? 0
+    elapsed = pendingSeek
     usingEngine = seamlessEnabled
     error = nil
     if usingEngine {
@@ -200,17 +265,18 @@ import PigPlayback
         queue.items, startingAt: queue.index, autoplay: intent.canPlay,
         crossfade: crossfadeEnabled,
         acquire: { item in
-          #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("--demo") {
-              let file = try await resolve(item.track)
-              return try await repository.acquireLocal(item.track, file: file)
-            }
-          #endif
-          return try await repository.acquire(item.track, resolve: resolve)
+          let url = try await resolve(item.track)
+          if url.isFileURL { return try await repository.acquireLocal(item.track, file: url) }
+          return try await repository.acquire(item.track, initialURL: url, resolve: resolve)
         }, release: { await repository.release($0) })
     } else {
       prepareStreaming()
     }
+    if usingEngine, pendingSeek > 0 {
+      engine?.seek(pendingSeek)
+      pendingSeek = 0
+    }
+    checkpoint(force: true)
     refreshArtwork()
   }
   private func accept(_ snapshot: QueuePlaybackSnapshot) {
@@ -228,6 +294,8 @@ import PigPlayback
     } else if snapshot.state == .ended {
       intent.pause()
     }
+    measureListen()
+    checkpoint()
     refreshArtwork()
     publishNowPlaying()
   }
@@ -257,6 +325,11 @@ import PigPlayback
         if intent.canPlay { try activate() }
         player.replaceCurrentItem(with: AVPlayerItem(url: url))
         preparing = false
+        if pendingSeek > 0 {
+          await player.seek(to: CMTime(seconds: pendingSeek, preferredTimescale: 600))
+          guard generation == stamp else { return }
+          pendingSeek = 0
+        }
         if intent.canPlay { player.play() }
         startClock()
       } catch is CancellationError {} catch {
@@ -288,6 +361,8 @@ import PigPlayback
           playing = false
           intent.pause()
         }
+        measureListen()
+        checkpoint()
         publishNowPlaying()
         do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
       }
@@ -354,8 +429,10 @@ import PigPlayback
     publishNowPlaying()
   }
   func pause() {
+    measureListen()
     intent.pause()
     suspend()
+    checkpoint(force: true)
   }
   func next() {
     if usingEngine {

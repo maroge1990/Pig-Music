@@ -15,7 +15,7 @@ Apple permits personal-device testing through Xcode with a free account. Persona
 
 Streaming is the default. In **Account → Playback testing**, enable **Seamless playback** to exercise the bounded AVAudioEngine candidate. Changing modes stops playback. Crossfade is enabled by default for this mode: unrelated songs blend for three seconds; sequential tracks with stable album identity and numbering retain continuous album order. Crossfade changes apply to the next queue.
 
-The candidate prepares complete temporary files, prefetching one occurrence ahead. It reuses files for seeks and repeated tracks through independent reader leases, with at most two cached files, a 128 MiB file limit and a 256 MiB total limit. Startup clears abandoned playback directories in the account cache. This is transient playback storage, not an offline download library. Source failure is displayed; return to Streaming mode if preparation fails. Slow next-song transfers can still cause buffering or initial startup delay.
+The candidate prepares complete temporary files, prefetching one occurrence ahead. It reuses files for seeks and repeated tracks through independent reader leases, with at most two cached files, a 128 MiB file limit and a 256 MiB total limit. Startup clears abandoned playback directories in the account cache. This transient playback storage is separate from the new durable device download library. Source failure is displayed; return to Streaming mode if preparation fails. Slow next-song transfers can still cause buffering or initial startup delay.
 
 Test on both phone and tablet, recording model, OS version, connection, mode, format, queue order and the exact failure:
 
@@ -25,17 +25,17 @@ Test on both phone and tablet, recording model, OS version, connection, mode, fo
 - Pause during preparation, seek while paused, skip repeatedly, play duplicate tracks, reach the queue end, then replay. Confirm no cancelled occurrence starts later and paused music remains paused.
 - Use lock-screen controls, switch to the background, lock the screen, interrupt playback, unplug headphones and change Bluetooth routes. Verify resume intent, artwork, elapsed time and user pause behavior. Hardware timing and route recovery are acceptance gates.
 - Play a cloud-only playlist entry. When the experimental provider is unavailable, confirm a clear error and that no library acquisition request is created.
-- Remove cached music or replace its source on the server, then refresh. Temporary playback cache is stopped/cleared after a successful reconciliation; failed/offline refresh retains cached metadata. Revoke the device and refresh: session and temporary playback access must clear. Durable offline playback/reconciliation is still future work.
+- Remove cached music or replace its source on the server, then refresh. Temporary playback cache is stopped/cleared after a successful reconciliation; failed/offline refresh retains cached metadata. Revoke the device and refresh: session and temporary playback access must clear. Downloaded originals/AAC now follow the same authoritative reconciliation policy.
 
 Debug builds can use `--demo` and optionally `--seamless-demo` for a synthetic library and bundled short tone. Both entry points are excluded from Release compilation. Remove these arguments for server/device acceptance.
 
 ## Server download-source testing
 
-The integrated server includes YouTube, SoundCloud and Monochrome alongside existing sources, bounded provider processing, diagnostics, optional owner-managed YouTube cookies and the `native_standard` quality option. Administrative source ordering, credentials and diagnostics remain web-only. The generated Swift contract includes the new profile; native personal quality settings are still pending.
+The integrated server includes YouTube, SoundCloud and Monochrome alongside existing sources, bounded provider processing, diagnostics, optional owner-managed YouTube cookies and the `native_standard` quality option. Administrative source ordering, credentials and diagnostics remain web-only. The generated Swift contract includes the new profile; native personal quality settings are now available under Account.
 
 The existing main-branch workflow builds and tests the exact Linux image before publishing the commit tag and `main` image. Check its result before selecting an image for server testing. A source push does not prove a live acquisition, deployment or successful migration of your server state.
 
-Before running the candidate against existing state, stop the server and make a consistent backup of appdata/database and retain the prior image digest. The candidate adds schema migration 7. Rolling back an image alone does not reverse that migration: restore the matching pre-upgrade backup when reverting. Prefer a copied state and separate library destination for initial acceptance; leave existing household files untouched.
+Before running the candidate against existing state, stop the server and make a consistent backup of appdata/database and retain the prior image digest. The candidate adds schema migrations 7 and 8. Rolling back an image alone does not reverse that migration: restore the matching pre-upgrade backup when reverting. Prefer a copied state and separate library destination for initial acceptance; leave existing household files untouched.
 
 Use owner diagnostics to distinguish **metadata reachable** from **audio transfer verified**. For an authorized test recording, `python -m scripts.verify_download_source --source SOURCE --track /tmp/authorized-track.json --output /tmp/new-isolated-source-test` runs a complete acquisition in a new isolated directory; `--metadata-only` performs no audio download. SOURCE is `youtube`, `soundcloud` or `monochrome`. Never reuse the output directory or point this smoke tool at the live household library.
 
@@ -43,6 +43,17 @@ For each enabled source, verify the expected artist/recording/album/duration, re
 
 ## Remaining delivery
 
-Home/catalogue discovery, personal mutations and settings, SSE, persisted queue/history, durable original/AAC downloads and full accessibility/device acceptance remain pending. Watch follows the phone/tablet release; Mac follows Watch. The software evidence is recorded in [delivery](native-uplift-delivery-20261011.md) and [realtime playback](native-realtime-queue-20261011.md).
+Home/catalogue, core personal mutations/settings, SSE, persisted queue/qualified-play history and foreground original/AAC downloads are implemented. OS background transfers, deeper personal workflows and full accessibility/device acceptance remain pending. See [the expanded build and remaining package ledger](native-everyday-build-20261011.md). Watch follows the phone/tablet release; Mac follows Watch. The software evidence is recorded in [delivery](native-uplift-delivery-20261011.md) and [realtime playback](native-realtime-queue-20261011.md).
 
-Local automated checks for this candidate: 350 backend, 38 web and 61 PigKit tests passed, with the isolated Swift/server journeys enabled. Unsigned Debug and Release iPhone/iPad builds and the existing three-test NativeSpike suite passed. Live Linux image/runtime verification is delegated to the existing GitHub workflow; physical-device and provider acceptance remain the checklist above.
+Earlier milestone checks: 350 backend, 38 web and 61 PigKit tests, unsigned Debug/Release builds and the existing NativeSpike suite passed. Expanded-build results below supersede those counts. Live Linux image/runtime verification is delegated to the existing GitHub workflow; physical-device and provider acceptance remain the checklist above.
+
+
+## Expanded build acceptance
+
+Use **Library → On this device** for storage budgets and pause/resume/retry. Download from song actions, saved albums or playlists. Wi-Fi foreground transfers require the app to remain active. Original quality is the default; use AAC copies for smaller files or device-incompatible codecs. Device copies never change acquisition quality or replace library originals.
+
+Test original and AAC downloads, kill/reopen during a transfer, go offline and play, then reconnect after membership removal/source replacement/device revocation. Outage alone must retain files; confirmed access changes must stop affected playback and remove access. Test the two users separately. Queue restoration is paused; repeated song occurrences remain distinct. Verify qualified listening is recorded once after 30 seconds and survives offline/reconnect without duplicate server events.
+
+Create/import/rename/reorder/delete playlists, add repeated songs, delete one occurrence, and make a conflicting edit through the web app. Review XML matches before importing. Exercise artist monitoring and explicit catalogue requests separately. Verify personal quality/Plex/password/session changes, removal consequences and undo; administrative configuration remains on the web.
+
+Expanded candidate verification: **358 backend tests**, **80 PigKit tests** (17 XCTest + 51 core Swift Testing + 12 API Swift Testing) against the disposable authenticated contract server, with no skips, and **38 web tests** pass. The web production build, exported schema checks, Swift/Python formatting and whitespace checks pass. Unsigned Debug and Release simulator verification is recorded alongside the final publication result; physical-device installation and live provider testing are still required.

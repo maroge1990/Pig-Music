@@ -23,9 +23,9 @@ public protocol LibrarySource: Sendable {
 }
 
 public actor NativeService: LibrarySource {
-  private let client: Client
+  let client: Client
   public let server: URL
-  private let vault: any DeviceTokenStore
+  let vault: any DeviceTokenStore
   private let artworkTransport: ArtworkTransport
   public init(server: String, vault: any DeviceTokenStore) throws {
     self.server = try ServerAddress.validate(server)
@@ -186,7 +186,7 @@ public actor NativeService: LibrarySource {
         "Catalogue search is unavailable. Your library is still accessible.")
     }
   }
-  private func input(_ track: Track) -> Components.Schemas.TrackInput {
+  func input(_ track: Track) -> Components.Schemas.TrackInput {
     .init(
       album: track.album,
       album_artist: (track.albumArtist?.isEmpty == false ? track.albumArtist : track.artist),

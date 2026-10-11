@@ -360,7 +360,11 @@ def test_native_preference_migration_preserves_rows_constraints_and_rollback(
     migrations = importlib.import_module("server.migrations")
     conn = sqlite3.connect(tmp_path / "legacy.sqlite3")
     conn.execute("PRAGMA foreign_keys=ON")
-    monkeypatch.setattr(migrations, "MIGRATIONS", migrations.MIGRATIONS[:-1])
+    monkeypatch.setattr(
+        migrations,
+        "MIGRATIONS",
+        [entry for entry in migrations.MIGRATIONS if entry[0] < 7],
+    )
     migrations.migrate(conn)
     conn.execute(
         "INSERT INTO users(id,username,display_name,role,created_at) VALUES ('owner','owner','Owner','owner',1)"

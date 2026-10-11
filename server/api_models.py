@@ -317,3 +317,116 @@ class AcquisitionResultDTO(BaseModel):
 
 class ClearedRequestsDTO(BaseModel):
     cleared: int
+
+
+class DeletedPlaylistDTO(BaseModel):
+    deleted: bool
+
+
+class ImportResultDTO(BaseModel):
+    playlists: int
+    tracks: int
+
+
+class SessionDTO(BaseModel):
+    id: str
+    kind: str
+    device_name: str
+    platform: str
+    created_at: float
+    last_seen_at: float
+    expires_at: float
+    revoked_at: float | None
+
+
+class SessionsDTO(BaseModel):
+    sessions: list[SessionDTO]
+
+
+class RevokedDTO(BaseModel):
+    revoked: bool
+
+
+class PasswordChangedDTO(BaseModel):
+    changed: bool
+
+
+class PlexStatusDTO(BaseModel):
+    configured: bool
+    label: str | None
+
+
+class QualityOptionDTO(BaseModel):
+    value: str
+    label: str
+    rank: float
+
+
+class QualityItemDTO(BaseModel):
+    scope: str
+    item_id: str
+    preferred: str
+
+
+class QualityDTO(BaseModel):
+    preferences: list[QualityItemDTO]
+    options: list[QualityOptionDTO]
+    household_default: str
+
+
+class QualitySavedDTO(BaseModel):
+    scope: str
+    item_id: str
+    preferred: str | None
+    created: int
+
+
+class RemovalItemDTO(BaseModel):
+    track_id: str
+    delete_file: bool
+    kept_for: list[str]
+
+
+class RemovalPreviewDTO(BaseModel):
+    delete_count: int
+    keep_count: int
+    items: list[RemovalItemDTO]
+    confirmation: str
+
+
+class RemovalResultDTO(BaseModel):
+    id: str
+    removed: int
+    deleted: int
+    kept: int
+    undo_until: float
+
+
+class RestoredDTO(BaseModel):
+    restored: int
+
+
+class RecordedDTO(BaseModel):
+    recorded: int
+
+
+class ImportPreviewDTO(BaseModel):
+    playlists: int
+    tracks: int
+    saved: int
+    household: int
+    missing: int
+
+
+class ArtistAcquisitionDTO(BaseModel):
+    status: str
+    monitor: bool
+    kinds: list[str]
+    total: int = 0
+    done: list[str] = Field(default_factory=list)
+    created: int = 0
+    error: str | None = None
+
+
+class RetriedDTO(BaseModel):
+    retried: bool

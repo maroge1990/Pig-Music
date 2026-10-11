@@ -67,6 +67,7 @@ def verify_owner_attribution(store, before, owner_id):
         "migration_decisions",
         "managed_files",
         "play_events",
+        "device_copies",
         "user_preferences",
         "quality_preferences",
         "unassigned_tracks",
@@ -165,6 +166,7 @@ def main():
         5,
         6,
         7,
+        8,
     ], "Unexpected migration versions"
     assert all(
         isinstance(r[1], str) and r[1] for r in ledger
@@ -182,6 +184,7 @@ def main():
         "library_members",
         "membership_versions",
         "play_events",
+        "device_copies",
         "user_preferences",
         "quality_preferences",
         "unassigned_tracks",

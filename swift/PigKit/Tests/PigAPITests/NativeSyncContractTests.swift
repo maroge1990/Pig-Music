@@ -136,6 +136,67 @@ final class NativeSyncContractTests: XCTestCase {
     XCTAssertEqual(requestPage.items[0].status, "waiting_for_sources")
     let cleared = try await service.clearFinishedRequests()
     XCTAssertEqual(cleared, 0)  // Active requests are retained.
+    var personalPlaylist = try await service.createPlaylist(name: "Native edits")
+    personalPlaylist = try await service.addToPlaylist(id: personalPlaylist.id, track: tracks[0])
+    personalPlaylist = try await service.addToPlaylist(id: personalPlaylist.id, track: tracks[0])
+    XCTAssertEqual((personalPlaylist.entries ?? []).count, 2)
+    let oldRevision = try XCTUnwrap(personalPlaylist.revision)
+    personalPlaylist = try await service.editPlaylist(
+      id: personalPlaylist.id, revision: oldRevision, name: "Renamed", order: [1, 0])
+    XCTAssertEqual(personalPlaylist.name, "Renamed")
+    do {
+      _ = try await service.editPlaylist(
+        id: personalPlaylist.id, revision: oldRevision, name: "Stale")
+      XCTFail("Stale playlist writes must fail")
+    } catch NativeFailure.changed {}
+    personalPlaylist = try await service.removePlaylistEntry(
+      id: personalPlaylist.id, revision: try XCTUnwrap(personalPlaylist.revision), position: 0)
+    XCTAssertEqual((personalPlaylist.entries ?? []).count, 1)
+    try await service.deletePlaylist(
+      id: personalPlaylist.id, revision: try XCTUnwrap(personalPlaylist.revision))
+    let monitoredArtist = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    let artistSettings = try await service.configureArtist(
+      id: monitoredArtist, kinds: ["album", "ep"], monitor: false, request: false)
+    XCTAssertEqual(artistSettings.kinds, ["album", "ep"])
+    let cancelledArtist = try await service.cancelArtist(id: monitoredArtist)
+    XCTAssertEqual(cancelledArtist.status, "cancelled")
+    let qualified = ListeningEvent(
+      eventId: UUID().uuidString, trackId: tracks[0].id,
+      playedAt: Int(Date().timeIntervalSince1970), seconds: 30)
+    try await service.recordListens([qualified])
+    try await service.recordListens([qualified])  // Replay is idempotent on the server.
+    let export: [String: Any] = [
+      "Tracks": [
+        "1": [
+          "Track ID": 1, "Name": tracks[0].title, "Artist": tracks[0].artist,
+          "Album": tracks[0].album ?? "",
+        ]
+      ],
+      "Playlists": [
+        [
+          "Name": "Fixture import", "Playlist Persistent ID": "NATIVE-FIXTURE",
+          "Playlist Items": [["Track ID": 1]],
+        ]
+      ],
+    ]
+    let xml = try PropertyListSerialization.data(fromPropertyList: export, format: .xml, options: 0)
+    let preview = try await service.previewImport(xml)
+    XCTAssertEqual(preview.tracks, 1)
+    XCTAssertEqual(preview.saved, 1)
+    let imported = try await service.importApple(xml)
+    XCTAssertEqual(imported.playlists, 1)
+    let settings = try await service.savePreferences(
+      AccountPreferences(appearance: "dark", defaultTab: "albums"))
+    XCTAssertEqual(settings.appearance, "dark")
+    let devices = try await service.sessions()
+    XCTAssertFalse(devices.isEmpty)
+    let quality = try await service.quality()
+    XCTAssertFalse(quality.options.isEmpty)
+    let manifest = try await service.deviceCopy(
+      trackId: tracks[0].id, quality: "original", create: true)
+    XCTAssertEqual(manifest.state, "ready")
+    XCTAssertGreaterThan(manifest.bytes, 0)
+    XCTAssertEqual(manifest.sha256?.count, 64)
     try await service.signOut()
     let token = await tokens.read()
     XCTAssertNil(token)
