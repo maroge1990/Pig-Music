@@ -97,6 +97,7 @@ ADMIN_READS = [
     "/api/queue",
     "/api/settings/downloads",
     "/api/settings/soulseek",
+    "/api/admin/access",
     "/api/settings/media",
     "/api/library/trash",
     "/api/v1/people",
@@ -151,3 +152,35 @@ def test_shared_sections_work_for_both_people(tmp_path, monkeypatch):
             assert created.status_code == 200, created.text
             listed = client.get("/api/v1/playlists").json()["playlists"]
             assert "Road trip" in [p["name"] for p in listed]
+
+
+def test_admin_access_reports_public_origin_to_owner_only(tmp_path, monkeypatch):
+    monkeypatch.setenv("PIG_MUSIC_PUBLIC_ORIGIN", "https://music.example.test")
+    app = household(tmp_path, monkeypatch)
+    with TestClient(app, base_url="https://music.example.test") as client:
+        assert client.get("/api/admin/access").status_code == 401
+        sign_in(client, "mark")
+        assert client.get("/api/admin/access").json() == {
+            "public_origin": "https://music.example.test"
+        }
+        sign_in(client, "member")
+        assert client.get("/api/admin/access").status_code == 403
+
+
+def test_admin_access_without_configured_origin(tmp_path, monkeypatch):
+    monkeypatch.delenv("PIG_MUSIC_PUBLIC_ORIGIN", raising=False)
+    app = household(tmp_path, monkeypatch)
+    with TestClient(app, base_url="https://private.ts.net") as client:
+        sign_in(client, "mark")
+        assert client.get("/api/admin/access").json() == {"public_origin": None}
+
+
+def test_interface_uses_the_system_typeface_and_a_static_sign_in():
+    base = (CLIENT / "Base.css").read_text()
+    stack = re.search(r"font-family:([^;]+);", base).group(1)
+    assert "Inter" not in stack
+    assert stack.split(",")[0].strip() == "system-ui"
+    shell = (CLIENT / "AppShell.tsx").read_text()
+    assert shell.count("pig-splash") == 1
+    assert shell.index("pig-splash") < shell.index("if (!user && firstRun)")
+    assert "pig-splash" not in (CLIENT / "SignIn.tsx").read_text()

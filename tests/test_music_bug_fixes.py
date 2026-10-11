@@ -206,3 +206,73 @@ def test_saved_release_credit_resolves_madonna_without_name_search(
         assert client.get(
             "/api/v1/catalogue/library-artists/" + artist["id"]
         ).json() == {"id": ARTIST, "name": "Madonna"}
+
+
+def seed_requests(store, owner, member):
+    statuses = [
+        "waiting_for_sources",
+        "searching",
+        "downloading",
+        "validating",
+        "importing",
+        "failed",
+        "cancelled",
+        "completed",
+        "downloaded",
+    ]
+    with store.connect() as conn:
+        for status in statuses:
+            conn.execute(
+                "INSERT INTO queue(id,payload,status) VALUES (?,?,?)",
+                (
+                    status,
+                    json.dumps({"title": status, "requested_by": [member]}),
+                    status,
+                ),
+            )
+        conn.execute(
+            "INSERT INTO queue(id,payload,status) VALUES (?,?,?)",
+            ("theirs", json.dumps({"title": "x", "requested_by": [owner]}), "failed"),
+        )
+        conn.execute(
+            "INSERT INTO queue(id,payload,status) VALUES (?,?,?)",
+            ("theirs-active", json.dumps({"requested_by": [owner]}), "downloading"),
+        )
+
+
+def test_request_list_counts_only_own_active_requests(tmp_path, monkeypatch):
+    app, owner, member, token, _ = household(tmp_path, monkeypatch)
+    seed_requests(app.state.store, owner, member)
+    with client_for(app, token) as client:
+        body = client.get("/api/v1/requests", params={"limit": 1}).json()
+    assert body["active"] == 5 and body["total"] == 9
+    assert app.state.store.user_libraries.queue(owner)["active"] == 1
+
+
+def test_member_retry_requeues_only_own_failed_or_cancelled(tmp_path, monkeypatch):
+    app, owner, member, token, _ = household(tmp_path, monkeypatch)
+    store = app.state.store
+    seed_requests(store, owner, member)
+
+    def status(key):
+        with store.connect() as conn:
+            return conn.execute(
+                "SELECT status FROM queue WHERE id=?", (key,)
+            ).fetchone()[0]
+
+    with client_for(app, token) as client:
+        for key in ("failed", "cancelled"):
+            response = client.post(f"/api/v1/requests/{key}/retry")
+            assert response.status_code == 200, response.text
+            assert response.json() == {"retried": True}
+            assert status(key) == "waiting_for_sources"
+        for key in ("completed", "downloaded", "downloading", "waiting_for_sources"):
+            response = client.post(f"/api/v1/requests/{key}/retry")
+            assert response.status_code == 400
+            assert "failed or cancelled" in response.json()["detail"]
+        for key in ("theirs", "missing"):
+            assert client.post(f"/api/v1/requests/{key}/retry").status_code == 404
+        assert status("theirs") == "failed"
+    with TestClient(app, base_url="https://private.ts.net") as anonymous:
+        assert anonymous.post("/api/v1/requests/theirs/retry").status_code in {401, 403}
+    assert status("theirs") == "failed"

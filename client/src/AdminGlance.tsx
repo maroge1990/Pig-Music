@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import { formatCount, formatRelative } from "./format";
 import type { Queue } from "./QueueView";
 import type { Library } from "./types";
 
@@ -79,7 +80,7 @@ export function AdminGlance({
         : warm.queued
           ? `Preparing ${warm.queued} more`
           : warm.last_pass_finished
-            ? `Refreshed ${Math.max(1, Math.round((Date.now() / 1000 - warm.last_pass_finished) / 60))} min ago`
+            ? `Refreshed ${formatRelative(warm.last_pass_finished)}`
             : "First pass starting",
       href: "#/admin/overview",
     },
@@ -92,7 +93,11 @@ export function AdminGlance({
             href={tile.href}
             className={tile.warn && tile.value ? "needs-attention" : ""}
           >
-            <strong>{tile.value ?? "–"}</strong>
+            <strong>
+              {typeof tile.value === "number"
+                ? formatCount(tile.value)
+                : (tile.value ?? "–")}
+            </strong>
             <span>{tile.label}</span>
             {tile.note && <small>{tile.note}</small>}
           </a>

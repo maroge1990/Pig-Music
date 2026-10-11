@@ -72,9 +72,15 @@ function readOnlyPost(path: string, options?: RequestInit) {
 
 export class ApiError extends Error {
   public code: string;
-  constructor(message: string, code: string) {
+  public body: Record<string, unknown>;
+  constructor(
+    message: string,
+    code: string,
+    body: Record<string, unknown> = {},
+  ) {
     super(message);
     this.code = code;
+    this.body = body;
   }
 }
 const accountErrors: Record<string, string> = {
@@ -102,15 +108,17 @@ export async function api<T>(path: string, options?: RequestInit): Promise<T> {
   if (!response.ok) {
     let message = "Something went wrong. Please try again.";
     let code = "request_failed";
+    let details: Record<string, unknown> = {};
     try {
       const body = await response.json();
+      details = body;
       code = body.code || "request_failed";
       if (typeof body.detail === "string")
         message = accountErrors[code] || body.detail;
     } catch {
       /* Keep a readable response for non-JSON failures. */
     }
-    throw new ApiError(message, code);
+    throw new ApiError(message, code, details);
   }
   return response.json();
 }

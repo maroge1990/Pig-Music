@@ -10,6 +10,8 @@ import {
   X,
 } from "lucide-react";
 import { api, updateArtworkRevision } from "./api";
+import { formatCount } from "./format";
+import { PageHeader } from "./PageHeader";
 import { Cover } from "./Cover";
 import { Empty } from "./EmptyState";
 import { MediaSettings } from "./MediaSettings";
@@ -46,7 +48,7 @@ const formatTime = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, "0")}`;
 
 const plural = (count: number, noun: string) =>
-  `${count.toLocaleString()} ${noun}${count === 1 ? "" : "s"}`;
+  `${formatCount(count)} ${noun}${count === 1 ? "" : "s"}`;
 
 /** Owner-only server administration. Browsing, search and personal settings
  * stay in the shared sections; this view never renders its own navigation shell.
@@ -57,6 +59,7 @@ export function AdminTools({ route }: { route: Route }) {
   )
     ? (route.parts[0] as AdminSection)
     : "overview";
+  const downloadsView = route.parts[1] === "settings" ? "settings" : "queue";
   const [library, setLibrary] = useState<Library | null>(null);
   const [importLoaded, setImportLoaded] = useState(false);
   const [migration, setMigration] = useState<Migration | null>(null);
@@ -73,6 +76,7 @@ export function AdminTools({ route }: { route: Route }) {
     configured: boolean;
     connected: boolean;
   } | null>(null);
+  const [publicOrigin, setPublicOrigin] = useState<string | null | undefined>();
   const fileInput = useRef<HTMLInputElement>(null);
   const queueSignature = useRef("");
 
@@ -92,6 +96,9 @@ export function AdminTools({ route }: { route: Route }) {
     api<{ configured: boolean; connected: boolean }>("/settings/soulseek")
       .then(setSoulseekHealth)
       .catch(() => {});
+    api<{ public_origin: string | null }>("/admin/access")
+      .then((v) => setPublicOrigin(v.public_origin))
+      .catch(() => setPublicOrigin(null));
   }, []);
 
   useEffect(() => {
@@ -769,9 +776,10 @@ export function AdminTools({ route }: { route: Route }) {
         accept=".xml,application/xml,text/xml"
         onChange={(e) => importFile(e.target.files?.[0])}
       />
-      <h1>
-        <ShieldCheck size={26} aria-hidden="true" /> Admin
-      </h1>
+      <PageHeader
+        title="Admin"
+        subtitle="Manage people, music and the server."
+      />
       <nav className="personal-tabs" aria-label="Admin sections">
         {adminSections.map((s) => (
           <a
@@ -806,17 +814,34 @@ export function AdminTools({ route }: { route: Route }) {
           library={library}
           downloadSettings={downloadSettings}
           soulseekHealth={soulseekHealth}
+          publicOrigin={publicOrigin}
         />
       )}
       {section === "downloads" && (
         <>
-          <QueueView
-            queue={queue}
-            busy={busy}
-            clearQueue={clearQueue}
-            queueAction={queueAction}
-          />
-          {downloadSettings && (
+          <nav className="personal-tabs segmented" aria-label="Downloads views">
+            <a
+              href="#/admin/downloads"
+              aria-current={downloadsView === "queue" ? "page" : undefined}
+            >
+              Queue
+            </a>
+            <a
+              href="#/admin/downloads/settings"
+              aria-current={downloadsView === "settings" ? "page" : undefined}
+            >
+              Settings
+            </a>
+          </nav>
+          {downloadsView === "queue" && (
+            <QueueView
+              queue={queue}
+              busy={busy}
+              clearQueue={clearQueue}
+              queueAction={queueAction}
+            />
+          )}
+          {downloadsView === "settings" && downloadSettings && (
             <DownloadSettingsPanel
               downloadSettings={downloadSettings}
               setDownloadSettings={setDownloadSettings}

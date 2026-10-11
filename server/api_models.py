@@ -166,6 +166,20 @@ class DeviceSessionDTO(BaseModel):
     expires_at: int
 
 
+class InviteDTO(BaseModel):
+    """A one-use setup code. The link carries it in the fragment, which browsers
+    never send to the server, and is absent without a configured HTTPS origin."""
+
+    user_id: str
+    code: str
+    expires_at: int
+    invite_url: str | None
+
+
+class ActivationDTO(BaseModel):
+    user: UserDTO
+
+
 class PlaybackURL(BaseModel):
     url: str
     expires_in: int
@@ -186,6 +200,7 @@ class RequestDTO(BaseModel):
 
 class RequestList(BaseModel):
     total: int
+    active: int
     offset: int
     next_offset: int | None
     library_revision: str
@@ -215,3 +230,5 @@ class HomeFeedDTO(BaseModel):
     songs: list[HomeItemDTO]
     source: str
     unavailable: bool
+    title: str | None = None
+    state: Literal["ready", "no_seeds", "unavailable", "preparing"] | None = None

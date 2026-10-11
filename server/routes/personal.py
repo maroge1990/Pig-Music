@@ -396,6 +396,13 @@ def personal_router(store, artist_jobs, recovery):
     async def clear_requests(request: Request):
         return await run(users.clear_requests, identity(request))
 
+    @router.post("/requests/{request_id}/retry")
+    async def retry_request(request_id: str, request: Request):
+        try:
+            return await run(users.retry_request, identity(request), request_id)
+        except LookupError:
+            raise HTTPException(404, "Request not found")
+
     @router.get("/requests", response_model=RequestList)
     async def requests(request: Request, offset: int = 0, limit: int = 200):
         return await run(users.queue, identity(request), offset, limit)

@@ -1,6 +1,7 @@
 import { Music2 } from "lucide-react";
 import type { Library } from "./types";
 import { Empty } from "./EmptyState";
+import { sourceName } from "./sources";
 type QueueItem = {
   id: string;
   title: string;
@@ -78,7 +79,7 @@ export function QueueView({
                     cancelled: "Cancelled",
                   } as Record<string, string>
                 )[item.status] || item.status}
-                {item.source && ` · ${item.source}`}
+                {item.source && ` · ${sourceName(item.source)}`}
               </span>
               {item.status === "downloading" && (
                 <span>

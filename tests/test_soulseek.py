@@ -200,3 +200,42 @@ def test_completed_file_lookup_rejects_ambiguity_and_outside_files(tmp_path):
     (root / "other" / "Studio" / "01 Song.mp3").write_bytes(b"2" * 10000)
     with pytest.raises(ValueError, match="uniquely"):
         adapter.copy_completed(candidate, tmp_path / "copy.mp3")
+
+
+def fallback_adapter(tmp_path, album_only_responses, primary_responses):
+    store = configured(tmp_path)
+    store.submit_catalogue([song()])
+    posts = []
+
+    def handler(request):
+        if request.method == "POST":
+            text = json.loads(request.content)["searchText"]
+            posts.append(text)
+            return httpx.Response(200, json={"id": text.replace(" ", "-")})
+        if request.url.path.endswith("responses"):
+            primary = "Example-Studio" in request.url.path
+            return httpx.Response(
+                200, json=primary_responses if primary else album_only_responses
+            )
+        return httpx.Response(200, json={"isComplete": True})
+
+    adapter = Soulseek(store)
+    adapter.client = lambda: httpx.Client(
+        base_url="http://engine/api/v0/", transport=httpx.MockTransport(handler)
+    )
+    return adapter, posts
+
+
+def test_album_only_search_runs_when_artist_search_is_empty(tmp_path):
+    real = [{"username": "peer", "queueLength": 0, "files": [file()]}]
+    adapter, posts = fallback_adapter(tmp_path, real, [])
+    candidates = adapter.search(song(), lambda: None)
+    assert candidates and candidates[0]["username"] == "peer"
+    assert posts == ["Example Studio", "Studio"]
+
+
+def test_album_only_search_skipped_when_artist_search_has_responses(tmp_path):
+    real = [{"username": "peer", "queueLength": 0, "files": [file()]}]
+    adapter, posts = fallback_adapter(tmp_path, [], real)
+    assert adapter.search(song(), lambda: None)
+    assert posts == ["Example Studio"]

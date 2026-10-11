@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
+import { friendlyRequestError } from "./requestError";
+import { StateBadge } from "./StateBadge";
 
 type Request = {
   id: string;
@@ -32,6 +34,13 @@ const labels: Record<
   failed: ["Couldn't get this song", "failed"],
 };
 
+const badge = {
+  waiting: "requested",
+  active: "active",
+  done: "library",
+  failed: "failed",
+} as const;
+
 export function PersonalRequests() {
   const readSerial = useRef(0);
   const [offset, setOffset] = useState(0);
@@ -51,6 +60,25 @@ export function PersonalRequests() {
       setPage(await api<RequestPage>("/v1/requests?offset=0&limit=100"));
       setNotice(
         `Cleared ${result.cleared} finished downloads. Your music files are unchanged.`,
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function retry(id: string) {
+    ++readSerial.current;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await api("/v1/requests/" + encodeURIComponent(id) + "/retry", {
+        method: "POST",
+      });
+      window.dispatchEvent(new Event("music-requests-changed"));
+      setPage(
+        await api<RequestPage>(`/v1/requests?offset=${offset}&limit=100`),
       );
     } catch (e) {
       setError((e as Error).message);
@@ -143,10 +171,22 @@ export function PersonalRequests() {
                     />
                   )}
                   {tone === "failed" && r.error && (
-                    <p className="request-error">{r.error}</p>
+                    <p className="request-error">
+                      {friendlyRequestError(r.error)}
+                    </p>
                   )}
                 </div>
-                <span className={`request-status ${tone}`}>{label}</span>
+                <StateBadge state={badge[tone]} label={label} />
+                {(r.status === "failed" || r.status === "cancelled") && (
+                  <button
+                    className="small-button"
+                    disabled={busy}
+                    aria-label={`Retry ${r.title}`}
+                    onClick={() => void retry(r.id)}
+                  >
+                    Retry
+                  </button>
+                )}
               </article>
             );
           })}

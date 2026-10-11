@@ -45,14 +45,31 @@ def satisfies(profile, audio):
     )
 
 
+LABELS = {
+    "native_standard": "Native audio (standard or better)",
+    "lossless": "Lossless (FLAC)",
+    "mp3_320": "MP3 320 kbps",
+    "mp3_128": "MP3 128 kbps",
+    "aac_256": "AAC 256 kbps",
+}
+
+
 def rank(profile):
     return {
-        "native_standard": 1,
-        "mp3_128": 1,
-        "mp3_320": 2,
-        "aac_256": 2,
-        "lossless": 3,
+        "native_standard": 0.5,
+        "aac_256": 1,
+        "mp3_128": 2,
+        "mp3_320": 3,
+        "lossless": 4,
     }.get(profile, 0)
+
+
+def options():
+    """Every selectable profile, best first, with its shared display label."""
+    return [
+        {"value": value, "label": LABELS[value], "rank": rank(value)}
+        for value in sorted(PROFILES, key=rank, reverse=True)
+    ]
 
 
 def actual_profile(track):
@@ -84,6 +101,9 @@ def policy(settings, preferred=None):
     return {
         "preferred": preferred or settings["profile"],
         "fallback": settings.get("fallback_profile", "mp3_320"),
+        # Marks requests made since AAC became the last resort; older
+        # queued requests keep their original fallback behaviour.
+        "aac_fallback": True,
         "fallback_minutes": settings.get("fallback_minutes", 10),
         "recheck_hours": settings.get("recheck_hours", 24),
     }

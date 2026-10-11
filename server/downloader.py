@@ -146,6 +146,13 @@ def safe_name(value):
     return value
 
 
+# freemp3cloud silently returns empty pages when searched in parallel or too fast.
+FREEMP3CLOUD_GAP = 2.5
+FREEMP3CLOUD_RETRY_PAUSE = 10.0
+_freemp3cloud_lock = threading.Lock()
+_freemp3cloud_last = [0.0]
+
+
 class Cancelled(Exception):
     pass
 
@@ -190,6 +197,34 @@ class Downloader:
         if not self.store.download_settings()["enabled"]:
             self.state(job_id, "waiting_for_sources")
             raise Cancelled()
+
+    def pause(self, job_id, seconds):
+        end = time.monotonic() + seconds
+        while (left := end - time.monotonic()) > 0:
+            self.check(job_id)
+            time.sleep(min(0.5, left))
+
+    def paced_search(self, job, query):
+        search = self.providers["freemp3cloud"]
+        for attempt in range(2):
+            while not _freemp3cloud_lock.acquire(timeout=0.5):
+                self.check(job["id"])
+            try:
+                self.check(job["id"])
+                self.pause(
+                    job["id"],
+                    _freemp3cloud_last[0] + FREEMP3CLOUD_GAP - time.monotonic(),
+                )
+                try:
+                    found = search(query, 20)
+                finally:
+                    _freemp3cloud_last[0] = time.monotonic()
+            finally:
+                _freemp3cloud_lock.release()
+            if found or attempt:
+                return found
+            self.pause(job["id"], FREEMP3CLOUD_RETRY_PAUSE)
+        return found
 
     def state(self, request_id, status, **details):
         self.store.request_state(
@@ -609,6 +644,25 @@ class Downloader:
                         return
                 except QualityDeadline:
                     errors.append("Fallback quality attempt reached its time limit")
+                finally:
+                    self.deadlines.pop(job["id"], None)
+            # Last resort: AAC from JioSaavn, only when the owner enabled it as
+            # a source, and only for requests made since this fallback existed.
+            if (
+                job.get("quality_policy", {}).get("aac_fallback")
+                and "jiosaavn" in self.store.download_settings()["sources"]
+                and not job.get("upgrade_only")
+                and preferred != "aac_256"
+                and not (preferred == "lossless" and fallback == "none")
+            ):
+                self.deadlines[job["id"]] = (
+                    time.monotonic() + desired["fallback_minutes"] * 60
+                )
+                try:
+                    if self.attempt(job, "aac_256", errors):
+                        return
+                except QualityDeadline:
+                    errors.append("AAC fallback attempt reached its time limit")
                 finally:
                     self.deadlines.pop(job["id"], None)
             self.state(

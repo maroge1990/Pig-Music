@@ -114,3 +114,17 @@ def test_rescan_after_rename_and_metadata_refresh_keeps_membership(
     assert store.user_libraries.contains(owner, "saved")
     assert store.user_libraries.contains(member, "saved")
     assert store.library["albums"][0]["tracks"][0]["id"] == "saved"
+
+
+def test_quality_listing_offers_shared_options_and_household_default(
+    tmp_path, monkeypatch
+):
+    store, _, _, _, owner, _, _ = household(tmp_path, monkeypatch)
+    listing = HouseholdPolicy(store).quality(owner)
+    assert [(o["value"], o["label"], o["rank"]) for o in listing["options"]] == [
+        ("lossless", "Lossless (FLAC)", 4),
+        ("mp3_320", "MP3 320 kbps", 3),
+        ("mp3_128", "MP3 128 kbps", 2),
+        ("aac_256", "AAC 256 kbps", 1),
+    ]
+    assert listing["household_default"] == store.download_settings()["profile"]

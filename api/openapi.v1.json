@@ -42,6 +42,18 @@
         "title": "Activation",
         "type": "object"
       },
+      "ActivationDTO": {
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/UserDTO"
+          }
+        },
+        "required": [
+          "user"
+        ],
+        "title": "ActivationDTO",
+        "type": "object"
+      },
       "AlbumDTO": {
         "properties": {
           "artist": {
@@ -434,6 +446,19 @@
           "albums"
         ],
         "title": "ArtistDetail",
+        "type": "object"
+      },
+      "ArtistLink": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "ArtistLink",
         "type": "object"
       },
       "ArtistPage": {
@@ -839,6 +864,22 @@
             "title": "Source",
             "type": "string"
           },
+          "state": {
+            "enum": [
+              "ready",
+              "no_seeds",
+              "unavailable",
+              "preparing"
+            ],
+            "nullable": true,
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "nullable": true,
+            "title": "Title",
+            "type": "string"
+          },
           "unavailable": {
             "title": "Unavailable",
             "type": "boolean"
@@ -905,6 +946,36 @@
           "kind"
         ],
         "title": "HomeItemDTO",
+        "type": "object"
+      },
+      "InviteDTO": {
+        "description": "A one-use setup code. The link carries it in the fragment, which browsers\nnever send to the server, and is absent without a configured HTTPS origin.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "invite_url": {
+            "nullable": true,
+            "title": "Invite Url",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "code",
+          "expires_at",
+          "invite_url"
+        ],
+        "title": "InviteDTO",
         "type": "object"
       },
       "LibraryChanges": {
@@ -976,6 +1047,12 @@
       },
       "MediaSettings": {
         "properties": {
+          "chart_region": {
+            "maxLength": 2,
+            "nullable": true,
+            "title": "Chart Region",
+            "type": "string"
+          },
           "fanart_key": {
             "maxLength": 128,
             "nullable": true,
@@ -1020,23 +1097,6 @@
           "track_ids"
         ],
         "title": "Membership",
-        "type": "object"
-      },
-      "MembershipBatch": {
-        "properties": {
-          "songs": {
-            "items": {
-              "$ref": "#/components/schemas/SongReference"
-            },
-            "maxItems": 200,
-            "title": "Songs",
-            "type": "array"
-          }
-        },
-        "required": [
-          "songs"
-        ],
-        "title": "MembershipBatch",
         "type": "object"
       },
       "OrganiseRequest": {
@@ -1726,6 +1786,10 @@
       },
       "RequestList": {
         "properties": {
+          "active": {
+            "title": "Active",
+            "type": "integer"
+          },
           "downloads_enabled": {
             "title": "Downloads Enabled",
             "type": "boolean"
@@ -1757,6 +1821,7 @@
         },
         "required": [
           "total",
+          "active",
           "offset",
           "next_offset",
           "library_revision",
@@ -4870,6 +4935,139 @@
         "tags": [
           "personal-library"
         ]
+      },
+      "put": {
+        "operationId": "link_identity_api_v1_catalogue_library_artists__artist_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "artist_id",
+            "required": true,
+            "schema": {
+              "title": "Artist Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArtistLink"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Link Identity",
+        "tags": [
+          "personal-library"
+        ]
       }
     },
     "/api/v1/catalogue/releases/{release_id}": {
@@ -7731,7 +7929,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/InviteDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -8105,7 +8305,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/InviteDTO"
+                }
               }
             },
             "description": "Successful Response"
@@ -10684,6 +10886,131 @@
         ]
       }
     },
+    "/api/v1/requests/{request_id}/retry": {
+      "post": {
+        "operationId": "retry_request_api_v1_requests__request_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Retry Request",
+        "tags": [
+          "personal-library"
+        ]
+      }
+    },
     "/api/v1/search": {
       "get": {
         "operationId": "search_api_v1_search_get",
@@ -10829,7 +11156,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ActivationDTO"
+                }
               }
             },
             "description": "Successful Response"

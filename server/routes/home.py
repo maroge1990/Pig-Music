@@ -38,6 +38,7 @@ def home_router(store, catalogue, home=None):
                 "albums": [],
                 "songs": [],
                 "unavailable": True,
+                "state": "unavailable",
                 "source": "Similar to artists in your library",
             }
 

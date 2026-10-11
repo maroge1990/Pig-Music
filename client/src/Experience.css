@@ -608,7 +608,7 @@
     border-radius: var(--radius-capsule);
     letter-spacing: -0.2px;
   }
-  .personal-header .app-nav a span {
+  .personal-header .app-nav a span:not(.nav-badge) {
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -663,12 +663,17 @@
   .nav-compact .personal-header .app-nav a[aria-current="page"] {
     order: -1;
   }
-  .nav-compact .personal-header .app-nav a span {
+  .nav-compact .personal-header .app-nav a span:not(.nav-badge) {
     position: absolute;
     width: 1px;
     height: 1px;
     overflow: hidden;
     clip: rect(0, 0, 0, 0);
+  }
+  .nav-compact .personal-header .app-nav .nav-badge {
+    top: -0.25rem;
+    left: auto;
+    right: -0.25rem;
   }
   .nav-compact .mini-player {
     left: calc(var(--space-12) + var(--dock-button) + var(--space-8));

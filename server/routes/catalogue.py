@@ -7,6 +7,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
+from ..artist_identity import Ambiguous, resolve_artist
 from ..library import normalise
 from ..releases import release_query
 from ..catalogue import mbid, credit, release_tracks, edition_rank
@@ -168,31 +169,34 @@ def catalogue_router(
         artist = store.artists_by_id.get(artist_id)
         if artist is None:
             raise HTTPException(404, "Artist not found.")
-        known = store.read_document("library-artist:" + artist_id)
-        if known and known.get("name") == artist["name"]:
-            return known
-        data = await metadata(
-            "artist/", query="artist:" + quoted(artist["name"]), limit=100
-        )
-        matches = [
-            a
-            for a in data.get("artists", [])
-            if normalise(a["name"]) == normalise(artist["name"])
+        albums = [
+            store.albums_by_id[i]
+            for i in artist.get("album_ids", [])
+            if i in store.albums_by_id
         ]
-        if len(matches) != 1 or data.get("count", len(matches)) > 100:
+        try:
+            identity = await resolve_artist(
+                store, music_catalogue, http_client(), artist, albums
+            )
+        except Ambiguous as exc:
             raise HTTPException(
                 409, "Choose this artist in Search to distinguish matching names."
-            )
-        with store.connect() as conn:
-            conn.execute(
-                "INSERT INTO documents VALUES (?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
-                (
-                    "catalogue:artist/" + matches[0]["id"] + "[]",
-                    json.dumps({"time": time.time(), "data": matches[0]}),
-                ),
-            )
-        identity = {"id": matches[0]["id"], "name": matches[0]["name"]}
-        store.write_document("library-artist:" + artist_id, identity)
+            ) from exc
+        except (httpx.HTTPError, ValueError, KeyError) as exc:
+            raise HTTPException(
+                502, "The catalogue is unavailable. Try again shortly."
+            ) from exc
+        # Search supplies the identity portrait requests read.
+        key = "catalogue:artist/" + identity["id"] + "[]"
+        if not store.read_document(key):
+            with store.connect() as conn:
+                conn.execute(
+                    "INSERT INTO documents VALUES (?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
+                    (
+                        key,
+                        json.dumps({"time": time.time(), "data": identity}),
+                    ),
+                )
         return identity
 
     class ArtistRequest(BaseModel):
@@ -474,6 +478,7 @@ def catalogue_router(
         remote_playback: bool
         fanart_key: str | None = Field(default=None, max_length=128)
         listenbrainz_token: str | None = Field(default=None, max_length=128)
+        chart_region: str | None = Field(default=None, max_length=2)
 
     @router.get("/api/settings/media")
     def media_settings():

@@ -16,9 +16,16 @@ import { FirstRun } from "./FirstRun";
 import { SignIn } from "./SignIn";
 import { ToolBoundary } from "./ToolBoundary";
 import { useFixedHeight } from "./useFixedHeight";
+import { PageHeader } from "./PageHeader";
 import { PersonalRequests } from "./PersonalRequests";
 import { OwnerContext } from "./person";
 import { parseRoute, type Route, type Section } from "./routes";
+import {
+  captureInvite,
+  clearInvite,
+  dismissInstallHint,
+  installHintPending,
+} from "./invite";
 import "./accounts.css";
 
 const AdminTools = lazy(() =>
@@ -49,9 +56,13 @@ export function AppShell() {
   const [firstRun, setFirstRun] = useState(false);
   const [error, setError] = useState("");
   const [route, setRoute] = useState<Route>(() => parseRoute());
+  const [hint, setHint] = useState(false);
+  // Remounts the sign-in form when an invite link opens in an existing tab.
+  const [invites, setInvites] = useState(0);
   const nav = useFixedHeight("--mobile-nav-height", !!user);
   useCompactNav();
   useServerEvents(!!user);
+  const downloading = useActiveDownloads(!!user);
 
   useEffect(() => {
     // "System" appearance follows the device live, not only at page load.
@@ -66,16 +77,42 @@ export function AppShell() {
       if (chosen === "light" || chosen === "dark") return;
       const theme = media.matches ? "dark" : "light";
       document.documentElement.dataset.theme = theme;
+    };
+    // The browser chrome follows whatever theme is applied, whether the device
+    // changed or the person picked System, Light or Dark in Account.
+    const paint = () =>
       document
         .querySelector('meta[name="theme-color"]')
-        ?.setAttribute("content", theme === "dark" ? "#15111A" : "#FBF8FA");
-    };
+        ?.setAttribute(
+          "content",
+          document.documentElement.dataset.theme === "dark"
+            ? "#15111A"
+            : "#FBF8FA",
+        );
+    const observer = new MutationObserver(paint);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    paint();
     media.addEventListener("change", follow);
-    return () => media.removeEventListener("change", follow);
+    return () => {
+      observer.disconnect();
+      media.removeEventListener("change", follow);
+    };
   }, []);
 
   useEffect(() => {
+    document.title = user
+      ? `${sections.find((s) => s.id === route.section)?.label || "Home"} · Pig Music`
+      : "Pig Music";
+  }, [user, route.section]);
+
+  useEffect(() => {
     const changed = () => {
+      // A link changing only the fragment does not reload the page.
+      if (/^#\/?join\b/.test(location.hash) && captureInvite())
+        setInvites((n) => n + 1);
       setRoute(parseRoute());
       window.scrollTo(0, 0);
       // Move keyboard and screen-reader focus to the new page's heading.
@@ -127,6 +164,14 @@ export function AppShell() {
     };
   }, []);
 
+  useEffect(() => {
+    // An invite is for new accounts: a signed-in person goes home instead.
+    if (user && /^#\/?(join|setup)\b/.test(location.hash)) {
+      clearInvite();
+      location.replace("#/home");
+    }
+  }, [user, route]);
+
   async function signOut() {
     await api("/v1/auth/logout", { method: "POST" });
     clearSessionReads();
@@ -152,7 +197,16 @@ export function AppShell() {
       />
     );
   if (!user)
-    return <SignIn signedIn={() => void refresh()} initialError={error} />;
+    return (
+      <SignIn
+        key={invites}
+        signedIn={() => {
+          setHint(installHintPending());
+          void refresh();
+        }}
+        initialError={error}
+      />
+    );
 
   const owner = user.role === "owner";
   const section = route.section === "admin" && !owner ? "home" : route.section;
@@ -186,19 +240,47 @@ export function AppShell() {
           <nav ref={nav} className="app-nav" aria-label="Main navigation">
             {sections
               .filter((s) => s.id !== "admin" || owner)
-              .map(({ id, label, icon: Icon }) => (
-                <a
-                  key={id}
-                  href={"#/" + id}
-                  className={"nav-" + id}
-                  aria-current={section === id ? "page" : undefined}
-                >
-                  <Icon size={20} aria-hidden="true" />
-                  <span>{label}</span>
-                </a>
-              ))}
+              .map(({ id, label, icon: Icon }) => {
+                const count = id === "downloads" ? downloading : 0;
+                return (
+                  <a
+                    key={id}
+                    href={"#/" + id}
+                    className={"nav-" + id}
+                    aria-current={section === id ? "page" : undefined}
+                    aria-label={
+                      count ? `${label}, ${count} in progress` : undefined
+                    }
+                  >
+                    <Icon size={20} aria-hidden="true" />
+                    <span>{label}</span>
+                    {count > 0 && (
+                      <span className="nav-badge" aria-hidden="true">
+                        {count > 99 ? "99+" : count}
+                      </span>
+                    )}
+                  </a>
+                );
+              })}
           </nav>
         </header>
+        {hint && (
+          <div className="personal-notice install-hint" role="status">
+            <p>
+              Tip: add Pig Music to your Home Screen — tap Share, then Add to
+              Home Screen.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                dismissInstallHint();
+                setHint(false);
+              }}
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
         {error && (
           <p className="personal-notice" role="alert">
             {error}
@@ -210,8 +292,10 @@ export function AppShell() {
           <PersonalLibrary user={user} route={{ ...route, section }} />
         ) : section === "downloads" ? (
           <main className="personal-main">
-            <h1>Downloads</h1>
-            <p>Music you asked the server to get, newest first.</p>
+            <PageHeader
+              title="Downloads"
+              subtitle="Music you asked the server to get, newest first."
+            />
             <PersonalRequests />
           </main>
         ) : section === "account" ? (
@@ -276,6 +360,50 @@ function useServerEvents(active: boolean) {
       clearInterval(fallback);
     };
   }, [active]);
+}
+
+/** Count of this person's queued or in-progress requests, for the nav badge. */
+function useActiveDownloads(active: boolean) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!active) {
+      setCount(0);
+      return;
+    }
+    let serial = 0;
+    let last = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = () => {
+      last = Date.now();
+      const mine = ++serial;
+      void api<{ active?: number }>("/v1/requests?offset=0&limit=1")
+        .then((data) => {
+          if (mine === serial) setCount(data.active ?? 0);
+        })
+        .catch(() => {
+          /* keep the last known count */
+        });
+    };
+    // SSE queue events can be frequent while downloading: refresh at most ~1/s.
+    const changed = () => {
+      if (timer) return;
+      timer = setTimeout(
+        () => {
+          timer = undefined;
+          load();
+        },
+        Math.max(0, 1000 - (Date.now() - last)),
+      );
+    };
+    load();
+    window.addEventListener("music-requests-changed", changed);
+    return () => {
+      ++serial;
+      clearTimeout(timer);
+      window.removeEventListener("music-requests-changed", changed);
+    };
+  }, [active]);
+  return count;
 }
 
 /** Phones: scrolling down folds the tab bar into a compact row beside the

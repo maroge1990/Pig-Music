@@ -26,6 +26,11 @@ def settings(store):
     return dict(cached[1])
 
 
+def chart_region(value):
+    region = str(value.get("chart_region") or "au").lower()
+    return region if re.fullmatch(r"[a-z]{2}", region) else "au"
+
+
 def public_settings(store):
     value = settings(store)
     return {
@@ -33,11 +38,17 @@ def public_settings(store):
         "remote_playback": value["remote_playback"],
         "fanart_configured": bool(value.get("fanart_key")),
         "listenbrainz_configured": bool(value.get("listenbrainz_token")),
+        "chart_region": chart_region(value),
     }
 
 
 def save_settings(
-    store, portraits, remote_playback, fanart_key=None, listenbrainz_token=None
+    store,
+    portraits,
+    remote_playback,
+    fanart_key=None,
+    listenbrainz_token=None,
+    chart_region=None,
 ):
     value = {
         **settings(store),
@@ -54,6 +65,10 @@ def save_settings(
         ):
             raise ValueError("Enter a valid ListenBrainz user token.")
         value["listenbrainz_token"] = listenbrainz_token
+    if chart_region is not None:
+        if not re.fullmatch(r"[a-z]{2}", chart_region):
+            raise ValueError("Choose a valid chart region.")
+        value["chart_region"] = chart_region
     target = store.directory / "media-settings.json"
     temporary = target.with_suffix(".tmp")
     try:

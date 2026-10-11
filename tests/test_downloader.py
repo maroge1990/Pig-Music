@@ -306,3 +306,52 @@ def test_pausing_returns_active_request_to_waiting(tmp_path):
         Downloader(store).check(job["id"])
     assert store.queue()["items"][0]["status"] == "waiting_for_sources"
     assert store.claim_request() is None
+
+
+def paced_downloader(tmp_path, monkeypatch, results):
+    import server.downloader as module
+
+    monkeypatch.setattr(module, "FREEMP3CLOUD_GAP", 0.05)
+    monkeypatch.setattr(module, "FREEMP3CLOUD_RETRY_PAUSE", 0.05)
+    monkeypatch.setattr(module, "_freemp3cloud_last", [0.0])
+    state = {"active": 0, "max_active": 0, "starts": []}
+
+    def search(query, limit):
+        import time
+
+        state["starts"].append(time.monotonic())
+        state["active"] += 1
+        state["max_active"] = max(state["max_active"], state["active"])
+        time.sleep(0.02)
+        state["active"] -= 1
+        return results.pop(0) if results else []
+
+    downloader = Downloader(Store(tmp_path), {"freemp3cloud": search})
+    downloader.check = lambda job_id: None
+    return downloader, state
+
+
+def test_freemp3cloud_searches_are_serialised_and_spaced(tmp_path, monkeypatch):
+    import threading
+
+    downloader, state = paced_downloader(tmp_path, monkeypatch, [["a"]] * 4)
+    threads = [
+        threading.Thread(target=downloader.paced_search, args=({"id": i}, "q"))
+        for i in range(4)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    starts = sorted(state["starts"])
+    assert len(starts) == 4 and state["max_active"] == 1
+    assert all(b - a >= 0.04 for a, b in zip(starts, starts[1:]))
+
+
+def test_freemp3cloud_empty_result_is_retried_exactly_once(tmp_path, monkeypatch):
+    downloader, state = paced_downloader(tmp_path, monkeypatch, [[], ["hit"]])
+    assert downloader.paced_search({"id": 1}, "q") == ["hit"]
+    assert len(state["starts"]) == 2
+    downloader, state = paced_downloader(tmp_path, monkeypatch, [])
+    assert downloader.paced_search({"id": 1}, "q") == []
+    assert len(state["starts"]) == 2

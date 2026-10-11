@@ -3,15 +3,18 @@ import { CatalogueBrowser } from "./CatalogueBrowser";
 import { Shuffle } from "lucide-react";
 import { shuffled } from "./shuffle";
 import { useEffect, useRef, useState } from "react";
-import { Play, ArrowLeft, ListMusic } from "lucide-react";
+import { Play, ArrowLeft, ListMusic, Download } from "lucide-react";
 import { api } from "./api";
+import { formatCount } from "./format";
+import { PageHeader } from "./PageHeader";
 import { PersonalQuality } from "./PersonalQuality";
 import { SearchPage } from "./SearchPage";
 import { Cover } from "./Cover";
 import { CollectionPages } from "./CollectionPages";
 import { ShuffleLibrary } from "./ShuffleLibrary";
 import { SongRow } from "./SongRow";
-import { fromTrack, playlistSongs, type Song } from "./songs";
+import { fromTrack, playlistSongs, songBody, type Song } from "./songs";
+import { albumSummary, mergeAlbumTracks } from "./albumTracks";
 import { warmCovers, whenIdle } from "./prefetch";
 import { usePlayer } from "./Player";
 import type { Album, Artist, Library, Track } from "./types";
@@ -68,6 +71,36 @@ type Section = keyof typeof sectionCategory;
 type LibraryTab = (typeof libraryTabs)[number];
 const tabLabel = (id: string) => id[0].toUpperCase() + id.slice(1);
 
+function albumMeta(info: {
+  artist?: string;
+  artistId?: string;
+  year?: number;
+  trackCount?: number;
+}) {
+  const rest = [
+    info.year ? String(info.year) : "",
+    info.trackCount
+      ? `${info.trackCount} ${info.trackCount === 1 ? "song" : "songs"}`
+      : "",
+  ].filter(Boolean);
+  return (
+    <>
+      {info.artist &&
+        (info.artistId ? (
+          <a href={"#/library/artist/" + info.artistId}>{info.artist}</a>
+        ) : (
+          info.artist
+        ))}
+      {rest.map((part, i) => (
+        <span key={part}>
+          {i > 0 || info.artist ? " · " : ""}
+          {part}
+        </span>
+      ))}
+    </>
+  );
+}
+
 export function PersonalLibrary({
   user,
   route,
@@ -93,7 +126,21 @@ export function PersonalLibrary({
     tracks?: Track[];
     albums?: Album[];
     playlist?: Playlist;
+    releaseId?: string;
+    albumInfo?: {
+      artist?: string;
+      artistId?: string;
+      year?: number;
+      trackCount?: number;
+    };
   } | null>(null);
+  // The full tracklist of the open album's release, when it could be read.
+  const [release, setRelease] = useState<{
+    id: string;
+    tracks: Track[];
+  } | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const openId = useRef("");
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
   const [favouriteList, setFavouriteList] = useState<Playlist | null>(null);
   const [notice, setNotice] = useState("");
@@ -153,11 +200,29 @@ export function PersonalLibrary({
     setCatalogue(null);
     if (searching) return setDetail(null);
     if (libraryTabs.includes(kind as LibraryTab)) setTab(kind as LibraryTab);
+    openId.current = kind === "album" && id ? id : "";
     if (kind === "album" && id) void openAlbum({ id } as Album);
     else if (kind === "artist" && id) void openArtist({ id } as Artist);
     else if (kind === "playlist" && id) void openPlaylist(id);
     else setDetail(null);
   }, [routeKey]);
+  useEffect(() => {
+    // A finished or new download updates the open album's rows.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const changed = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (openId.current) void openAlbum({ id: openId.current } as Album);
+      }, 400);
+    };
+    window.addEventListener("music-library-changed", changed);
+    window.addEventListener("music-requests-changed", changed);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("music-library-changed", changed);
+      window.removeEventListener("music-requests-changed", changed);
+    };
+  }, []);
   const backToLibrary = () => go("/library/" + tab);
   useEffect(() => {
     // Keep the chosen collection visible in the sideways tab strip.
@@ -188,17 +253,82 @@ export function PersonalLibrary({
   }
   async function openAlbum(album: Album) {
     try {
-      const data = await api<Album & { tracks: Track[] }>(
-        "/v1/albums/" + album.id,
-      );
+      const data = await api<
+        Album & { tracks: Track[]; musicbrainz_release_id?: string | null }
+      >("/v1/albums/" + album.id);
+      if (openId.current !== album.id) return;
+      const releaseId =
+        data.musicbrainz_release_id ||
+        data.tracks.find((t) => t.musicbrainz_release_id)
+          ?.musicbrainz_release_id;
       setDetail({
         title: data.title,
         cover: data.cover_url,
         tracks: data.tracks,
         quality: { scope: "album", itemId: data.id },
+        releaseId,
+        albumInfo: {
+          artist: data.artist,
+          artistId: data.artist_id,
+          year: data.year,
+          trackCount: data.track_count ?? data.tracks.length,
+        },
       });
+      // The rest of the tracklist arrives after the page is already usable.
+      if (releaseId) void loadRelease(album.id, releaseId);
+      else setRelease(null);
     } catch (e) {
       setError((e as Error).message);
+    }
+  }
+  async function loadRelease(albumId: string, releaseId: string) {
+    try {
+      const data = await api<{ id: string; tracks: Track[] }>(
+        "/v1/catalogue/releases/" + releaseId,
+      );
+      if (openId.current === albumId)
+        setRelease({ id: releaseId, tracks: data.tracks });
+    } catch {
+      // Without the release, the album simply shows what you own.
+    }
+  }
+  async function downloadMissing(rows: Track[]) {
+    const wanted = rows
+      .map((t) => fromTrack(t, detail?.cover))
+      .filter((s) => s.state === "missing" || s.state === "server");
+    if (!wanted.length) return;
+    setDownloading(true);
+    setError("");
+    try {
+      await api("/v1/requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tracks: wanted.map(songBody) }),
+      });
+      const ids = new Set(wanted.map((s) => s.key));
+      setRelease(
+        (old) =>
+          old && {
+            ...old,
+            tracks: old.tracks.map((t) =>
+              ids.has(t.id)
+                ? {
+                    ...t,
+                    server_state:
+                      t.server_state === "household_available"
+                        ? "in_library"
+                        : "requested",
+                  }
+                : t,
+            ),
+          },
+      );
+      window.dispatchEvent(new Event("music-requests-changed"));
+      window.dispatchEvent(new Event("music-library-changed"));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setDownloading(false);
     }
   }
   async function openArtist(artist: Artist) {
@@ -269,7 +399,11 @@ export function PersonalLibrary({
                     t.artist.toLocaleLowerCase() ===
                       String(albumArtist || artistName).toLocaleLowerCase()
                   }
-                  onRemove={playlist ? undefined : () => void preview([t.id])}
+                  onRemove={
+                    playlist || song.state !== "saved"
+                      ? undefined
+                      : () => void preview([t.id])
+                  }
                   menu={
                     playlist &&
                     !playlist.favourites &&
@@ -359,20 +493,43 @@ export function PersonalLibrary({
     soundtracks: library.stats.soundtracks,
     compilations: library.stats.compilations,
   };
+  const owned = detail?.tracks || [];
+  const albumRows =
+    detail?.quality?.scope === "album" &&
+    release &&
+    release.id === detail.releaseId
+      ? mergeAlbumTracks(owned, release.tracks)
+      : null;
+  const shownTracks = albumRows || detail?.tracks;
+  const missing = (albumRows || []).filter(
+    (t) => !owned.includes(t) && t.server_state !== "requested",
+  );
   const visibleTabs = libraryTabs.filter((id) => counts[id] !== 0);
   return (
     <main className="personal-main">
       {searching ? (
-        <h1>Search</h1>
+        <PageHeader
+          title="Search"
+          subtitle="Your library, the server and the wider catalogue."
+        />
       ) : detail?.artist ? (
         <SavedArtistHeading artist={detail.artist} personal />
+      ) : detail?.albumInfo ? (
+        <div className="page-heading catalogue-heading">
+          <Cover title={detail.title} src={detail.cover} />
+          <div>
+            <div className="eyebrow">IN YOUR LIBRARY</div>
+            <h1>{detail.title}</h1>
+            <p>{albumMeta(detail.albumInfo)}</p>
+          </div>
+        </div>
+      ) : detail ? (
+        <h1>{detail.title}</h1>
       ) : (
-        <h1>{detail?.title || "Your library"}</h1>
-      )}
-      {!searching && !detail && (
-        <p>
-          {user.display_name} · {library.stats.tracks} songs
-        </p>
+        <PageHeader
+          title="Your library"
+          subtitle={`${user.display_name} · ${formatCount(library.stats.tracks)} songs`}
+        />
       )}
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
@@ -428,6 +585,15 @@ export function PersonalLibrary({
                   </button>
                 );
               })}
+              {albumRows && (
+                <button
+                  className="secondary-button"
+                  disabled={!missing.length || downloading}
+                  onClick={() => void downloadMissing(missing)}
+                >
+                  <Download size={18} /> Download missing
+                </button>
+              )}
             </div>
           )}
           {detail.quality && (
@@ -492,7 +658,12 @@ export function PersonalLibrary({
               ))}
             </div>
           )}
-          {detail.tracks && songs(detail.tracks, detail.playlist)}
+          {albumRows && (
+            <p className="muted album-summary">
+              {albumSummary(albumRows, owned)}
+            </p>
+          )}
+          {shownTracks && songs(shownTracks, detail.playlist)}
           {owner && detail.quality?.scope === "album" && (
             <OwnerAlbumTools id={detail.quality.itemId} title={detail.title} />
           )}
@@ -583,8 +754,8 @@ export function PersonalLibrary({
               )
             ) : (
               <p className="muted">
-                Tap the heart on any song to keep it here. Favourites never
-                download anything by themselves.
+                Choose Favourite from a song&apos;s … menu to keep it here.
+                Favourites never download anything by themselves.
               </p>
             ))}
           {tab === "playlists" && (

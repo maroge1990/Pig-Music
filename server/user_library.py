@@ -446,6 +446,27 @@ class UserLibrary:
                 cleared += 1
         return {"cleared": cleared}
 
+    def retry_request(self, user_id, request_id):
+        """Requeue one of this person's failed or cancelled requests."""
+        with self.store.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            result = conn.execute(
+                "UPDATE queue SET status='waiting_for_sources',updated_at=CURRENT_TIMESTAMP "
+                "WHERE id=? AND status IN ('failed','cancelled') AND EXISTS "
+                "(SELECT 1 FROM json_each(queue.payload,'$.requested_by') WHERE value=?)",
+                (request_id, user_id),
+            )
+            if result.rowcount:
+                return {"retried": True}
+            mine = conn.execute(
+                "SELECT 1 FROM queue WHERE id=? AND EXISTS "
+                "(SELECT 1 FROM json_each(queue.payload,'$.requested_by') WHERE value=?)",
+                (request_id, user_id),
+            ).fetchone()
+        if not mine:
+            raise LookupError("Request not found")
+        raise ValueError("Only failed or cancelled requests can be retried")
+
     def queue(self, user_id, offset=0, limit=200):
         if offset < 0 or not 1 <= limit <= 200:
             raise ValueError("Invalid request page bounds")
@@ -453,6 +474,11 @@ class UserLibrary:
         with self.store.connect() as conn:
             total = conn.execute(
                 "SELECT count(*) FROM queue WHERE " + where, (user_id,)
+            ).fetchone()[0]
+            in_progress = conn.execute(
+                "SELECT count(*) FROM queue WHERE status IN ('waiting_for_sources','searching','downloading','validating','importing') AND "
+                + where,
+                (user_id,),
             ).fetchone()[0]
             records = conn.execute(
                 "SELECT id,payload,status,created_at,updated_at FROM queue WHERE "
@@ -464,6 +490,7 @@ class UserLibrary:
             "library_revision": self.store.library_revision,
             "downloads_enabled": self.store.download_settings()["enabled"],
             "total": total,
+            "active": in_progress,
             "offset": offset,
             "next_offset": offset + limit if offset + limit < total else None,
             "items": [],

@@ -30,7 +30,7 @@ export function QualitySettings({
         >
           <option value="mp3_320">Allow MP3 320 kbps</option>
           <option value="mp3_128">Allow MP3 128 kbps or better</option>
-          <option value="none">Wait for lossless</option>
+          <option value="none">Wait for Lossless (FLAC)</option>
           <option value="native_standard">
             Allow native audio — standard or better
           </option>
@@ -67,8 +67,13 @@ export function QualitySettings({
       </p>
       <p>
         Fallback begins when preferred sources are exhausted or their time limit
-        is reached. Upgrade checks never replace a saved song with a
-        lower-quality file. Each Soulseek peer handles one transfer at a time.
+        is reached. The order is preferred quality, then the MP3 fallback, then
+        AAC 256 kbps from JioSaavn as the lowest quality (only when JioSaavn is
+        ticked above). A song saved at a lower quality is checked again every
+        few hours (see above) until the preferred quality is found. Choosing
+        &ldquo;Wait for Lossless (FLAC)&rdquo; skips AAC. Upgrade checks never
+        replace a saved song with a lower-quality file. Each Soulseek peer
+        handles one transfer at a time.
       </p>
     </div>
   );

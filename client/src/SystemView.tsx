@@ -1,8 +1,12 @@
 import { lazy, Suspense } from "react";
-import { HardDrive, CircleCheck, ShieldCheck } from "lucide-react";
+import { HardDrive, ShieldCheck } from "lucide-react";
+import { formatCount, formatDateTime } from "./format";
+import { StateBadge } from "./StateBadge";
 import type { Library } from "./types";
 import { SourceDiagnostics } from "./SourceDiagnostics";
 import { QualitySettings } from "./QualitySettings";
+import { QualitySelect } from "./QualitySelect";
+import { sourceIds, sourceName, sources } from "./sources";
 import { LibraryScan } from "./LibraryScan";
 import { ToolBoundary } from "./ToolBoundary";
 const Organisation = lazy(() =>
@@ -27,10 +31,13 @@ export function SystemStatus({
   library,
   downloadSettings,
   soulseekHealth,
+  publicOrigin,
 }: {
   library: Library | null;
   downloadSettings: DownloadSettings | null;
   soulseekHealth: Health;
+  /** undefined while loading, null when none is configured. */
+  publicOrigin?: string | null;
 }) {
   return (
     <>
@@ -48,20 +55,18 @@ export function SystemStatus({
         <section className="system-panel">
           <HardDrive />
           <h2>Synology library</h2>
-          <span className="status-pill">
-            <CircleCheck size={13} /> Local snapshot ready
-          </span>
+          <StateBadge state="library" label="Local snapshot ready" />
           <dl>
             <dt>Source</dt>
             <dd>{library?.snapshot.source || "No snapshot loaded"}</dd>
-            <dt>Captured</dt>
+            <dt>Last scan</dt>
             <dd>
               {library?.snapshot.captured_at
-                ? new Date(library.snapshot.captured_at).toLocaleString()
+                ? formatDateTime(library.snapshot.captured_at)
                 : "Not yet"}
             </dd>
             <dt>Indexed tracks</dt>
-            <dd>{library?.stats.tracks.toLocaleString()}</dd>
+            <dd>{library ? formatCount(library.stats.tracks) : ""}</dd>
             <dt>Tag read issues</dt>
             <dd>{library?.snapshot.read_failures?.length || 0}</dd>
           </dl>
@@ -73,7 +78,7 @@ export function SystemStatus({
         <section className="system-panel">
           <ShieldCheck />
           <h2>Library storage</h2>
-          <span className="status-pill preview-pill">Direct SMB storage</span>
+          <StateBadge state="neutral" label="Direct SMB storage" />
           <dl>
             <dt>Downloads</dt>
             <dd>{downloadSettings?.enabled ? "Enabled" : "Paused"}</dd>
@@ -81,8 +86,14 @@ export function SystemStatus({
             <dd>Existing artist / album folders</dd>
             <dt>Migration &amp; queue</dt>
             <dd>Saved locally</dd>
-            <dt>Remote access</dt>
-            <dd>Existing Tailscale connection</dd>
+            <dt>Public address</dt>
+            <dd>
+              {publicOrigin === undefined
+                ? "Checking…"
+                : publicOrigin
+                  ? new URL(publicOrigin).host
+                  : "Not configured"}
+            </dd>
           </dl>
           <p>
             Downloads are validated and tagged before publication into your SMB
@@ -139,36 +150,21 @@ export function DownloadSettingsPanel({
         Enable downloads
       </label>
       <label className="download-option">
-        Quality
-        <select
-          aria-label="Download quality"
+        Household default quality
+        <QualitySelect
+          ariaLabel="Download quality"
           value={downloadSettings.profile}
-          onChange={(e) =>
-            setDownloadSettings({
-              ...downloadSettings,
-              profile: e.target.value,
-            })
+          onChange={(profile) =>
+            setDownloadSettings({ ...downloadSettings, profile })
           }
-        >
-          <option value="mp3_320">MP3 320 kbps</option>
-          <option value="mp3_128">MP3 128 kbps</option>
-          <option value="aac_256">AAC 256 kbps or better</option>
-          <option value="lossless">FLAC lossless</option>
-          <option value="native_standard">
-            Native audio — standard or better
-          </option>
-        </select>
+        />
       </label>
-      {[
-        "soulseek",
-        "freemp3cloud",
-        "zvu4no",
-        "jiosaavn",
-        "youtube",
-        "soundcloud",
-        "monochrome",
-      ].map((source) => (
-        <label className="download-option" key={source}>
+      <p className="status-text">
+        Lossless files are available from Soulseek and Monochrome. Other sources
+        provide the supported formats described below.
+      </p>
+      {sourceIds.map((source) => (
+        <label className="download-option source-option" key={source}>
           <input
             type="checkbox"
             checked={downloadSettings.sources.includes(source)}
@@ -181,17 +177,10 @@ export function DownloadSettingsPanel({
               })
             }
           />
-          {
-            {
-              soulseek: "Soulseek",
-              freemp3cloud: "FreeMp3Cloud",
-              zvu4no: "zvu4no",
-              jiosaavn: "JioSaavn",
-              youtube: "YouTube",
-              soundcloud: "SoundCloud",
-              monochrome: "Monochrome",
-            }[source]
-          }
+          <span className="source-text">
+            {sourceName(source)}
+            <small>{sources[source].description}</small>
+          </span>
         </label>
       ))}
       <p>

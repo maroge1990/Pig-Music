@@ -143,8 +143,11 @@ def test_login_limits_unknown_user_same_errors_and_exponential_lock(fixture):
                 ).fetchone()[0]
                 == clock[0] + seconds
             )
+        # The failing address stays locked even with the right password, but
+        # nobody else can lock the owner out by guessing at their name.
         with pytest.raises(AuthError, match="invalid_credentials"):
-            token(auth, ip="another-ip")
+            token(auth, ip="bad-ip")
+        assert token(auth, ip="another-ip")
         clock[0] += seconds + 1
     for _ in range(5):
         with pytest.raises(AuthError, match="invalid_credentials"):
@@ -162,11 +165,52 @@ def test_weak_or_unbounded_password_rejected(fixture, password):
         auth.create_owner("another", password)
 
 
-def app_for(auth):
+def app_for(auth, origin=None):
     app = FastAPI()
     install_validation_redaction(app)
-    app.include_router(auth_router(auth))
+    app.include_router(auth_router(auth, origin=origin))
     return app
+
+
+def test_invites_carry_the_code_in_the_link_fragment_and_activation_returns_the_user(
+    fixture,
+):
+    auth, _, _ = fixture
+    owner = token(auth)
+    bearer = {"Authorization": "Bearer " + owner}
+    origin = "https://music.example.test"
+    with TestClient(app_for(auth, origin), base_url=origin) as client:
+        added = client.post(
+            "/api/v1/people",
+            headers=bearer,
+            json={"username": "sam", "display_name": "Sam"},
+        ).json()
+        assert added["invite_url"] == f"{origin}/#/join?code={added['code']}"
+        reset = client.post(
+            f"/api/v1/people/{added['user_id']}/setup-code", headers=bearer
+        ).json()
+        assert reset["invite_url"] == f"{origin}/#/join?code={reset['code']}"
+        assert reset["code"] != added["code"]
+        activated = client.post(
+            "/api/v1/setup",
+            headers={"X-Pig-Request": "1"},
+            json={"code": reset["code"], "password": PASSWORD},
+        )
+        assert activated.json() == {
+            "user": {
+                "id": added["user_id"],
+                "username": "sam",
+                "display_name": "Sam",
+                "role": "member",
+            }
+        }
+    with TestClient(app_for(auth), base_url=origin) as client:
+        unconfigured = client.post(
+            "/api/v1/people",
+            headers=bearer,
+            json={"username": "alex", "display_name": "Alex"},
+        ).json()
+        assert unconfigured["invite_url"] is None and unconfigured["code"]
 
 
 def test_https_cookie_flags_csrf_and_device_bearer(fixture):

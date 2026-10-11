@@ -147,36 +147,42 @@ class Soulseek:
         finally:
             self.search_lock.release()
 
+    def _run_search(self, text, check):
+        with self.client() as client:
+            check()
+            started = client.post("searches", json={"searchText": text})
+            started.raise_for_status()
+            search_id = quote(started.json()["id"], safe="")
+            try:
+                deadline = time.monotonic() + 35
+                while time.monotonic() < deadline:
+                    check()
+                    status = client.get("searches/" + search_id)
+                    status.raise_for_status()
+                    if status.json().get("isComplete"):
+                        break
+                    time.sleep(1)
+                result = client.get(f"searches/{search_id}/responses")
+                result.raise_for_status()
+                return result.json()
+            finally:
+                try:
+                    client.delete("searches/" + search_id)
+                except httpx.HTTPError:
+                    pass  # Cleanup must not discard results or mask cancellation.
+
     def _search(self, job, check):
         key = (job["artist"], job["album"])
         cached = self.cache.get(key)
         if cached and time.monotonic() - cached[0] < 600:
             responses = cached[1]
         else:
-            with self.client() as client:
-                check()
-                started = client.post(
-                    "searches", json={"searchText": f"{job['artist']} {job['album']}"}
-                )
-                started.raise_for_status()
-                search_id = quote(started.json()["id"], safe="")
-                try:
-                    deadline = time.monotonic() + 35
-                    while time.monotonic() < deadline:
-                        check()
-                        status = client.get("searches/" + search_id)
-                        status.raise_for_status()
-                        if status.json().get("isComplete"):
-                            break
-                        time.sleep(1)
-                    result = client.get(f"searches/{search_id}/responses")
-                    result.raise_for_status()
-                    responses = result.json()
-                finally:
-                    try:
-                        client.delete("searches/" + search_id)
-                    except httpx.HTTPError:
-                        pass  # Cleanup must not discard results or mask cancellation.
+            primary = f"{job['artist']} {job['album']}"
+            responses = self._run_search(primary, check)
+            album = (job["album"] or "").strip()
+            if not responses and album and album.lower() != primary.lower():
+                # The Soulseek server silently filters some artist names.
+                responses = self._run_search(album, check)
             self.cache[key] = (time.monotonic(), responses)
             if len(self.cache) > 50:
                 self.cache.pop(next(iter(self.cache)))
