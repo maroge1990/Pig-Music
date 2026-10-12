@@ -123,6 +123,7 @@ import SwiftUI
     }
   }
   func resume() {
+    link?.refreshState()
     // Watch AAC preparation restarts only after the library was reconciled.
     if verified { downloads?.resume(automatic: true) }
     startPolling()

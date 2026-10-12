@@ -25,6 +25,15 @@ import WatchConnectivity
     session?.activate()
   }
   var supported: Bool { session != nil }
+  /// Install and reachability can change while the app is suspended without a
+  /// delegate callback reaching it, so re-read them when the app returns.
+  func refreshState() {
+    guard let session, session.activationState == .activated else { return }
+    reachable = session.isReachable
+    #if os(iOS)
+      available = session.isPaired && session.isWatchAppInstalled
+    #endif
+  }
   func publish(_ context: CompanionContext) throws {
     guard let session, session.activationState == .activated else { return }
     try session.updateApplicationContext(["context": try JSONEncoder().encode(context)])
