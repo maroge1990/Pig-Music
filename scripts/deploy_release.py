@@ -23,6 +23,8 @@ TEMPLATE = "/boot/config/plugins/dockerMan/templates-user/my-PigMusic.xml"
 ORIGIN = "https://passyflix.tail6d1471.ts.net:10000"
 TAILNET_ADDRESS = "100.99.233.14"
 LAN = "http://192.168.1.203:8765"
+# The live container must keep a memory limit; release gates still test under 1 GiB.
+MEMORY_LIMITS = range(1 << 30, (8 << 30) + 1)
 NETWORKS = {"br0": ("192.168.1.203", "-1"), "pig-music-preview": ("172.25.0.2", "0")}
 ACTIVE = ("searching", "downloading", "validating", "importing")
 IMAGE = re.compile(r"ghcr.io/maroge1990/pig-music@sha256:[0-9a-f]{64}")
@@ -134,7 +136,7 @@ class Release:
         assert live["Image"] != candidate["Id"], "Candidate is already running"
         assert live["Config"]["Labels"]["net.unraid.docker.managed"] == "dockerman"
         assert live["HostConfig"]["ReadonlyRootfs"]
-        assert live["HostConfig"]["Memory"] == 1073741824
+        assert live["HostConfig"]["Memory"] in MEMORY_LIMITS
         assert live["Config"]["User"] == "99:100"
         networks = live["NetworkSettings"]["Networks"]
         for network, (address, _) in NETWORKS.items():

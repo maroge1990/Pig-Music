@@ -51,7 +51,7 @@ PigMusic is managed by Unraid Docker Manager and already runs an account release
 1. **Verify the exact image on Unraid** without changing the live service. Push `main`, let the registry workflow publish `sha-<revision>`, then run `scripts/deploy_unraid.py --version <unused-name> --image ghcr.io/maroge1990/pig-music@sha256:<digest>` without `--deploy`, saving its output to a log. The image tests also read the staged checkout through `/source` for source-level contract checks.
 2. **Release** with `scripts/deploy_release.py --image <digest> --revision <sha> --version <same-name> --verified-log <log>`. Without `--apply` it is a read-only preflight. It checks:
    - the exact image and its source labels
-   - Docker Manager ownership, 1 GB, 99:100, read-only root and both fixed addresses
+   - Docker Manager ownership, a 1–8 GiB memory limit (template: 4 GiB), 99:100, read-only root and both fixed addresses
    - private HTTPS health
    - that the owner account exists
    - that no transfers are active

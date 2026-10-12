@@ -1,5 +1,11 @@
-import { lazy, Suspense } from "react";
-import { HardDrive, ShieldCheck } from "lucide-react";
+import { lazy, Suspense, useState } from "react";
+import {
+  ChevronDown,
+  ChevronUp,
+  GripVertical,
+  HardDrive,
+  ShieldCheck,
+} from "lucide-react";
 import { formatCount, formatDateTime } from "./format";
 import { StateBadge } from "./StateBadge";
 import type { Library } from "./types";
@@ -105,6 +111,72 @@ export function SystemStatus({
   );
 }
 
+/** Drag the grip (mouse or touch) or use the arrows to reorder sources. */
+function SourceOrder({
+  sources,
+  onChange,
+}: {
+  sources: string[];
+  onChange: (sources: string[]) => void;
+}) {
+  const [dragging, setDragging] = useState<string | null>(null);
+  const move = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= sources.length) return;
+    const next = [...sources];
+    next.splice(to, 0, ...next.splice(from, 1));
+    onChange(next);
+  };
+  return (
+    <ol className="source-order" aria-label="Download source order">
+      {sources.map((source, index) => (
+        <li
+          key={source}
+          data-source={source}
+          className={dragging === source ? "dragging" : undefined}
+        >
+          <span
+            className="source-grip"
+            aria-hidden="true"
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.currentTarget.setPointerCapture(e.pointerId);
+              setDragging(source);
+            }}
+            onPointerMove={(e) => {
+              if (dragging !== source) return;
+              const over = document
+                .elementFromPoint(e.clientX, e.clientY)
+                ?.closest<HTMLElement>(".source-order li")?.dataset.source;
+              if (over && over !== source) move(index, sources.indexOf(over));
+            }}
+            onPointerUp={() => setDragging(null)}
+            onPointerCancel={() => setDragging(null)}
+          >
+            <GripVertical size={18} />
+          </span>
+          <span className="source-order-name">
+            {index + 1}. {sourceName(source)}
+          </span>
+          <button
+            aria-label={`Move ${sourceName(source)} earlier`}
+            disabled={index === 0}
+            onClick={() => move(index, index - 1)}
+          >
+            <ChevronUp size={18} />
+          </button>
+          <button
+            aria-label={`Move ${sourceName(source)} later`}
+            disabled={index === sources.length - 1}
+            onClick={() => move(index, index + 1)}
+          >
+            <ChevronDown size={18} />
+          </button>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 export function DownloadSettingsPanel({
   downloadSettings,
   setDownloadSettings,
@@ -184,45 +256,16 @@ export function DownloadSettingsPanel({
         </label>
       ))}
       <p>
-        Sources are tried in the saved order. YouTube usually needs native audio
-        quality; SoundCloud formats depend on each upload. Monochrome supplies
-        FLAC. Opus and Ogg playback depends on your player.
+        Sources are tried in the saved order; drag to reorder. YouTube usually
+        needs native audio quality; SoundCloud formats depend on each upload.
+        Monochrome supplies FLAC. Opus and Ogg playback depends on your player.
       </p>
-      <ol aria-label="Download source order">
-        {downloadSettings.sources.map((source, index) => (
-          <li key={source}>
-            {sourceName(source)}
-            <button
-              aria-label={`Move ${sourceName(source)} earlier`}
-              disabled={index === 0}
-              onClick={() => {
-                const sources = [...downloadSettings.sources];
-                [sources[index - 1], sources[index]] = [
-                  sources[index],
-                  sources[index - 1],
-                ];
-                setDownloadSettings({ ...downloadSettings, sources });
-              }}
-            >
-              Earlier
-            </button>
-            <button
-              aria-label={`Move ${sourceName(source)} later`}
-              disabled={index === downloadSettings.sources.length - 1}
-              onClick={() => {
-                const sources = [...downloadSettings.sources];
-                [sources[index], sources[index + 1]] = [
-                  sources[index + 1],
-                  sources[index],
-                ];
-                setDownloadSettings({ ...downloadSettings, sources });
-              }}
-            >
-              Later
-            </button>
-          </li>
-        ))}
-      </ol>
+      <SourceOrder
+        sources={downloadSettings.sources}
+        onChange={(sources) =>
+          setDownloadSettings({ ...downloadSettings, sources })
+        }
+      />
       <SourceDiagnostics />
       <QualitySettings
         value={downloadSettings}

@@ -77,6 +77,21 @@ import Testing
   #expect(try await store.tracks(query: "\" OR *").isEmpty)
 }
 
+@Test func storeSeparatesAlbumCategoriesAndHidesCompilationOnlyArtists() async throws {
+  let store = try LibraryStore(path: ":memory:")
+  let snapshot = try LibraryCodec.decoder().decode(
+    LibrarySnapshot.self,
+    from: Data(
+      #"{"revision":"one","tracks":[],"playlists":[],"albums":[{"id":"a","title":"Own","artist":"Band","category":"album"},{"id":"m","title":"Show","artist":"Cast","category":"musical"},{"id":"c","title":"Hits","artist":"Various","category":"compilation"},{"id":"u","title":"Legacy","artist":"Band"}],"artists":[{"id":"band","name":"Band"},{"id":"guest","name":"Guest","compilation_only":true}]}"#
+        .utf8))
+  try await store.replace(snapshot)
+  #expect(try await store.albums().map(\.id) == ["u", "a"])
+  #expect(try await store.albums(category: "musical").map(\.id) == ["m"])
+  #expect(try await store.albumCategoryCounts() == ["album": 2, "musical": 1, "compilation": 1])
+  #expect(try await store.artists().map(\.id) == ["band"])
+  #expect(try await store.ownArtistCount() == 1)
+}
+
 private actor FailedSource: LibrarySource {
   func bootstrap() async throws -> LibrarySnapshot { throw NativeFailure.unavailable("offline") }
   func changes(since: String) async throws -> LibraryDelta { throw NativeFailure.resync }

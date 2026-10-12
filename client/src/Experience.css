@@ -721,3 +721,11 @@
     animation: none;
   }
 }
+
+/* Option C: cloud = in your library on the server; faded = on the server only. */
+.song-cloud {
+  color: var(--secondary);
+}
+.song-state .song-cloud-faded {
+  opacity: 0.45;
+}

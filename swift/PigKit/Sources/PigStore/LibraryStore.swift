@@ -71,6 +71,10 @@ public actor LibraryStore {
         )
       }
     }
+    migrator.registerMigration("library-categories-v7") { db in
+      // Older caches dropped artists' compilation flag: force one full resync.
+      try db.execute(sql: "DELETE FROM metadata WHERE key='revision'")
+    }
     try migrator.migrate(queue)
     database = queue
   }
@@ -224,27 +228,49 @@ public actor LibraryStore {
     }
   }
 
-  public func albums(offset: Int = 0, limit: Int = 100, sort: LibrarySort = .title) throws
-    -> [Album]
-  {
-    try read(.albums, offset: offset, limit: limit, sort: sort)
+  /// Albums of one category ("album", "musical", "soundtrack" or "compilation").
+  public func albums(
+    category: String = "album", offset: Int = 0, limit: Int = 100, sort: LibrarySort = .title
+  ) throws -> [Album] {
+    try read(
+      .albums, where: Self.albumCategory, arguments: [category], offset: offset, limit: limit,
+      sort: sort)
   }
+  /// Artists with music of their own; compilation-only credits stay hidden, as on the web.
   public func artists(offset: Int = 0, limit: Int = 100, sort: LibrarySort = .title) throws
     -> [Artist]
   {
-    try read(.artists, offset: offset, limit: limit, sort: sort)
+    try read(.artists, where: Self.ownArtist, offset: offset, limit: limit, sort: sort)
   }
+  public func albumCategoryCounts() throws -> [String: Int] {
+    try database.read { db in
+      let rows = try Row.fetchAll(
+        db, sql: "SELECT \(Self.categoryExpression) AS category, count(*) AS n FROM albums GROUP BY 1")
+      return Dictionary(uniqueKeysWithValues: rows.map { ($0["category"] as String, $0["n"] as Int) })
+    }
+  }
+  public func ownArtistCount() throws -> Int {
+    try database.read {
+      try Int.fetchOne($0, sql: "SELECT count(*) FROM artists WHERE \(Self.ownArtist)") ?? 0
+    }
+  }
+  private static let categoryExpression =
+    "coalesce(json_extract(CAST(payload AS TEXT),'$.category'),'album')"
+  private static let albumCategory = categoryExpression + "=?"
+  private static let ownArtist =
+    "NOT coalesce(json_extract(CAST(payload AS TEXT),'$.compilation_only'),0)"
   public func playlists() throws -> [Playlist] { try read(.playlists, offset: 0, limit: 10000) }
 
   private func read<T: Decodable>(
-    _ kind: LibraryCollection, offset: Int, limit: Int, sort: LibrarySort = .title
+    _ kind: LibraryCollection, where filter: String = "1", arguments: [String] = [],
+    offset: Int, limit: Int, sort: LibrarySort = .title
   ) throws -> [T] {
     try database.read { db in
       try Row.fetchAll(
         db,
         sql:
-          "SELECT payload FROM \(kind.rawValue) ORDER BY \(Self.order(sort)) LIMIT ? OFFSET ?",
-        arguments: [limit, offset]
+          "SELECT payload FROM \(kind.rawValue) WHERE \(filter) ORDER BY \(Self.order(sort)) LIMIT ? OFFSET ?",
+        arguments: StatementArguments(arguments) + [limit, offset]
       )
       .map { try LibraryCodec.decoder().decode(T.self, from: $0["payload"] as Data) }
     }

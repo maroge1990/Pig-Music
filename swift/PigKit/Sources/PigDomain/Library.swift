@@ -48,6 +48,7 @@ public struct Artist: Codable, Sendable, Identifiable, Hashable {
   public var albumIds: [String]?
   public var albumCount: Int?
   public var trackCount: Int?
+  public var compilationOnly: Bool?
   public var coverAlbumId: String?
 }
 

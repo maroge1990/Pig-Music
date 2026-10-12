@@ -173,6 +173,53 @@
   max-width: 100%;
   width: 300px;
 }
+.source-order {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-12) 0;
+  display: grid;
+  gap: var(--space-8);
+  max-width: 420px;
+}
+.source-order li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  padding: 6px 8px;
+  background: var(--raised);
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-compact);
+}
+.source-order li.dragging {
+  border-color: var(--accent);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.18);
+}
+.source-order-name {
+  flex: 1;
+  min-width: 0;
+}
+.source-grip {
+  display: inline-flex;
+  padding: 6px 2px;
+  cursor: grab;
+  touch-action: none;
+  color: var(--secondary);
+}
+.source-order li.dragging .source-grip {
+  cursor: grabbing;
+}
+.source-order button {
+  display: inline-flex;
+  padding: 6px;
+  background: none;
+  border: 0;
+  color: var(--text);
+  cursor: pointer;
+}
+.source-order button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
 .download-panel .import-actions {
   margin-top: 20px;
 }

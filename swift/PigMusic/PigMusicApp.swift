@@ -140,7 +140,13 @@ struct LibraryShell: View {
             .toolbar { Button("Done") { showAccount = false } }
         }
       }
-      .sheet(item: $model.actionTrack) { SongActionsView(model: model, track: $0) }
+      .sheet(item: $model.actionTrack) {
+        // A half-height card like the web's ⋯ menu; drag up for every action.
+        SongActionsView(model: model, track: $0)
+          .presentationDetents([.medium, .large])
+          .presentationDragIndicator(.visible)
+          .presentationContentInteraction(.scrolls)
+      }
       #if DEBUG
         // Headless UI review: --tab=<name> and --demo-play.
         .task {
@@ -170,6 +176,7 @@ struct LibraryShell: View {
         Destination.downloads.rawValue, systemImage: Destination.downloads.symbol,
         value: .downloads
       ) { stack(.downloads) }
+        .badge(model.pendingDownloadCount)
       Tab(value: Destination.search, role: .search) { stack(.search) }
     }
     .tabViewStyle(.sidebarAdaptable)
@@ -207,7 +214,13 @@ struct LibraryShell: View {
       }
       .toolbar {
         if destination != .search {
-          ToolbarItem(placement: .topBarTrailing) { accountButton }
+          // The avatar draws its own circle; iOS 26's shared glass capsule would sit behind it.
+          if #available(iOS 26.0, *) {
+            ToolbarItem(placement: .topBarTrailing) { accountButton }
+              .sharedBackgroundVisibility(.hidden)
+          } else {
+            ToolbarItem(placement: .topBarTrailing) { accountButton }
+          }
         }
       }
     }

@@ -258,8 +258,8 @@ struct SongRow: View {
       .accessibilityLabel(
         "\(track.serverState == "household_available" ? "Add" : "Play") \(track.title) by \(track.artist)"
       )
-      .accessibilityValue(current ? "Now playing" : stateLabel)
-      stateMark
+      .accessibilityValue(current ? "Now playing" : ([stateLabel] + deviceLabels).joined(separator: ", "))
+      indicator
       Button {
         model.actionTrack = track
       } label: {
@@ -271,26 +271,68 @@ struct SongRow: View {
       Button("Song actions…", systemImage: "ellipsis.circle") { model.actionTrack = track }
     }
   }
-  private var stateLabel: String {
-    switch track.serverState {
-    case "household_available": "Available in household"
-    case "not_in_library": "Catalogue song"
-    case "requested": "Requested"
-    default: "In your library"
+  private var copies: (phone: DeviceCopyMark?, watch: DeviceCopyMark?) {
+    model.deviceCopies(track.id)
+  }
+  private var deviceLabels: [String] {
+    let copies = copies
+    func label(_ mark: DeviceCopyMark?, _ device: String) -> String? {
+      switch mark {
+      case .ready: "On \(device)"
+      case .pending: "Downloading to \(device)"
+      case .failed: "\(device) download failed"
+      case nil: nil
+      }
+    }
+    return [label(copies.phone, "iPhone"), label(copies.watch, "Apple Watch")].compactMap { $0 }
+  }
+  /// One mark per row, most local copy first: blank (not on the server), clock
+  /// (requested), faded cloud (on the server, not in your library), cloud (in
+  /// your library), progress ring then filled arrow (on this iPhone). A Watch
+  /// glyph sits beside it when the song is on, or going to, Apple Watch.
+  private var indicator: some View {
+    let copies = copies
+    return HStack(spacing: 4) {
+      if let watch = copies.watch {
+        Image(systemName: "applewatch").font(.system(size: 13, weight: .semibold))
+          .foregroundStyle(
+            watch == .ready
+              ? PigBrand.accent(scheme)
+              : watch == .failed ? PigBrand.danger(scheme) : PigBrand.secondary(scheme))
+      }
+      primaryMark(copies.phone)
+    }
+    .frame(minWidth: 22)
+    .accessibilityHidden(true)
+  }
+  @ViewBuilder private func primaryMark(_ phone: DeviceCopyMark?) -> some View {
+    switch phone {
+    case .ready:
+      Image(systemName: "arrow.down.circle.fill").foregroundStyle(PigBrand.accent(scheme))
+    case .pending:
+      ProgressView(value: model.phoneProgress(track.id)).progressViewStyle(.circular)
+        .controlSize(.mini).tint(PigBrand.accent(scheme))
+    case .failed:
+      Image(systemName: "exclamationmark.circle").foregroundStyle(PigBrand.danger(scheme))
+    case nil:
+      switch track.serverState {
+      case "household_available":
+        Image(systemName: "cloud").foregroundStyle(.tertiary)
+      case "requested":
+        Image(systemName: "clock").foregroundStyle(.secondary)
+      case "not_in_library":
+        EmptyView()
+      default:
+        Image(systemName: "cloud").foregroundStyle(.secondary)
+      }
     }
   }
-  @ViewBuilder private var stateMark: some View {
+  private var stateLabel: String {
     switch track.serverState {
-    case "household_available":
-      Image(systemName: "plus.circle").foregroundStyle(PigBrand.accent(scheme))
-        .accessibilityHidden(true)
-    case "requested":
-      Image(systemName: "clock").foregroundStyle(.secondary).accessibilityHidden(true)
-    case "not_in_library":
-      EmptyView()
-    default:
-      Image(systemName: "checkmark.circle").foregroundStyle(PigBrand.success(scheme))
-        .accessibilityHidden(true)
+    case "household_available": "On the server, not in your library"
+    case "not_in_library": "Not downloaded"
+    case "requested": "Requested"
+    default: "In your library on the server"
     }
   }
 }

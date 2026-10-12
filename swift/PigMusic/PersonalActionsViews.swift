@@ -14,8 +14,10 @@ struct SongActionsView: View {
     NavigationStack {
       Form {
         Section {
-          Text(track.title)
-          Text(track.artist).foregroundStyle(.secondary)
+          VStack(alignment: .leading, spacing: 2) {
+            Text(track.title).lineLimit(1)
+            Text(track.artist).font(PigType.footnote).foregroundStyle(.secondary).lineLimit(1)
+          }
         }
         Section {
           if let favourite {
@@ -44,9 +46,6 @@ struct SongActionsView: View {
               Task { await request() }
             }.disabled(loading || !model.canMutate)
           }
-          Text(
-            "Favourites do not download music. Requests are sent to your server and are separate from downloads to this device."
-          ).font(PigType.footnote)
         }
         Section {
           if model.player.queue.current != nil && track.serverState != "household_available" {
@@ -66,6 +65,10 @@ struct SongActionsView: View {
             }
             NavigationLink("Remove music") { RemovalView(model: model, tracks: [track]) }
           }
+        } footer: {
+          Text(
+            "Favourites do not download music. Requests are sent to your server and are separate from downloads to this device."
+          )
         }
         if loading { ProgressView() }
         if let message { Section { Text(message).font(PigType.footnote) } }

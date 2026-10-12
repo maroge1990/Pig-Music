@@ -7,9 +7,22 @@ import SwiftUI
 private enum LibraryTab: String, CaseIterable, Identifiable {
   case artists = "Artists"
   case albums = "Albums"
+  case musicals = "Musicals"
+  case soundtracks = "Soundtracks"
+  case compilations = "Compilations"
   case songs = "Songs"
   case playlists = "Playlists"
   var id: String { rawValue }
+  /// Album tabs show one category each, as on the web.
+  var albumCategory: String? {
+    switch self {
+    case .albums: "album"
+    case .musicals: "musical"
+    case .soundtracks: "soundtrack"
+    case .compilations: "compilation"
+    default: nil
+    }
+  }
 }
 
 /// "Your library": collection chips and a card grid, as in the web client.
@@ -32,8 +45,18 @@ struct LibraryView: View {
         HStack(spacing: 8) {
           ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-              ForEach(LibraryTab.allCases) { item in
-                Button(item.rawValue) { tab = item }
+              // Empty category tabs stay hidden, as on the web.
+              ForEach(
+                LibraryTab.allCases.filter {
+                  $0 == .albums || $0.albumCategory.map { model.albumCategoryCounts[$0, default: 0] > 0 } ?? true
+                }
+              ) { item in
+                Button(item.rawValue) {
+                  tab = item
+                  if let category = item.albumCategory {
+                    Task { await model.showAlbums(category: category) }
+                  }
+                }
                   .buttonStyle(ChipStyle(selected: tab == item))
                   .accessibilityAddTraits(tab == item ? .isSelected : [])
               }
@@ -84,7 +107,7 @@ struct LibraryView: View {
         }
       }
       more(.artists, shown: model.artists.count, total: model.artistCount)
-    case .albums:
+    case .albums, .musicals, .soundtracks, .compilations:
       sort(.albums, selected: model.albumSort)
       LazyVGrid(columns: cardColumns, spacing: 18) {
         ForEach(model.albums) { album in

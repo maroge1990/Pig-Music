@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AudioLines,
+  Cloud,
   Disc3,
   Download,
   Ellipsis,
@@ -103,13 +104,16 @@ export function SongRow({
       </button>
       <span className="song-state">
         {state === "saved" ? (
-          <StateBadge state="library" iconOnly />
+          <span
+            className="state-badge icon-only song-cloud"
+            role="img"
+            aria-label="In your library on the server"
+            title="In your library on the server"
+          >
+            <Cloud size={20} />
+          </span>
         ) : state === "pending" ? (
-          <StateBadge
-            state="active"
-            label="Downloading to the server"
-            iconOnly
-          />
+          <StateBadge state="requested" iconOnly />
         ) : (
           <button
             aria-label={
@@ -117,9 +121,18 @@ export function SongRow({
                 ? `Add ${song.title} to your library`
                 : `Download ${song.title} to your library`
             }
+            title={
+              state === "server"
+                ? "On the server — add to your library"
+                : "Not downloaded — download to the server"
+            }
             onClick={() => void download()}
           >
-            <Download size={20} />
+            {state === "server" ? (
+              <Cloud size={20} className="song-cloud-faded" />
+            ) : (
+              <Download size={20} />
+            )}
           </button>
         )}
       </span>

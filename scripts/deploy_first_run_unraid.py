@@ -17,6 +17,7 @@ import httpx
 
 ROOT = "/mnt/user/appdata/pig-music-preview"
 TEMPLATE = "/boot/config/plugins/dockerMan/templates-user/my-PigMusic.xml"
+MEMORY_LIMITS = range(1 << 30, (8 << 30) + 1)
 LEGACY = "sha256:17f42b85b47f4404988f849c26005a66a2c3051b85671c821dffcb3f01e7a439"
 ORIGIN = "https://passyflix.tail6d1471.ts.net:10000"
 ACTIVE = {"searching", "downloading", "validating", "importing"}
@@ -92,7 +93,7 @@ def main():
     assert live["Config"]["Labels"]["net.unraid.docker.managed"] == "dockerman"
     assert (
         live["HostConfig"]["ReadonlyRootfs"]
-        and live["HostConfig"]["Memory"] == 1073741824
+        and live["HostConfig"]["Memory"] in MEMORY_LIMITS
     )
     assert live["Config"]["User"] == "99:100"
     networks = live["NetworkSettings"]["Networks"]

@@ -41,6 +41,9 @@ import UIKit
   var songCount = 0
   var albumCount = 0
   var artistCount = 0
+  /// Album category shown in Library ("album", "musical", "soundtrack", "compilation").
+  var albumCategory = "album"
+  var albumCategoryCounts: [String: Int] = [:]
   var loadingMore = false
   @ObservationIgnored private var flushingHistory = false
   let player = PlayerController()
@@ -385,19 +388,20 @@ import UIKit
     guard let store else { return }
     let stamp = generation
     let tracks = try await store.tracks(sort: songSort)
-    let albums = try await store.albums(sort: albumSort)
+    let albums = try await store.albums(category: albumCategory, sort: albumSort)
     let artists = try await store.artists(sort: artistSort)
     let playlists = try await store.playlists()
     let count = try await store.count(.tracks)
-    let albumCount = try await store.count(.albums)
-    let artistCount = try await store.count(.artists)
+    let categoryCounts = try await store.albumCategoryCounts()
+    let artistCount = try await store.ownArtistCount()
     guard generation == stamp else { return }
     songs = tracks
     self.albums = albums
     self.artists = artists
     self.playlists = playlists
     songCount = count
-    self.albumCount = albumCount
+    albumCategoryCounts = categoryCounts
+    albumCount = categoryCounts[albumCategory] ?? 0
     self.artistCount = artistCount
     artistCovers = [:]
     artworkRefresh += 1
@@ -636,6 +640,44 @@ import UIKit
     }
     do { try await loadCache() } catch { message = error.localizedDescription }
   }
+  /// Where a song's file is on this side of the server: iPhone and Apple Watch.
+  func deviceCopies(_ trackId: String) -> (phone: DeviceCopyMark?, watch: DeviceCopyMark?) {
+    let phone = downloads?.records.first { $0.id == trackId }.map {
+      $0.state == "ready" ? DeviceCopyMark.ready : $0.state == "failed" ? .failed : .pending
+    }
+    var watchMark: DeviceCopyMark?
+    if let record = watch?.downloads?.records.first(where: { $0.id == trackId }) {
+      let onWatch =
+        record.checksum != nil && watch?.receipt?.ready[trackId] == record.checksum
+      watchMark = onWatch ? .ready : record.state == "failed" ? .failed : .pending
+    } else if watch?.receipt?.ready[trackId] != nil {
+      watchMark = .ready
+    }
+    return (phone, watchMark)
+  }
+  func phoneProgress(_ trackId: String) -> Double {
+    guard let record = downloads?.records.first(where: { $0.id == trackId }), record.total > 0
+    else { return 0 }
+    return min(1, Double(record.bytes) / Double(record.total))
+  }
+  /// Songs still on their way to this iPhone or Apple Watch, for the Downloads badge.
+  var pendingDownloadCount: Int {
+    let phone = downloads?.records.count { $0.state == "queued" || $0.state == "downloading" } ?? 0
+    let receipt = watch?.receipt
+    let watchCount =
+      watch?.downloads?.records.count {
+        $0.state != "failed" && ($0.checksum == nil || receipt?.ready[$0.id] != $0.checksum)
+      } ?? 0
+    return phone + watchCount
+  }
+  func showAlbums(category: String) async {
+    guard category != albumCategory else { return }
+    albumCategory = category
+    albums = []
+    albumCount = albumCategoryCounts[category] ?? 0
+    guard !syncing else { return }  // The sync's own reload uses the new category.
+    do { try await loadCache() } catch { message = error.localizedDescription }
+  }
   func more(_ collection: LibraryCollection) async {
     guard let store, !loadingMore, !syncing else { return }
     let stamp = generation
@@ -648,7 +690,8 @@ import UIKit
         guard generation == stamp else { return }
         songs += next
       case .albums:
-        let next = try await store.albums(offset: albums.count, sort: albumSort)
+        let next = try await store.albums(
+          category: albumCategory, offset: albums.count, sort: albumSort)
         guard generation == stamp else { return }
         albums += next
       case .artists:
@@ -813,6 +856,8 @@ import UIKit
     songCount = 0
     albumCount = 0
     artistCount = 0
+    albumCategory = "album"
+    albumCategoryCounts = [:]
     syncing = false
     loadingMore = false
     defaults.removeObject(forKey: "pig.connection")
@@ -886,3 +931,5 @@ import UIKit
     }
   #endif
 }
+
+enum DeviceCopyMark { case pending, ready, failed }
