@@ -248,9 +248,21 @@ private struct AccountAvatar: View {
   }
 }
 
+/// Pages show where you are in their own content, so the navigation bar never
+/// draws a background, a scroll-edge blur or a collapsed title; only the back
+/// button and toolbar buttons float over the page.
 private struct PigCanvas: ViewModifier {
   func body(content: Content) -> some View {
-    content.pigBrandedCanvas()
+    let page = content.pigBrandedCanvas()
+      .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+      .toolbar {
+        ToolbarItem(placement: .principal) { Color.clear.frame(width: 1, height: 1) }
+      }
+    if #available(iOS 26.0, *) {
+      page.scrollEdgeEffectHidden(true, for: .top)
+    } else {
+      page
+    }
   }
 }
 extension View {

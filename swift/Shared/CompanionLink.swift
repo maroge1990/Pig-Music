@@ -55,10 +55,17 @@ import WatchConnectivity
   func request(_ data: Data) async throws -> Data {
     guard let session, session.isReachable else { throw CompanionFailure.stale }
     return try await withCheckedThrowingContinuation { continuation in
-      session.sendMessageData(
-        data, replyHandler: { continuation.resume(returning: $0) },
-        errorHandler: { continuation.resume(throwing: $0) })
+      Self.send(data, over: session, to: continuation)
     }
+  }
+  /// WatchConnectivity replies on its own queue, so the handlers must not
+  /// inherit main-actor isolation (Swift traps when they run off main).
+  private nonisolated static func send(
+    _ data: Data, over session: WCSession, to continuation: CheckedContinuation<Data, any Error>
+  ) {
+    session.sendMessageData(
+      data, replyHandler: { continuation.resume(returning: $0) },
+      errorHandler: { continuation.resume(throwing: $0) })
   }
   func finishBackgroundDelivery() async {
     let deadline = ContinuousClock.now + .seconds(20)

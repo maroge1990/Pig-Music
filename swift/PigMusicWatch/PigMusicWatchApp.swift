@@ -53,7 +53,6 @@ private struct WatchLibraryView: View {
             WatchSongs(model: model, ids: collection.songIds, title: collection.name)
           }
         }
-        NavigationLink("Get music from phone") { WatchPhoneLibrary(model: model) }
         NavigationLink("Phone remote") {
           List {
             Button("Previous", systemImage: "backward.end.fill") {
@@ -208,35 +207,5 @@ private struct WatchNowPlaying: View {
     guard seconds.isFinite, seconds > 0 else { return "0:00" }
     let value = Int(seconds)
     return String(format: "%d:%02d", value / 60, value % 60)
-  }
-}
-private struct WatchPhoneLibrary: View {
-  @Bindable var model: WatchModel
-  @State private var query = ""
-  var body: some View {
-    List {
-      TextField("Search phone library", text: $query).onSubmit {
-        Task { await model.search(query) }
-      }
-      Button("Search") { Task { await model.search(query) } }.disabled(model.loading)
-      if model.loading { ProgressView() }
-      ForEach(model.searchResults) { track in
-        Button {
-          Task { await model.send("download", songIds: [track.id]) }
-        } label: {
-          VStack(alignment: .leading) {
-            Text(track.title)
-            Text(track.artist).font(.caption).foregroundStyle(.secondary)
-            Label("Download to Watch", systemImage: "arrow.down.circle").font(.caption)
-          }
-        }
-      }
-      if !model.searchResults.isEmpty, model.searchResults.count % 50 == 0 {
-        Button("More songs") {
-          Task { await model.search(query, offset: model.searchResults.count) }
-        }
-      }
-      if let message = model.message { Text(message).font(.footnote) }
-    }.pigBrandedCanvas().navigationTitle("Phone library").task { await model.search("") }
   }
 }

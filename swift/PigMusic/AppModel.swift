@@ -34,6 +34,8 @@ import UIKit
   var homeLoading: Set<HomeSection> = []
   var searchSession: SearchSession?
   var actionTrack: Track?
+  /// Music requests the server is still getting, from the requests page summary.
+  var serverActiveRequests = 0
   var pendingEdits: [PendingMutation] = []
   @ObservationIgnored private var flushingEdits = false
   var mutationActive = false
@@ -373,6 +375,7 @@ import UIKit
       }
       try await watch?.reconcile()
       await flushHistory()
+      await refreshServerRequests()
       guard generation == stamp else { return }
       message =
         invalid ? "Playback stopped because the server changed or removed cached music." : nil
@@ -660,15 +663,24 @@ import UIKit
     else { return 0 }
     return min(1, Double(record.bytes) / Double(record.total))
   }
-  /// Songs still on their way to this iPhone or Apple Watch, for the Downloads badge.
-  var pendingDownloadCount: Int {
-    let phone = downloads?.records.count { $0.state == "queued" || $0.state == "downloading" } ?? 0
+  /// Active means requested and not yet finished (queued or downloading), so
+  /// sending a 10-song album shows 10 and counts down to 0.
+  var phoneActiveDownloads: Int {
+    downloads?.records.count { $0.state != "ready" && $0.state != "failed" } ?? 0
+  }
+  var watchActiveDownloads: Int {
     let receipt = watch?.receipt
-    let watchCount =
-      watch?.downloads?.records.count {
-        $0.state != "failed" && ($0.checksum == nil || receipt?.ready[$0.id] != $0.checksum)
-      } ?? 0
-    return phone + watchCount
+    return watch?.downloads?.records.count {
+      $0.state != "failed" && ($0.checksum == nil || receipt?.ready[$0.id] != $0.checksum)
+    } ?? 0
+  }
+  /// The Downloads tab badge: the three sections' active counts combined.
+  var pendingDownloadCount: Int {
+    serverActiveRequests + phoneActiveDownloads + watchActiveDownloads
+  }
+  func refreshServerRequests() async {
+    guard let page = try? await readCatalogue({ try await $0.requests(limit: 1) }) else { return }
+    serverActiveRequests = page.active
   }
   func showAlbums(category: String) async {
     guard category != albumCategory else { return }

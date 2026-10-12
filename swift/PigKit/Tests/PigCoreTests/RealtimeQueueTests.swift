@@ -300,6 +300,22 @@ private func queueRoot() throws -> URL {
     await session.stopAndWait()
     #expect(await sources.active.isEmpty)
   }
+  @Test @MainActor func liveLookaheadStartsSmallThenBuildsCushion() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(files: ["a": try queueFixture(root, id: "a", value: 0.2)])
+    let output = SilentQueueOutput()
+    let session = try RealtimeQueueSession(output: output, lookaheadSeconds: 0.5)
+    session.replace(
+      [queueTrack("a")], acquire: { try await sources.get($0) },
+      release: { await sources.release($0) })
+    try await waitQueue { session.snapshot.state == .playing }
+    // Nothing has played yet, so the session keeps filling to half a second.
+    try await waitQueue { session.peakScheduledFrames >= 24000 }
+    #expect(session.peakScheduledFrames <= 24000 + 2048)
+    await session.stopAndWait()
+    #expect(await sources.active.isEmpty)
+  }
   @Test @MainActor func queueReplacementCancelsPendingSourcesAndIgnoresOldCallbacks() async throws {
     let root = try queueRoot()
     defer { try? FileManager.default.removeItem(at: root) }

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import PigBrand
 import PigCompanion
 import PigDomain
 import PigDownloads
@@ -350,12 +351,6 @@ import SwiftUI
         try await store.recordListen(event)
         await model.flushHistory()
         return CompanionReply(listenId: event.id, account: command.account)
-      case "browse":
-        guard command.offset >= 0, command.offset <= 50000, (command.query?.count ?? 0) <= 200
-        else { return CompanionReply(message: "Invalid search.") }
-        return CompanionReply(
-          songs: try await store.tracks(
-            query: command.query ?? "", offset: command.offset, limit: 50))
       case "download":
         guard command.songIds.count <= 100 else {
           return CompanionReply(message: "Choose up to 100 songs at a time.")
@@ -388,70 +383,60 @@ import SwiftUI
   }
 }
 
+/// Songs sent to Apple Watch. Music is chosen from album, artist and song
+/// pages; this is just the list, with transfer status kept at the bottom.
 struct WatchDownloadsView: View {
   let model: AppModel
-  @State private var query = ""
-  @State private var songs: [Track] = []
   var body: some View {
     List {
       if let watch = model.watch {
-        Section("Apple Watch") {
+        let records = watch.downloads?.records ?? []
+        if records.isEmpty {
+          Text("Nothing sent yet. Use Send to Apple Watch on an album, artist or song.")
+            .foregroundStyle(.secondary)
+        }
+        ForEach(records) { record in
+          VStack(alignment: .leading) {
+            Text(record.track.title)
+            Text("\(record.track.artist) · \(status(record, watch: watch))").font(PigType.caption)
+            if let error = record.error { Text(error).font(PigType.footnote) }
+            if record.state == "failed" {
+              Button("Retry") { Task { await watch.enqueue([record.track]) } }
+            }
+            Button("Remove from Watch", role: .destructive) {
+              Task { await watch.remove(record.id) }
+            }
+          }
+        }
+        Section("Transfers") {
           Text(
-            watch.link?.available == true
-              ? "Watch app paired" : "Install Pig Music on your paired Watch")
-          Text(watch.link?.reachable == true ? "Watch reachable" : "Transfers wait for the Watch")
+            watch.link?.available != true
+              ? "Install Pig Music on your paired Watch"
+              : watch.link?.reachable == true ? "Watch reachable" : "Transfers wait for the Watch")
           if let receipt = watch.receipt {
             Text(
               "\(receipt.ready.count) songs on Watch · \(ByteCountFormatter.string(fromByteCount: receipt.usedBytes, countStyle: .file))"
             )
           }
-          Text(
-            "AAC music is stored on your Watch for independent playback. Keep the phone app open while preparing AAC copies; Watch transfers are scheduled by the system."
-          ).font(.footnote)
-          Button("Sync / retry Watch transfers") { Task { await watch.publish(force: true) } }
+          Button("Retry Watch transfers") { Task { await watch.publish(force: true) } }
           if let error = watch.message ?? watch.link?.error {
             Text(error).foregroundStyle(Color("PigDanger"))
           }
-        }
-        Section("Choose songs") {
-          ForEach(songs) { track in
-            Button {
-              Task { await watch.enqueue([track]) }
-            } label: {
-              VStack(alignment: .leading) {
-                Text(track.title)
-                Text(track.artist).font(.caption)
-              }
-            }
-          }
-          if songs.count == 50 { Text("Refine search to find more songs.").font(.footnote) }
-        }
-        Section("Watch downloads") {
           Text(
-            "AAC copies also use storage on this iPhone while selected for Watch. Removing a Watch download clears its phone copy."
-          ).font(.footnote)
-          ForEach(watch.downloads?.records ?? []) { record in
-            VStack(alignment: .leading) {
-              Text(record.track.title)
-              Text(
-                watch.receipt?.ready[record.id] == record.checksum && record.checksum != nil
-                  ? "On Watch"
-                  : record.state == "ready" ? "Waiting for Watch transfer" : "AAC: \(record.state)"
-              ).font(.caption)
-              if let error = record.error { Text(error).font(.footnote) }
-              if record.state == "failed" {
-                Button("Retry") { Task { await watch.enqueue([record.track]) } }
-              }
-              Button("Remove from Watch", role: .destructive) {
-                Task { await watch.remove(record.id) }
-              }
-            }
-          }
+            "AAC copies also use storage on this iPhone while on the Watch. Transfers are scheduled by the system."
+          ).font(PigType.footnote)
         }
       }
-    }.pigCanvas().navigationTitle("Apple Watch").searchable(
-      text: $query, prompt: "Find songs to send"
-    )
-    .task(id: query) { songs = (try? await model.store?.tracks(query: query, limit: 50)) ?? [] }
+    }.pigCanvas().navigationTitle("Apple Watch")
+  }
+  private func status(_ record: DownloadRecord, watch: WatchPhoneController) -> String {
+    if record.checksum != nil, watch.receipt?.ready[record.id] == record.checksum {
+      return "On Watch"
+    }
+    return switch record.state {
+    case "ready": "Waiting for Watch"
+    case "failed": "Failed"
+    default: "Preparing"
+    }
   }
 }

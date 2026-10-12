@@ -292,9 +292,9 @@ public actor NativeService: LibrarySource {
         "The request could not be confirmed. Refresh Requests before trying again.")
     }
   }
-  public func requests(offset: Int = 0) async throws -> AcquisitionPage {
+  public func requests(offset: Int = 0, limit: Int = 200) async throws -> AcquisitionPage {
     switch try await client.requests_api_v1_requests_get(
-      .init(query: .init(offset: offset, limit: 200)))
+      .init(query: .init(offset: offset, limit: limit)))
     {
     case .ok(let response): return try LibraryCodec.convert(response.body.json)
     case .unauthorized: throw NativeFailure.authentication

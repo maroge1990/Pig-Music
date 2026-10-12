@@ -226,6 +226,7 @@ struct RequestsView: View {
       }
       next = page.nextOffset
       enabled = page.downloadsEnabled
+      model.serverActiveRequests = page.active
       loaded = true
     } catch is CancellationError {} catch { self.error = error.localizedDescription }
   }

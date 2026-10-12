@@ -121,6 +121,7 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
   private let output: any QueueAudioOutput
   private let rate: Double
   private let blockFrames: Int
+  private let lookaheadFrames: Int
   private var items: [PlaybackOccurrence] = []
   private var acquire: QueuePCMStream.Acquire?
   private var release: QueuePCMStream.Release?
@@ -135,16 +136,23 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
   private var clock: Task<Void, Never>?
   private var sourceWaiting = false
 
-  public init(output: any QueueAudioOutput, sampleRate: Double = 48000, blockFrames: Int = 2048)
-    throws
-  {
-    guard [44100.0, 48000.0, 96000.0].contains(sampleRate), (256...8192).contains(blockFrames)
+  /// `lookaheadSeconds` is how much decoded audio stays scheduled ahead of the
+  /// speaker. The pump runs on the main actor, so live output needs enough to
+  /// ride out UI work (scene changes, large list updates) without starving;
+  /// nil keeps the minimal three-block bound used by tests.
+  public init(
+    output: any QueueAudioOutput, sampleRate: Double = 48000, blockFrames: Int = 2048,
+    lookaheadSeconds: Double? = nil
+  ) throws {
+    guard [44100.0, 48000.0, 96000.0].contains(sampleRate), (256...8192).contains(blockFrames),
+      (lookaheadSeconds ?? 0) >= 0, (lookaheadSeconds ?? 0) <= 10
     else {
       throw AudioPipelineFailure.invalidConfiguration
     }
     self.output = output
     rate = sampleRate
     self.blockFrames = blockFrames
+    lookaheadFrames = max(blockFrames * 3, Int((lookaheadSeconds ?? 0) * sampleRate))
   }
 
   public func replace(
@@ -300,7 +308,9 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
         while !exhausted || pendingFrames > 0 {
           try Task.checkCancellation()
           guard generation == stamp else { throw CancellationError() }
-          while !exhausted && pendingFrames <= Int64(blockFrames * 3) {
+          // Start after a few blocks, then build the full cushion while playing.
+          let target = ready ? lookaheadFrames : blockFrames * 3
+          while !exhausted && pendingFrames <= Int64(target) {
             let decoded: QueuePCMBlock?
             sourceWaiting = true
             do { decoded = try await current.next() } catch {

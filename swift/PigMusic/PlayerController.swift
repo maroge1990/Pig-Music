@@ -236,7 +236,7 @@ import PigPlayback
     if engine == nil {
       let output = EngineQueueOutput()
       engineOutput = output
-      let session = try RealtimeQueueSession(output: output)
+      let session = try RealtimeQueueSession(output: output, lookaheadSeconds: 3)
       session.onUpdate = { [weak self] snapshot in self?.accept(snapshot) }
       engine = session
     }
@@ -437,7 +437,11 @@ import PigPlayback
     let stamp = generation
     routeRecovery = Task {
       do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
-      guard generation == stamp, usingEngine, !intent.interrupted else { return }
+      // Most route notifications (category changes, wake, new output on the
+      // same format) leave the engine running; rebuilding then is an audible skip.
+      guard generation == stamp, usingEngine, !intent.interrupted,
+        engineOutput?.requiresRecovery == true
+      else { return }
       do {
         if intent.canPlay { try activate() }
         engine?.recoverOutput()

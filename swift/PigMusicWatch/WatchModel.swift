@@ -12,8 +12,6 @@ import PigPlayback
   var receipt: CompanionReceipt?
   var link: CompanionLink?
   var message: String?
-  var searchResults: [Track] = []
-  var loading = false
   var queue: [PlaybackOccurrence] = []
   var playback = QueuePlaybackSnapshot()
   var repeatMode: PlaybackRepeat =
@@ -160,7 +158,8 @@ import PigPlayback
       let output = EngineQueueOutput()
       self.output = output
       output.volume = Float(volume)
-      let engine = try RealtimeQueueSession(output: output, sampleRate: 44100, blockFrames: 2048)
+      let engine = try RealtimeQueueSession(
+        output: output, sampleRate: 44100, blockFrames: 2048, lookaheadSeconds: 3)
       self.engine = engine
       engine.onUpdate = { [weak self] snapshot in
         self?.measureListen(snapshot)
@@ -359,21 +358,6 @@ import PigPlayback
       try await archive?.setBudget(Int64(gigabytes) * 1024 * 1024 * 1024)
       await reload()
       await acknowledge()
-    } catch { message = error.localizedDescription }
-  }
-  func search(_ query: String, offset: Int = 0) async {
-    guard !loading, let link, link.reachable else {
-      message = "Open Pig Music on your phone to browse its library."
-      return
-    }
-    loading = true
-    defer { loading = false }
-    do {
-      let data = try JSONEncoder().encode(
-        CompanionCommand("browse", account: manifest.context.account, query: query, offset: offset))
-      let reply = try JSONDecoder().decode(CompanionReply.self, from: await link.request(data))
-      if offset == 0 { searchResults = reply.songs } else { searchResults += reply.songs }
-      message = reply.message
     } catch { message = error.localizedDescription }
   }
   func stop() async {
