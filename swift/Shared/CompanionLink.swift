@@ -46,8 +46,21 @@ import WatchConnectivity
     guard let session, session.activationState == .activated else { return }
     session.transferFile(file, metadata: ["envelope": metadata])
   }
+  /// Queued transfers survive relaunches with their original file URLs. After
+  /// an app update moves the data container (or a file is replaced) they can
+  /// never succeed, and would block the song from being sent again, so they
+  /// are cancelled and left for the next publish to resend.
   var outstanding: [Data] {
-    session?.outstandingFileTransfers.compactMap { $0.file.metadata?["envelope"] as? Data } ?? []
+    guard let session else { return [] }
+    var live: [Data] = []
+    for transfer in session.outstandingFileTransfers {
+      if FileManager.default.isReadableFile(atPath: transfer.file.fileURL.path) {
+        if let data = transfer.file.metadata?["envelope"] as? Data { live.append(data) }
+      } else {
+        transfer.cancel()
+      }
+    }
+    return live
   }
   func cancelTransfers() {
     for transfer in session?.outstandingFileTransfers ?? [] { transfer.cancel() }
