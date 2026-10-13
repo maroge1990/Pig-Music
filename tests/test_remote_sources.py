@@ -113,3 +113,33 @@ def test_remote_falls_back_in_order_to_a_relayed_lossy_source(tmp_path, monkeypa
     # The fetched file is reused for the same recording.
     assert asyncio.run(run())["source"] == "freemp3cloud"
     assert searched == ["zvu4no", "freemp3cloud"]
+
+
+def test_relay_cache_survives_restarts_expires_and_keeps_recent_plays(
+    tmp_path, monkeypatch
+):
+    import os
+    import time
+    from server import remote
+
+    target = {"artist": "Artist", "title": "Song", "album": "Album", "duration": 3}
+    directory = tmp_path / "relay"
+    directory.mkdir()
+    resolver = RemoteAudio(directory=directory)
+    path = directory / f"{resolver.name(target)}.zvu4no.mp3"
+    path.write_bytes(b"x" * 10)
+    # A new resolver (a restarted server) finds the copy by recording.
+    assert RemoteAudio(directory=directory).cached(target) == (path, "zvu4no")
+    old = time.time() - remote.RELAY_SECONDS - 60
+    os.utime(path, (old, old))
+    assert resolver.cached(target) is None
+    resolver.prune()
+    assert not path.exists()
+    # Over budget, the least recently played copy goes first.
+    monkeypatch.setattr(remote, "RELAY_BYTES", 15)
+    for name, age in (("a", 300), ("b", 200), ("c", 100)):
+        stale = directory / f"{name * 32}.youtube.m4a"
+        stale.write_bytes(b"x" * 10)
+        os.utime(stale, (time.time() - age, time.time() - age))
+    resolver.prune()
+    assert sorted(p.name[0] for p in directory.iterdir()) == ["c"]

@@ -1,6 +1,9 @@
 """Optional remote listening; matching never removes version descriptions."""
 
 import asyncio
+import hashlib
+import json
+import os
 import secrets
 import time
 from pathlib import Path
@@ -22,8 +25,12 @@ LABELS = {
     "youtube": "YouTube",
 }
 MEDIA_TYPES = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".opus": "audio/ogg"}
-RELAY_SECONDS = 3600
-RELAY_BYTES = 500_000_000
+# Relayed songs stay for two weeks after they were last played, within 5 GB;
+# the least recently played go first. A relay link lasts as long as a signed
+# playback link.
+RELAY_SECONDS = 14 * 86400
+RELAY_BYTES = 5_000_000_000
+TOKEN_SECONDS = 6 * 3600
 
 
 class RemoteAudio:
@@ -39,7 +46,6 @@ class RemoteAudio:
         self.runtime = runtime
         self.relay_search = relay_search
         self.relayed = {}
-        self.fetched = {}
 
     @staticmethod
     def key(track):
@@ -63,24 +69,44 @@ class RemoteAudio:
             failure = exc
         if self.directory is None:
             raise failure
-        key = self.key(track)
-        found = self.fetched.get(key)
-        if not found or found[0] <= time.monotonic() or not found[1].is_file():
-            found = None
+        found = await asyncio.to_thread(self.cached, track)
+        if not found:
             async with self.slots:
-                for source in RELAYED:
+                found = await asyncio.to_thread(self.cached, track)
+                for source in () if found else RELAYED:
                     try:
                         path = await asyncio.to_thread(self.fetch, source, track)
                     except Exception:  # One broken source must not stop the next.
                         continue
-                    found = (time.monotonic() + RELAY_SECONDS, path, source)
-                    self.fetched[key] = found
+                    found = (path, source)
                     break
         if not found:
             raise failure
         token = secrets.token_urlsafe(24)
-        self.relayed[token] = (found[0], found[1], user_id)
-        return {"relay": token, "source": found[2]}
+        self.relayed[token] = (time.monotonic() + TOKEN_SECONDS, found[0], user_id)
+        return {"relay": token, "source": found[1]}
+
+    def name(self, track):
+        return hashlib.sha256(json.dumps(self.key(track)).encode()).hexdigest()[:32]
+
+    def cached(self, track):
+        """A relayed copy of this recording that has not expired, marked as
+        just played so the cache keeps what people listen to."""
+        if not self.directory or not self.directory.is_dir():
+            return None
+        for path in self.directory.glob(self.name(track) + ".*"):
+            parts = path.name.split(".")
+            if (
+                len(parts) != 3
+                or parts[1] not in RELAYED
+                or path.suffix not in MEDIA_TYPES
+            ):
+                continue
+            if time.time() - path.stat().st_mtime > RELAY_SECONDS:
+                continue
+            os.utime(path)
+            return path, parts[1]
+        return None
 
     def relay(self, token, user_id):
         """The cached file behind a token, only for the person it was made for."""
@@ -130,7 +156,9 @@ class RemoteAudio:
         extension = REGISTRY[source].extension(candidate)
         self.prune()
         self.directory.mkdir(parents=True, exist_ok=True)
-        path = self.directory / (secrets.token_hex(16) + extension)
+        # Fetched under a private name, then published under the recording's.
+        path = self.directory / ("." + secrets.token_hex(16) + extension)
+        final = self.directory / f"{self.name(track)}.{source}{extension}"
         try:
             if REGISTRY[source].adapter:
                 self.runtime.transfer(source, candidate, path, context)
@@ -145,28 +173,36 @@ class RemoteAudio:
             expected = float(track.get("duration") or 0)
             if not probe or (expected and abs(probe["duration"] - expected) > 5):
                 raise ValueError("The remote file was not the expected recording.")
+            path.replace(final)
         except Exception:
             path.unlink(missing_ok=True)
             raise
-        return path
+        return final
 
     def prune(self):
-        """Keep the relay cache under an hour old and within its size budget."""
+        """Drop expired and unfinished copies, then the least recently played
+        until the cache fits its budget."""
         if not self.directory or not self.directory.is_dir():
             return
         now = time.time()
-        files = sorted(
-            (p for p in self.directory.iterdir() if p.is_file()),
-            key=lambda p: p.stat().st_mtime,
-        )
-        total = sum(p.stat().st_size for p in files)
-        for path in files:
-            if now - path.stat().st_mtime > RELAY_SECONDS or total > RELAY_BYTES:
-                total -= path.stat().st_size
+        files = []
+        for path in self.directory.iterdir():
+            if not path.is_file():
+                continue
+            stat = path.stat()
+            unfinished = path.name.startswith(".") and now - stat.st_mtime > 3600
+            if unfinished or now - stat.st_mtime > RELAY_SECONDS:
                 path.unlink(missing_ok=True)
+            elif not path.name.startswith("."):
+                files.append((stat.st_mtime, stat.st_size, path))
+        total = sum(size for _, size, _ in files)
+        for _, size, path in sorted(files):
+            if total <= RELAY_BYTES:
+                break
+            path.unlink(missing_ok=True)
+            total -= size
         live = time.monotonic()
         self.relayed = {k: v for k, v in self.relayed.items() if v[0] > live}
-        self.fetched = {k: v for k, v in self.fetched.items() if v[0] > live}
 
     async def resolve(self, client, track):
         key = self.key(track)
