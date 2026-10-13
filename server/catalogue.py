@@ -69,6 +69,9 @@ def still_fresh(age, lifetime, margin=RENEW):
 
 
 class Catalogue:
+    # MusicBrainz allows one request per second per client.
+    min_interval = 1.05
+
     def __init__(self, store):
         self.store = store
         self.lock = asyncio.Lock()
@@ -90,7 +93,9 @@ class Catalogue:
                 cached = self.store.read_document(key)
                 if cached and still_fresh(time.time() - cached["time"], 86400):
                     return cached["data"]
-                delay = max(0, 1.05 - (time.monotonic() - self.last_request))
+                delay = max(
+                    0, self.min_interval - (time.monotonic() - self.last_request)
+                )
                 if delay:
                     await asyncio.sleep(delay)
                 self.last_request = time.monotonic()

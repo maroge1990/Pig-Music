@@ -15,6 +15,9 @@ def margin():
 
 
 class Popularity:
+    # ListenBrainz rate limit: space requests at least a second apart.
+    min_interval = 1.05
+
     def __init__(self, store, catalogue=None):
         self.store = store
         self.catalogue = catalogue
@@ -53,7 +56,11 @@ class Popularity:
                     try:
                         async with self.lock:
                             await asyncio.sleep(
-                                max(0, 1.05 - (time.monotonic() - self.last_request))
+                                max(
+                                    0,
+                                    self.min_interval
+                                    - (time.monotonic() - self.last_request),
+                                )
                             )
                             self.last_request = time.monotonic()
                         async with client.stream(
