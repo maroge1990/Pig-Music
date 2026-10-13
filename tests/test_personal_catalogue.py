@@ -25,7 +25,8 @@ def test_member_catalogue_is_scoped_and_contract_published(tmp_path, monkeypatch
 
     async def provider(self, client, path, **params):
         calls.append(path)
-        return fixture_release()
+        credited = {"name": "Example", "artist": {"id": ARTIST, "name": "Example"}}
+        return {**fixture_release(), "artist-credit": [credited]}
 
     monkeypatch.setattr(Catalogue, "get", provider)
     app = create_app(tmp_path)
@@ -39,6 +40,7 @@ def test_member_catalogue_is_scoped_and_contract_published(tmp_path, monkeypatch
         assert response.status_code == 200, response.text
         assert response.json()["tracks"][0]["server_state"] == "household_available"
         assert response.json()["tracks"][0]["saved_track"] is None
+        assert response.json()["artist_id"] == ARTIST
         shared = response.json()["tracks"][0]["household_track"]
         assert shared["id"] == "physical-file-id"
         assert shared["server_state"] == "household_available"

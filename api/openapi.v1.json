@@ -935,6 +935,11 @@
             "title": "Artist",
             "type": "string"
           },
+          "artist_id": {
+            "default": "",
+            "title": "Artist Id",
+            "type": "string"
+          },
           "id": {
             "title": "Id",
             "type": "string"

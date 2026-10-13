@@ -156,6 +156,9 @@ struct DetailHeader: View {
   let title: String
   var subtitle: String?
   var circle = false
+  /// An artist name shown above the subtitle that opens that artist's page.
+  var artist: String?
+  var openArtist: (() -> Void)?
   @Environment(\.colorScheme) private var scheme
   var body: some View {
     HStack(alignment: .center, spacing: 16) {
@@ -166,14 +169,24 @@ struct DetailHeader: View {
         Text(eyebrow).font(.caption.weight(.bold)).tracking(1.2)
           .foregroundStyle(PigBrand.textAccent(scheme))
         Text(title).font(.title2.weight(.bold)).lineLimit(3)
+          .accessibilityAddTraits(.isHeader)
+        if let artist, !artist.isEmpty {
+          if let openArtist {
+            Button(action: openArtist) {
+              Text(artist).font(PigType.subhead.weight(.semibold)).lineLimit(2)
+                .foregroundStyle(PigBrand.textAccent(scheme)).multilineTextAlignment(.leading)
+            }.buttonStyle(.plain).accessibilityHint("Opens the artist")
+          } else {
+            Text(artist).font(PigType.subhead).foregroundStyle(.secondary).lineLimit(2)
+          }
+        }
         if let subtitle, !subtitle.isEmpty {
           Text(subtitle).font(PigType.subhead).foregroundStyle(.secondary).lineLimit(2)
         }
       }
       Spacer(minLength: 0)
     }
-    .accessibilityElement(children: .combine)
-    .accessibilityAddTraits(.isHeader)
+    .accessibilityElement(children: openArtist == nil ? .combine : .contain)
   }
 }
 

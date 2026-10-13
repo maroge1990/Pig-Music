@@ -52,7 +52,7 @@ private struct SearchResultsView: View {
             empty: session.tracks.isEmpty && session.albums.isEmpty && session.artists.isEmpty)
           ForEach(session.artists) { artist in
             NavigationLink {
-              SavedArtistView(model: model, artist: artist)
+              SearchArtistView(model: model, artist: artist)
             } label: {
               HStack(spacing: 12) {
                 SavedArtistThumb(model: model, artist: artist)
@@ -171,17 +171,7 @@ struct SavedArtistView: View {
             Label("Shuffle", systemImage: "shuffle").font(.subheadline.weight(.semibold))
               .padding(.horizontal, 6)
           }.pigPrimaryAction().buttonBorderShape(.capsule).disabled(albums.isEmpty)
-          Button {
-            Task { await explore() }
-          } label: {
-            Text("Discography").font(.subheadline.weight(.semibold))
-          }
-          .buttonStyle(ChipStyle(selected: false))
-          .accessibilityLabel("Find more by \(artist.name)")
           Spacer()
-        }
-        if let identityMessage {
-          Text(identityMessage).font(PigType.footnote).foregroundStyle(.secondary)
         }
         LazyVGrid(columns: cardColumns, spacing: 18) {
           ForEach(albums) { album in
@@ -199,6 +189,16 @@ struct SavedArtistView: View {
         if more && !albums.isEmpty {
           Button("Show more albums") { Task { await load() } }.disabled(loading)
             .buttonStyle(ChipStyle(selected: false)).frame(maxWidth: .infinity)
+        }
+        Button {
+          Task { await explore() }
+        } label: {
+          DiscographyLinkLabel()
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Full discography of \(artist.name)")
+        if let identityMessage {
+          Text(identityMessage).font(PigType.footnote).foregroundStyle(.secondary)
         }
         DetailSettings {
           InlineQualityPicker(model: model, scope: "artist", id: artist.id)
@@ -249,5 +249,43 @@ struct SavedArtistView: View {
       albums += found
       more = found.count == 100
     } catch is CancellationError {} catch { self.error = error.localizedDescription }
+  }
+}
+
+/// A library artist chosen in Search opens the full artist page, which links back
+/// to the library page. Without a known catalogue identity it opens the library page.
+struct SearchArtistView: View {
+  let model: AppModel
+  let artist: Artist
+  @State private var identity: ArtistIdentity?
+  @State private var unresolved = false
+  init(model: AppModel, artist: Artist) {
+    self.model = model
+    self.artist = artist
+    _identity = State(initialValue: model.peekCatalogue(key: "identity:" + artist.id))
+  }
+  var body: some View {
+    if let identity {
+      CatalogueArtistView(model: model, artistId: identity.id, name: identity.name)
+    } else if unresolved {
+      SavedArtistView(model: model, artist: artist)
+    } else {
+      ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).pigCanvas()
+        .navigationTitle(artist.name).navigationBarTitleDisplayMode(.inline)
+        .task {
+          if let found = await model.storedCatalogue(
+            key: "identity:" + artist.id, as: ArtistIdentity.self)
+          {
+            identity = found
+          }
+          do {
+            identity = try await model.cachedCatalogue(key: "identity:" + artist.id) {
+              try await $0.artistIdentity(id: artist.id)
+            }
+          } catch is CancellationError {} catch {
+            if identity == nil { unresolved = true }
+          }
+        }
+    }
   }
 }

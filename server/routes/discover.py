@@ -275,6 +275,16 @@ def discover_router(store, catalogue, popularity=None, warmer=None):
             "id": result["id"],
             "title": result["title"],
             "artist": credit(result.get("artist-credit", [])),
+            "artist_id": next(
+                (
+                    item["artist"]["id"]
+                    for item in result.get("artist-credit", [])
+                    if isinstance(item, dict)
+                    and isinstance(item.get("artist"), dict)
+                    and item["artist"].get("id")
+                ),
+                "",
+            ),
             "tracks": tracks,
         }
 

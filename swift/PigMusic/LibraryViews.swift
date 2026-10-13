@@ -207,12 +207,15 @@ struct AlbumView: View {
   @Bindable var model: AppModel
   let album: Album
   @State private var tracks: [Track] = []
+  @State private var artist: Artist?
+  @State private var showingArtist = false
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 14) {
         DetailHeader(
           model: model, source: album.artworkSource ?? tracks.first?.artworkSource,
-          eyebrow: "IN YOUR LIBRARY", title: album.title, subtitle: albumSubtitle)
+          eyebrow: "IN YOUR LIBRARY", title: album.title, subtitle: albumSubtitle,
+          artist: album.artist, openArtist: artist == nil ? nil : { showingArtist = true })
         HStack(spacing: 10) {
           PlayCapsule { model.play(tracks) }.disabled(tracks.isEmpty)
           RoundIcon(label: "Shuffle", systemImage: "shuffle") { model.play(tracks.shuffled()) }
@@ -234,12 +237,18 @@ struct AlbumView: View {
       }.padding(.horizontal).padding(.bottom, 24)
     }
     .pigCanvas().navigationTitle(album.title).navigationBarTitleDisplayMode(.inline)
-    .task(id: album.id) { tracks = await model.albumTracks(album) }
+    .navigationDestination(isPresented: $showingArtist) {
+      if let artist { SavedArtistView(model: model, artist: artist) }
+    }
+    .task(id: album.id) {
+      tracks = await model.albumTracks(album)
+      artist = await model.savedArtist(id: album.artistId, name: album.artist)
+    }
   }
   private var albumSubtitle: String {
     let count = tracks.isEmpty ? album.trackCount : tracks.count
     return [
-      album.artist, album.year?.text ?? tracks.first?.year?.text,
+      album.year?.text ?? tracks.first?.year?.text,
       count.map { "\($0) song\($0 == 1 ? "" : "s")" },
     ].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
   }

@@ -61,7 +61,7 @@ struct HomeView: View {
         Shelf(title: feed.artists.isEmpty ? heading : "Albums") {
           ForEach(feed.albums) { item in
             NavigationLink {
-              CatalogueEditionsView(model: model, groupId: item.id, title: item.name)
+              CatalogueAlbumView(model: model, groupId: item.id, title: item.name)
             } label: {
               CollectionCard(
                 model: model, source: .releaseGroup(item.id), title: item.name,

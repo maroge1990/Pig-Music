@@ -54,6 +54,7 @@ import UIKit
   @ObservationIgnored private var artworkCache: ArtworkCache?
   @ObservationIgnored private let artworkMemory = NSCache<NSString, UIImage>()
   @ObservationIgnored private var artistCovers: [String: String?] = [:]
+  @ObservationIgnored private var catalogueMemory: [String: any Sendable] = [:]
   @ObservationIgnored private(set) var service: NativeService?
   @ObservationIgnored private(set) var store: LibraryStore?
   @ObservationIgnored private var sync: SyncCoordinator?
@@ -556,6 +557,7 @@ import UIKit
     do {
       let result = try await readCatalogue(load)
       guard generation == stamp else { throw CancellationError() }
+      remember(result, key: key)
       try? await database?.cache(result, key: "catalogue:" + key)
       return result
     } catch NativeFailure.authentication {
@@ -565,6 +567,25 @@ import UIKit
       if let saved = try? await database?.cached("catalogue:" + key, as: T.self) { return saved }
       throw error
     }
+  }
+  /// The last catalogue answer for a key, so a revisited page draws at once.
+  /// Pages still refresh it through `cachedCatalogue`.
+  func peekCatalogue<T: Sendable>(key: String, as type: T.Type = T.self) -> T? {
+    catalogueMemory[key] as? T
+  }
+  /// The memory answer, else the one saved on this device from an earlier session.
+  func storedCatalogue<T: Codable & Sendable>(key: String, as type: T.Type = T.self) async -> T? {
+    if let value = peekCatalogue(key: key, as: T.self) { return value }
+    let stamp = generation
+    guard let saved = try? await store?.cached("catalogue:" + key, as: T.self),
+      generation == stamp
+    else { return nil }
+    remember(saved, key: key)
+    return saved
+  }
+  private func remember(_ value: any Sendable, key: String) {
+    if catalogueMemory.count > 400 { catalogueMemory.removeAll() }
+    catalogueMemory[key] = value
   }
   /// Artwork addressed by stored hash, or a server alias for catalogue items.
   enum ArtworkSource: Hashable, Sendable {
@@ -620,6 +641,12 @@ import UIKit
     } catch { return nil }
   }
   /// A saved artist shows their first album cover with artwork.
+  /// The library artist behind an album or catalogue page, by ID or else by exact name.
+  func savedArtist(id: String? = nil, name: String) async -> Artist? {
+    guard let store else { return nil }
+    if let id, let artist = try? await store.artist(id: id) { return artist }
+    return try? await store.artist(named: name)
+  }
   func artistCover(_ artist: Artist) async -> String? {
     if let cached = artistCovers[artist.id] { return cached }
     guard let store else { return nil }
@@ -858,6 +885,7 @@ import UIKit
     artworkNamespace = ""
     artworkMemory.removeAllObjects()
     artistCovers = [:]
+    catalogueMemory = [:]
     homeContent = [:]
     homeErrors = [:]
     homeLoading = []

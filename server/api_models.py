@@ -297,6 +297,8 @@ class CatalogueReleaseDTO(BaseModel):
     id: str
     title: str
     artist: str
+    # MusicBrainz ID of the first credited artist; empty when the credit has none.
+    artist_id: str = ""
     tracks: list[CatalogueTrackDTO]
 
 

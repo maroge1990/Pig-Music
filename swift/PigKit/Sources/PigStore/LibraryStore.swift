@@ -242,6 +242,17 @@ public actor LibraryStore {
   {
     try read(.artists, where: Self.ownArtist, offset: offset, limit: limit, sort: sort)
   }
+  /// One saved artist by ID.
+  public func artist(id: String) throws -> Artist? {
+    let found: [Artist] = try read(.artists, where: "id=?", arguments: [id], offset: 0, limit: 1)
+    return found.first
+  }
+  /// The saved artist with this exact name, ignoring case; nil when none or several match.
+  public func artist(named name: String) throws -> Artist? {
+    let found: [Artist] = try read(
+      .artists, where: "name=? COLLATE NOCASE", arguments: [name], offset: 0, limit: 2)
+    return found.count == 1 ? found[0] : nil
+  }
   public func albumCategoryCounts() throws -> [String: Int] {
     try database.read { db in
       let rows = try Row.fetchAll(

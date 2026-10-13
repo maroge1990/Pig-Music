@@ -215,7 +215,10 @@ public actor NativeService: LibrarySource {
         return CatalogueSong(
           id: item.id, track: track, availability: item.server_state?.rawValue ?? "not_in_library")
       }
-      return CatalogueRelease(id: value.id, title: value.title, artist: value.artist, songs: songs)
+      let artistId = value.artist_id ?? ""
+      return CatalogueRelease(
+        id: value.id, title: value.title, artist: value.artist,
+        artistId: artistId.isEmpty ? nil : artistId, songs: songs)
     case .unauthorized: throw NativeFailure.authentication
     default: throw NativeFailure.unavailable("This album is unavailable. Try again shortly.")
     }

@@ -40,11 +40,16 @@ public struct CatalogueRelease: Codable, Sendable {
   public let id: String
   public let title: String
   public let artist: String
+  /// The first credited artist's catalogue ID; nil for credits without one.
+  public let artistId: String?
   public let songs: [CatalogueSong]
-  public init(id: String, title: String, artist: String, songs: [CatalogueSong]) {
+  public init(
+    id: String, title: String, artist: String, artistId: String? = nil, songs: [CatalogueSong]
+  ) {
     self.id = id
     self.title = title
     self.artist = artist
+    self.artistId = artistId
     self.songs = songs
   }
 }
