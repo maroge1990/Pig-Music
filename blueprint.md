@@ -20,7 +20,7 @@ Pig Music is a private household music-library manager with one container, one i
 - Existing music can be scanned without modification. Naming/tagging changes need a concrete review, recoverable originals and hash/path guards. Never bulk-reorganise music as a side effect of a code migration.
 - Only multi-artist compilations are separated; a single artist's greatest hits stays with that artist. Soundtracks and musicals get their own sections. Empty section headings stay hidden.
 - Internet access uses one public HTTPS origin (`https://music.markrogers.au` via Cloudflare Tunnel), gated only by Pig Music accounts. Tailscale remains the owner's administration route. People join only by a one-use invite link or QR code, never an external allowlist. See [internet access](docs/internet-access.md). Secrets stay server-side and never enter Git, bundles, logs, browser responses or docs.
-- Fanart and ListenBrainz are optional. Without a key or token, their artist enhancements disappear quietly. Remote playback is experimental and provider-dependent; it never adds a file to the library.
+- Fanart and ListenBrainz are optional. Without a key or token, their artist enhancements disappear quietly. Remote playback is experimental and provider-dependent; it never adds a file to the library. Household files play for every member without being added.
 - The owner sees the member experience plus an Admin section, with admin options always at the bottom of shared views. Administration stays web-only.
 
 ## Current state (13 October 2026)
@@ -49,14 +49,21 @@ Order is deliberate. Add entries with a stable ID and a gate. Reorder here; don'
 | 3 | V01/N08 | Physical iPhone, iPad and Watch Ultra 3 acceptance | Unverified | Device journeys in [testing](docs/testing.md#native-device-acceptance); simulator results don't count |
 | 4 | SP | Real transfers for YouTube, SoundCloud and Monochrome from Unraid | Unverified | `scripts/verify_download_source.py` on an isolated output; codec playback on each Apple device |
 | 5 | SC1 | SoundCloud uploader identity | Owner decision | Official uploads lack a structured artist credit; accepting uploader names would admit fan uploads |
-| 6 | U01-4 / R17 | All client calls on `/api/v1`, owner APIs as `/api/v1/admin`; then retire legacy routes | Planned | Test rejecting unversioned client paths; needed before any native Admin |
-| 7 | R18 | Admin uses the shell's `/api/v1/events` stream | Planned | One visibility-aware fallback poll |
-| 8 | R19 | Playwright smoke tests (album cover, ambiguous artist, Home order, Admin status) at 1366/375 px, both themes | Planned | Runs in CI |
-| 9 | R12–R15 | Library vs catalogue artist pages, request-centred Downloads, type-ahead Search, identifiable device sessions | Planned | Assessment priority 3 |
-| 10 | RET | Prune old backups/containers listed by `deploy_release.py --retention 2` | Owner decision | The tool never deletes; keep `pre-first-run-20261007-v1` and legacy manager material |
-| 11 | P03 | Mac app; standalone Watch sign-in; CarPlay; cross-device queue handoff; advanced import matching | Future | After V01 |
-| 12 | S01/S02 | Shazam capture → song inbox; optional direct recognition | Future | Find a supported access route first |
-| 13 | R01 | Additional remote-playback sources | Experiment | Measure latency/ambiguity; the owner is happy to drop remote play if unreliable |
+| 6 | COV | Source coverage test: search-only, no downloads | Planned | One sample (household library, Apple AU chart, deep cuts, live and remaster editions); for each source record confident matches, wrong-version matches, latency and quality; run from Unraid. The results set the R01 and download order |
+| 7 | N14A | Native quick fixes: graphic-only request status, open the recommended edition (other editions at the bottom), Discography link at the bottom of both artist pages, album artist name opens the right artist page, Search artists open the full artist page (with a library link), artist page ready without visible loading, no flash at launch | Planned | Simulator journeys plus a device check of the launch flash |
+| 8 | N14B | Requested albums appear in full in the library, pending songs with status graphics | Planned | Membership migration fixtures and production-state comparison; backup before release |
+| 9 | N14C | Downloads: Clear finished (Server, iPhone, Watch); On this device grouped by album and playlist, with remove buttons | Planned | A song in both an album and a playlist shows in both; removing one group keeps the file while the other needs it |
+| 10 | N14D | Native graphical artist page (background, logo, scroll fade) matching the web | Planned | Fallback without Fanart |
+| 11 | W02 | Watch redesign: Now Playing, Playlists, Artists, Albums, Downloaded; send playlists and artists from the phone; sent playlists update automatically | Planned | Design pass first; Watch Ultra 3 and Series 7 |
+| 12 | HH | Household songs play for every member without adding them first | Planned | Contract change (see 14 Oct decisions); the membership-based removal rules stay the same |
+| 13 | U01-4 / R17 | All client calls on `/api/v1`, owner APIs as `/api/v1/admin`; then retire legacy routes | Planned | Test rejecting unversioned client paths; needed before any native Admin |
+| 14 | R18 | Admin uses the shell's `/api/v1/events` stream | Planned | One visibility-aware fallback poll |
+| 15 | R19 | Playwright smoke tests (album cover, ambiguous artist, Home order, Admin status) at 1366/375 px, both themes | Planned | Runs in CI |
+| 16 | R12–R15 | Library vs catalogue artist pages, request-centred Downloads, type-ahead Search, identifiable device sessions | Planned | Assessment priority 3 |
+| 17 | RET | Prune old backups/containers listed by `deploy_release.py --retention 2` | Owner decision | The tool never deletes; keep `pre-first-run-20261007-v1` and legacy manager material |
+| 18 | P03 | Mac app; standalone Watch sign-in; CarPlay; cross-device queue handoff; advanced import matching | Future | After V01 |
+| 19 | S01/S02 | Shazam capture → song inbox; optional direct recognition | Future | Find a supported access route first |
+| 20 | R01 | Remote playback from more MP3 sources | Planned | Order (owner, 14 Oct): device copy, own library, household file, then remote sources. Never stream lossless, on any network; MP3 sources first. Final source order follows COV |
 
 Polish backlog: a single Apple XML import entry point; artist names on album tiles; splash only on loading surfaces; retire the plain LAN port `192.168.1.235:8765` once the tunnel is live; turn off Cloudflare Web Analytics for the hostname.
 
@@ -71,6 +78,8 @@ Polish backlog: a single Apple XML import entry point; artist names on album til
 - **9 Oct:** Internet via Cloudflare Tunnel gated by Pig Music accounts, not Cloudflare Access (a second guest list that would block the native app). Two artist pages: library = play what you have, catalogue = find what you could have. Members keep their own quality. Recommendations sit above popularity. Popular in Australia comes from Apple only. ListenBrainz is kept only for LB Radio similarity and per-artist popularity. A one-time owner choice is acceptable for ambiguous artists.
 - **11 Oct:** All seven acquisition sources are implemented. Existing source lists and defaults are unchanged.
 - **12 Oct:** Layout: integrated phone player/tab dock, settings below the music on detail pages, compact headers, and Home without song recommendations (web and native). Watch music lives on the Watch, prepared by the paired phone; the Watch never receives server credentials.
+
+- **14 Oct:** Search artist results open the full artist page, which links to the library page. Household files play for any member without being added first; adding still creates a library membership. A device download that belongs to both an album and a playlist shows under both, and the file stays on the device until both are removed. Playlists sent to the Watch update automatically. Remote playback never streams lossless, even on Wi-Fi; MP3 sources come first.
 
 ## Architecture
 
