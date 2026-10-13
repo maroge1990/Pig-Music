@@ -40,6 +40,7 @@ public struct Album: Codable, Sendable, Identifiable, Hashable {
   public var year: MusicYear?
   public var duration: Double?
   public var tracks: [Track]?
+  public var musicbrainzReleaseId: String?
 }
 
 public struct Artist: Codable, Sendable, Identifiable, Hashable {

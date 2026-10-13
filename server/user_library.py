@@ -58,6 +58,97 @@ def stored_cover_sha(item):
     return match[1] if match else None
 
 
+def add_pending(albums, household_albums, pending):
+    """Show requested songs in the album they will join, with their state.
+
+    A request joins the person's album for its release (or title and artist),
+    else the household album, else a new album named by the request. Returns
+    {artist_id: (name, [album ids])} for albums that exist only as requests.
+    """
+
+    def key(album_artist, title):
+        return normalise(album_artist or ""), normalise(title or "")
+
+    personal = {a["id"]: a for a in albums}
+    releases, titles = {}, {}
+    for album in list(albums) + list(household_albums):
+        if album.get("musicbrainz_release_id"):
+            releases.setdefault(album["musicbrainz_release_id"], album["id"])
+        titles.setdefault(key(album.get("artist"), album.get("title")), album["id"])
+    household = {a["id"]: a for a in household_albums}
+    extra = {}
+    for job in sorted(
+        pending, key=lambda j: (j.get("disc_number", 1), j.get("track_number", 0))
+    ):
+        album_artist = job.get("album_artist") or job["artist"]
+        title = job.get("album") or job["title"]
+        album_id = releases.get(job.get("musicbrainz_release_id")) or titles.get(
+            key(album_artist, title)
+        )
+        if album_id is None:
+            seed = job.get("musicbrainz_release_id") or "|".join(
+                key(album_artist, title)
+            )
+            album_id = "requested-" + hashlib.sha256(seed.encode()).hexdigest()[:24]
+            titles[key(album_artist, title)] = album_id
+            if job.get("musicbrainz_release_id"):
+                releases[job["musicbrainz_release_id"]] = album_id
+        album = personal.get(album_id)
+        if album is None:
+            source = household.get(album_id)
+            artist_id = (source or {}).get("artist_id") or identifier(
+                "artist", normalise(album_artist)
+            )
+            album = {
+                **(source or {}),
+                "id": album_id,
+                "title": (source or {}).get("title") or title,
+                "artist": (source or {}).get("artist") or album_artist,
+                "artist_id": artist_id,
+                "year": (source or {}).get("year") or job.get("year") or 0,
+                "category": (source or {}).get("category") or "album",
+                "musicbrainz_release_id": (source or {}).get("musicbrainz_release_id")
+                or job.get("musicbrainz_release_id"),
+                "cover_sha": stored_cover_sha(source or {}),
+                "tracks": [],
+            }
+            albums.append(album)
+            personal[album_id] = album
+            extra.setdefault(artist_id, (album["artist"], []))[1].append(album_id)
+        position = (job.get("disc_number") or 1, job.get("track_number") or 0)
+        if any(
+            (t.get("disc_number") or 1, t.get("track_number") or 0) == position
+            and position[1]
+            or (
+                job.get("musicbrainz_recording_id")
+                and t.get("musicbrainz_recording_id") == job["musicbrainz_recording_id"]
+            )
+            for t in album["tracks"]
+        ):
+            continue
+        album["tracks"].append(
+            {
+                **{k: job[k] for k in TRACK_FIELDS if k in job and k != "id"},
+                "id": "request-" + job["id"],
+                "album_id": album_id,
+                "cover_url": album.get("cover_url"),
+                "cover_sha": album.get("cover_sha"),
+                "available": False,
+                "server_state": "failed" if job["status"] == "failed" else "requested",
+            }
+        )
+    for album in personal.values():
+        if any(
+            t.get("server_state") in {"requested", "failed"} for t in album["tracks"]
+        ):
+            album["tracks"].sort(
+                key=lambda t: (t.get("disc_number") or 1, t.get("track_number") or 0)
+            )
+            album["track_count"] = len(album["tracks"])
+            album["duration"] = sum(t.get("duration", 0) for t in album["tracks"])
+    return extra
+
+
 def track_dto(track):
     source_revision = hashlib.sha256(
         json.dumps(
@@ -193,6 +284,8 @@ class UserLibrary:
                 membership_revision[0] if membership_revision else 0,
                 json.dumps(public_settings(self.store), sort_keys=True),
             )
+            pending = self.pending_requests(conn, user_id)
+            signature += (sorted((job["id"], job["status"]) for job in pending),)
             previous = self.cache.get(user_id)
             if previous and previous[0] == signature:
                 self.cache.move_to_end(user_id)
@@ -230,6 +323,8 @@ class UserLibrary:
                             ),
                         }
                     )
+            extra_albums = add_pending(albums, self.store.library["albums"], pending)
+            extra_ids = {i for _, ids in extra_albums.values() for i in ids}
             by_album = {a["id"]: a for a in albums}
             album_by_track = {t["id"]: a["id"] for a in albums for t in a["tracks"]}
             all_tracks = {t["id"]: t for a in albums for t in a["tracks"]}
@@ -241,13 +336,29 @@ class UserLibrary:
                     artist_ids[name] = identifier("artist", normalise(name))
                 credited_by_artist[artist_ids[name]].append(track)
             artists = []
-            for artist in self.store.library["artists"]:
+            saved_artists = set()
+            household_artists = list(self.store.library["artists"])
+            known = {artist["id"] for artist in household_artists}
+            # Artists whose only music here is still requested.
+            for artist_id, (name, _) in extra_albums.items():
+                if artist_id not in known:
+                    household_artists.append(
+                        {"id": artist_id, "name": name, "album_ids": []}
+                    )
+            for artist in household_artists:
                 owned = [i for i in artist["album_ids"] if i in by_album]
+                owned += [
+                    i
+                    for i in extra_albums.get(artist["id"], ("", []))[1]
+                    if i not in owned
+                ]
                 credited = credited_by_artist[artist["id"]]
                 associated = {t["id"] for t in credited}
                 associated.update(
                     t["id"] for key in owned for t in by_album[key]["tracks"]
                 )
+                if associated & members:
+                    saved_artists.add(artist["id"])
                 if associated:
                     representative = (
                         owned[0] if owned else album_by_track[credited[0]["id"]]
@@ -279,11 +390,16 @@ class UserLibrary:
                 "artists": artists,
                 "albums": albums,
                 "tracks": list(all_tracks.values()),
+                # Counts describe saved music; requested songs are not counted.
                 "stats": {
-                    "tracks": len(all_tracks),
-                    "artists": len(artists),
+                    "tracks": sum(t["id"] in members for t in all_tracks.values()),
+                    "artists": len(saved_artists),
                     **{
-                        kind + "s": sum(a["category"] == kind for a in albums)
+                        kind
+                        + "s": sum(
+                            a["category"] == kind and a["id"] not in extra_ids
+                            for a in albums
+                        )
                         for kind in ("album", "compilation", "soundtrack", "musical")
                     },
                 },
@@ -300,6 +416,29 @@ class UserLibrary:
             while len(self.cache) > 8:
                 self.cache.popitem(last=False)
             return value
+
+    def pending_requests(self, conn, user_id):
+        """This person's requested songs that are not yet saved, newest state.
+
+        Quality replacements of saved songs are not shown; cancelled and
+        completed requests leave the projection.
+        """
+        jobs = []
+        for request_id, status, raw in conn.execute(
+            "SELECT id,status,payload FROM queue WHERE status IN "
+            "('waiting_for_sources','searching','downloading','validating','importing','failed') "
+            "AND EXISTS (SELECT 1 FROM json_each(queue.payload,'$.requested_by') WHERE value=?)",
+            (user_id,),
+        ):
+            payload = json.loads(raw)
+            if (
+                payload.get("library_track_id")
+                or not payload.get("title")
+                or not payload.get("artist")
+            ):
+                continue
+            jobs.append({**payload, "id": request_id, "status": status})
+        return jobs
 
     def search(self, user_id, query, offset=0, limit=100, revision=None):
         if offset < 0 or offset > 1000000 or not 1 <= limit <= 200:

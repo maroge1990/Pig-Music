@@ -438,7 +438,10 @@ public actor NativeService: LibrarySource {
   }
   public func resolve(_ track: Track) async throws -> URL {
     // Household files stream like your own; playing never adds them to your library.
-    if track.serverState != "not_in_library" { return try await playbackURL(trackId: track.id) }
+    // Requested songs have no file yet and stream like the catalogue.
+    if !["not_in_library", "requested", "failed"].contains(track.serverState ?? "") {
+      return try await playbackURL(trackId: track.id)
+    }
     let response = try await client.playback_remote_api_v1_remote_playback_post(
       .init(
         body: .json(

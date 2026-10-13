@@ -32,13 +32,17 @@ class NativeSync:
         if kind == "tracks":
             from .user_library import track_dto
 
-            album_id = self.store.index.album_by_track.get(raw["id"])
+            # Requested songs are not in the household index yet; they carry
+            # the album they will join.
+            album_id = self.store.index.album_by_track.get(raw["id"]) or raw.get(
+                "album_id"
+            )
             album = self.store.albums_by_id.get(album_id, {})
             raw = {
                 **track_dto(raw),
                 "album_id": album_id,
-                "cover_url": album.get("cover_url"),
-                "cover_sha": stored_cover_sha(album),
+                "cover_url": album.get("cover_url") or raw.get("cover_url"),
+                "cover_sha": stored_cover_sha(album) or raw.get("cover_sha"),
             }
         elif kind == "albums":
             raw = {**raw, "cover_sha": stored_cover_sha(raw)}

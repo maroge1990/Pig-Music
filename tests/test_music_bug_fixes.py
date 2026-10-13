@@ -276,3 +276,76 @@ def test_member_retry_requeues_only_own_failed_or_cancelled(tmp_path, monkeypatc
     with TestClient(app, base_url="https://private.ts.net") as anonymous:
         assert anonymous.post("/api/v1/requests/theirs/retry").status_code in {401, 403}
     assert status("theirs") == "failed"
+
+
+def test_requested_album_appears_in_full_with_each_songs_state(tmp_path, monkeypatch):
+    from server.native_sync import NativeSync
+
+    app, owner, member, token, track = household(tmp_path, monkeypatch)
+    store = app.state.store
+    store.user_libraries.add(member, ["song"])
+    studio = {"artist": "Artist", "album": "Studio", "album_artist": "Artist"}
+    jobs = [
+        ("two", "waiting_for_sources", {**studio, "title": "Two", "track_number": 2}),
+        ("three", "failed", {**studio, "title": "Three", "track_number": 3}),
+        (
+            "upgrade",
+            "downloading",
+            {**studio, "title": "One", "library_track_id": "song"},
+        ),
+        ("done", "completed", {**studio, "title": "Old", "track_number": 4}),
+        ("theirs", "downloading", {**studio, "title": "Five", "track_number": 5}),
+        (
+            "fresh",
+            "downloading",
+            {
+                "title": "New",
+                "artist": "Other",
+                "album": "Fresh",
+                "album_artist": "Other",
+                "track_number": 1,
+                "musicbrainz_release_id": RELEASE,
+            },
+        ),
+    ]
+    with store.connect() as conn:
+        for request_id, status, payload in jobs:
+            requesters = [owner] if request_id == "theirs" else [member]
+            conn.execute(
+                "INSERT INTO queue(id,payload,status) VALUES (?,?,?)",
+                (
+                    request_id,
+                    json.dumps({**payload, "requested_by": requesters}),
+                    status,
+                ),
+            )
+    projection = store.user_libraries.projection(member)
+    albums = {a["title"]: a for a in projection["albums"]}
+    # Saved, requested and failed songs share the album, in order; quality
+    # replacements, finished and other people's requests are not shown.
+    assert [
+        (t["title"], t.get("server_state")) for t in albums["Studio"]["tracks"]
+    ] == [
+        ("One", None),
+        ("Two", "requested"),
+        ("Three", "failed"),
+    ]
+    assert albums["Fresh"]["artist"] == "Other"
+    assert albums["Fresh"]["tracks"][0]["id"] == "request-fresh"
+    other = next(a for a in projection["artists"] if a["name"] == "Other")
+    assert other["album_ids"] == [albums["Fresh"]["id"]]
+    # Counts stay about saved music.
+    assert projection["stats"]["tracks"] == 1
+    assert projection["stats"]["albums"] == 1
+    assert projection["stats"]["artists"] == 1
+    synced = {t["id"]: t for t in NativeSync(store).page(member, "tracks")["items"]}
+    assert synced["request-two"]["album_id"] == albums["Studio"]["id"]
+    assert synced["request-two"]["server_state"] == "requested"
+    with store.connect() as conn:
+        conn.execute("UPDATE queue SET status='completed' WHERE id='two'")
+    titles = [
+        t["title"]
+        for a in store.user_libraries.projection(member)["albums"]
+        for t in a["tracks"]
+    ]
+    assert "Two" not in titles and "Three" in titles

@@ -83,7 +83,14 @@ extension Track {
 }
 
 extension Album {
-  var artworkSource: AppModel.ArtworkSource? { coverSha.map { .stored($0) } }
+  /// Saved cover art, else the catalogue cover of an album that is still requested.
+  var artworkSource: AppModel.ArtworkSource? {
+    if let coverSha { return .stored(coverSha) }
+    if let musicbrainzReleaseId, UUID(uuidString: musicbrainzReleaseId) != nil {
+      return .release(musicbrainzReleaseId)
+    }
+    return nil
+  }
   var subtitle: String {
     [artist, year?.text, trackCount.map { "\($0) song\($0 == 1 ? "" : "s")" }]
       .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
@@ -333,6 +340,8 @@ struct SongRow: View {
         Image(systemName: "cloud").foregroundStyle(.tertiary)
       case "requested":
         Image(systemName: "clock").foregroundStyle(.secondary)
+      case "failed":
+        Image(systemName: "exclamationmark.circle").foregroundStyle(PigBrand.danger(scheme))
       case "not_in_library":
         EmptyView()
       default:
@@ -345,6 +354,7 @@ struct SongRow: View {
     case "household_available": "On the server, not in your library"
     case "not_in_library": "Not downloaded"
     case "requested": "Requested"
+    case "failed": "Request failed"
     default: "In your library on the server"
     }
   }
