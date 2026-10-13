@@ -63,7 +63,7 @@ private func makeLargeStore() async throws -> LibraryStore {
 @Test func aacProbeHonoursDecodedDurationAndOverlap() throws {
   let swiftRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
     .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-  let input = swiftRoot.appendingPathComponent("NativeSpike/Watch/test-tone.m4a")
+  let input = swiftRoot.appendingPathComponent("PigMusic/demo-tone.m4a")
   let output = FileManager.default.temporaryDirectory.appendingPathComponent(
     UUID().uuidString + ".wav")
   defer { try? FileManager.default.removeItem(at: output) }
