@@ -28,6 +28,18 @@ import PigPlayback
     let artist: String
     let ids: [String]
   }
+  struct ArtistGroup: Identifiable {
+    let id: String
+    let name: String
+    let albums: [AlbumGroup]
+    var ids: [String] { albums.flatMap(\.ids) }
+  }
+  /// Artists by album artist, each with their albums on the Watch.
+  var artists: [ArtistGroup] {
+    Dictionary(grouping: albums, by: \.artist).map { name, albums in
+      ArtistGroup(id: name, name: name, albums: albums)
+    }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+  }
   var albums: [AlbumGroup] {
     var grouped: [String: [CompanionSong]] = [:]
     for song in manifest.songs {

@@ -23,77 +23,111 @@ import SwiftUI
     .backgroundTask(.watchConnectivity) { await model.finishBackgroundDelivery() }
   }
 }
+/// Like Apple Music and Spotify on the Watch: what is playing first, then the
+/// library by playlist, artist and album, with phone tools and storage last.
 private struct WatchLibraryView: View {
   @Bindable var model: WatchModel
   var body: some View {
     NavigationStack {
       List {
-        Image("PigLockup").resizable().scaledToFit().frame(height: 40)
-          .frame(maxWidth: .infinity).accessibilityHidden(true).listRowBackground(Color.clear)
         WatchNowPlayingRow(model: model)
-        NavigationLink("Songs on Watch") {
-          WatchSongs(model: model, ids: model.manifest.songs.map(\.id), title: "Songs")
-        }
-        NavigationLink("Albums") {
-          List {
-            ForEach(model.albums) { album in
-              NavigationLink {
-                WatchSongs(model: model, ids: album.ids, title: album.title)
-              } label: {
-                VStack(alignment: .leading) {
-                  Text(album.title)
-                  Text(album.artist).font(.caption).foregroundStyle(.secondary)
+        if model.manifest.songs.isEmpty {
+          VStack(alignment: .leading, spacing: 6) {
+            Image("PigLockup").resizable().scaledToFit().frame(height: 32)
+              .accessibilityHidden(true)
+            Text("No music on your Watch yet").font(.headline)
+            Text("On iPhone, use Send to Apple Watch on a playlist, artist or album.")
+              .font(.footnote).foregroundStyle(.secondary)
+          }.listRowBackground(Color.clear)
+        } else {
+          let playlists = model.manifest.collections.filter { !$0.songIds.isEmpty }
+          if !playlists.isEmpty {
+            libraryLink("Playlists", count: playlists.count, symbol: "music.note.list") {
+              List {
+                ForEach(playlists) { collection in
+                  NavigationLink {
+                    WatchSongs(
+                      model: model, ids: collection.songIds,
+                      title: collection.favourites ? "Favourites" : collection.name)
+                  } label: {
+                    Label(
+                      collection.favourites ? "Favourites" : collection.name,
+                      systemImage: collection.favourites ? "star.fill" : "music.note.list")
+                  }
+                }
+              }.pigBrandedCanvas().navigationTitle("Playlists")
+            }
+          }
+          libraryLink("Artists", count: model.artists.count, symbol: "music.mic") {
+            List {
+              ForEach(model.artists) { artist in
+                NavigationLink {
+                  WatchArtist(model: model, artist: artist)
+                } label: {
+                  VStack(alignment: .leading) {
+                    Text(artist.name).lineLimit(2)
+                    Text("\(artist.albums.count) album\(artist.albums.count == 1 ? "" : "s")")
+                      .font(.caption).foregroundStyle(.secondary)
+                  }
                 }
               }
-            }
-          }.pigBrandedCanvas().navigationTitle("Albums")
-        }
-        ForEach(model.manifest.collections.filter { !$0.songIds.isEmpty }) { collection in
-          NavigationLink(collection.favourites ? "Favourites" : collection.name) {
-            WatchSongs(model: model, ids: collection.songIds, title: collection.name)
+            }.pigBrandedCanvas().navigationTitle("Artists")
+          }
+          libraryLink("Albums", count: model.albums.count, symbol: "square.stack") {
+            WatchAlbums(model: model, albums: model.albums, title: "Albums")
+          }
+          libraryLink("Songs", count: model.manifest.songs.count, symbol: "music.note") {
+            WatchSongs(model: model, ids: model.manifest.songs.map(\.id), title: "Songs")
+          }
+          Button {
+            Task { await model.play(model.manifest.songs.map(\.id).shuffled()) }
+          } label: {
+            Label("Shuffle all", systemImage: "shuffle")
           }
         }
-        NavigationLink("Phone remote") {
-          List {
-            Button("Previous", systemImage: "backward.end.fill") {
-              Task { await model.send("previous") }
-            }
-            Button("Play / pause", systemImage: "playpause.fill") {
-              Task { await model.send("playPause") }
-            }
-            Button("Next", systemImage: "forward.end.fill") { Task { await model.send("next") } }
-          }.pigBrandedCanvas().navigationTitle("Phone remote")
-        }
-        NavigationLink("Storage & sync") {
-          List {
-            Text("\(model.receipt?.ready.count ?? 0) songs downloaded").fontDesign(.rounded)
-              .monospacedDigit()
-            Text(
-              ByteCountFormatter.string(
-                fromByteCount: model.receipt?.usedBytes ?? 0, countStyle: .file))
-            Text(
-              model.link?.reachable == true
-                ? "Phone reachable" : "Phone unavailable · offline music still plays")
-            Picker(
-              "Watch budget",
-              selection: Binding(
-                get: { Int((model.receipt?.budgetBytes ?? 1_073_741_824) / 1_073_741_824) },
-                set: { value in Task { await model.setBudget(value) } })
-            ) {
-              ForEach([1, 2, 4, 8], id: \.self) { Text("\($0) GB").tag($0) }
-            }
-            Button("Sync with phone") { Task { await model.send("sync") } }
-            Picker("Repeat", selection: $model.repeatMode) {
-              Text("Off").tag(PlaybackRepeat.off)
-              Text("All").tag(PlaybackRepeat.all)
-              Text("One").tag(PlaybackRepeat.one)
-            }
-            Toggle("Crossfade", isOn: $model.crossfade)
-            Text(
-              "Gapless playback preserves continuous albums. Crossfade blends other songs over 3 seconds. Changes apply to the next queue."
-            ).font(.footnote)
-            if let message = model.message ?? model.link?.error { Text(message).font(.footnote) }
-          }.pigBrandedCanvas().navigationTitle("Storage & sync")
+        Section("More") {
+          NavigationLink("Phone remote") {
+            List {
+              Button("Previous", systemImage: "backward.end.fill") {
+                Task { await model.send("previous") }
+              }
+              Button("Play / pause", systemImage: "playpause.fill") {
+                Task { await model.send("playPause") }
+              }
+              Button("Next", systemImage: "forward.end.fill") { Task { await model.send("next") } }
+            }.pigBrandedCanvas().navigationTitle("Phone remote")
+          }
+          NavigationLink("Storage & sync") {
+            List {
+              Text("\(model.receipt?.ready.count ?? 0) songs downloaded").fontDesign(.rounded)
+                .monospacedDigit()
+              Text(
+                ByteCountFormatter.string(
+                  fromByteCount: model.receipt?.usedBytes ?? 0, countStyle: .file))
+              Text(
+                model.link?.reachable == true
+                  ? "Phone reachable" : "Phone unavailable · offline music still plays")
+              Picker(
+                "Watch budget",
+                selection: Binding(
+                  get: { Int((model.receipt?.budgetBytes ?? 1_073_741_824) / 1_073_741_824) },
+                  set: { value in Task { await model.setBudget(value) } })
+              ) {
+                ForEach([1, 2, 4, 8], id: \.self) { Text("\($0) GB").tag($0) }
+              }
+              Button("Sync with phone") { Task { await model.send("sync") } }
+              Picker("Repeat", selection: $model.repeatMode) {
+                Text("Off").tag(PlaybackRepeat.off)
+                Text("All").tag(PlaybackRepeat.all)
+                Text("One").tag(PlaybackRepeat.one)
+              }
+              Toggle("Crossfade", isOn: $model.crossfade)
+              Text(
+                "Gapless playback preserves continuous albums. Crossfade blends other songs over 3 seconds. Changes apply to the next queue."
+              ).font(.footnote)
+              if let message = model.message ?? model.link?.error { Text(message).font(.footnote) }
+            }.pigBrandedCanvas().navigationTitle("Storage & sync")
+          }
         }
         if model.manifest.context.account == nil {
           Text("Sign in and open Apple Watch in the phone app to send music.").font(.footnote)
@@ -101,22 +135,92 @@ private struct WatchLibraryView: View {
       }.pigBrandedCanvas().navigationTitle("Pig Music")
     }.pigBrandedCanvas()
   }
+  private func libraryLink<Destination: View>(
+    _ title: String, count: Int, symbol: String,
+    @ViewBuilder destination: @escaping () -> Destination
+  ) -> some View {
+    NavigationLink(destination: destination) {
+      Label {
+        HStack {
+          Text(title)
+          Spacer()
+          Text("\(count)").foregroundStyle(.secondary).monospacedDigit()
+        }
+      } icon: {
+        Image(systemName: symbol)
+      }.font(.headline).padding(.vertical, 4)
+    }
+  }
+}
+private struct WatchAlbums: View {
+  let model: WatchModel
+  let albums: [WatchModel.AlbumGroup]
+  let title: String
+  var body: some View {
+    List {
+      ForEach(albums) { album in
+        NavigationLink {
+          WatchSongs(model: model, ids: album.ids, title: album.title)
+        } label: {
+          VStack(alignment: .leading) {
+            Text(album.title).lineLimit(2)
+            Text(album.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+          }
+        }
+      }
+    }.pigBrandedCanvas().navigationTitle(title)
+  }
+}
+private struct WatchArtist: View {
+  let model: WatchModel
+  let artist: WatchModel.ArtistGroup
+  var body: some View {
+    List {
+      HStack {
+        Button {
+          Task { await model.play(artist.ids) }
+        } label: {
+          Label("Play", systemImage: "play.fill")
+        }.pigPrimaryAction()
+        Button {
+          Task { await model.play(artist.ids.shuffled()) }
+        } label: {
+          Image(systemName: "shuffle")
+        }.accessibilityLabel("Shuffle")
+      }.listRowBackground(Color.clear)
+      ForEach(artist.albums) { album in
+        NavigationLink {
+          WatchSongs(model: model, ids: album.ids, title: album.title)
+        } label: {
+          Text(album.title).lineLimit(2)
+        }
+      }
+    }.pigBrandedCanvas().navigationTitle(artist.name)
+  }
 }
 private struct WatchNowPlayingRow: View {
   @Bindable var model: WatchModel
   var body: some View {
     if model.queue.indices.contains(model.playback.index) {
-      NavigationLink {
-        WatchNowPlaying(model: model)
-      } label: {
-        Label {
-          VStack(alignment: .leading) {
-            Text("Now playing").font(.caption).foregroundStyle(.secondary)
-            Text(model.queue[model.playback.index].track.title).lineLimit(1)
+      let track = model.queue[model.playback.index].track
+      HStack(spacing: 8) {
+        NavigationLink {
+          WatchNowPlaying(model: model)
+        } label: {
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Now playing").font(.caption2).foregroundStyle(.secondary)
+            Text(track.title).font(.headline).lineLimit(1)
+            Text(track.artist).font(.caption).foregroundStyle(.secondary).lineLimit(1)
           }
-        } icon: {
-          Image(systemName: model.playback.state == .playing ? "waveform" : "pause.fill")
         }
+        Button {
+          model.toggle()
+        } label: {
+          Image(systemName: model.playback.wantsPlayback ? "pause.fill" : "play.fill")
+            .frame(width: 36, height: 36)
+        }
+        .buttonStyle(.plain).pigPrimaryAction()
+        .accessibilityLabel(model.playback.wantsPlayback ? "Pause" : "Play")
       }
     }
   }
