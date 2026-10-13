@@ -40,3 +40,15 @@ The Tailscale address keeps working for same-origin use (each address keeps its 
 - **Split DNS for home playback during internet outages:** resolve `music.markrogers.au` to a LAN reverse proxy inside the house (certificate via Cloudflare DNS challenge) so the same address and cookies work locally. Not needed for normal use; traffic otherwise loops through Cloudflare.
 - **Cloudflare terms:** household audio streaming through a tunnel is low volume; revisit if usage grows substantially.
 - **Retire the plain LAN port** `192.168.1.235:8765`: accounts require HTTPS, so it can no longer sign anyone in.
+
+## Security model
+
+Accounts stop one person from browsing or editing another's library, playlists, favourites, requests or listening history. The administrator manages the server and its files, so they are trusted with all server data. This model does not protect against a compromised administrator, NAS, Mac or Unraid host.
+
+- **Credentials:** Argon2id password hashes. Opaque session tokens stored as hashes. Secure, HttpOnly, SameSite=Strict cookies. Browser writes need a same-origin check and the Pig request header. Devices use Bearer tokens.
+- **Revocation:** Revoking a session, disabling a member or removing a membership is re-checked on every media access, including signed URLs and Range requests. The last administrator can't be disabled. Password reset is available through the interactive admin CLI.
+- **Plex tokens:** AES-GCM encrypted and bound to each user, with a key derived from the server authentication secret. Anyone holding both the backup and the secret can decrypt them, so restrict access to appdata backups.
+- **Never logged or exported:** passwords, bearer tokens, setup codes, Plex tokens.
+- **First-run installation code:** The one exception. Before any owner exists, startup prints a 128-bit installation code to the operator-only container console. It is never returned over HTTP, and it stops working once an owner exists. Keep startup logs private.
+- **HTTP hardening:** Same-origin CSP with no inline scripts, frame denial and HSTS. JSON bodies are capped at 1 MB before parsing (Apple XML imports at 20 MB). Validation errors omit submitted values. Failed sign-ins are rate limited, and only the administrator sees security activity.
+- **Dependencies:** CI audits the locked Python and npm dependencies before publishing an image.

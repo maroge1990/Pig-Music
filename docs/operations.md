@@ -1,122 +1,107 @@
 # Operations and recovery
 
-Current guidance. Read [blueprint.md](../blueprint.md) for the product contract and handover status. Historical deployment instructions in `archive/` are not current commands.
+Local setup and test commands are in [AGENTS.md](../AGENTS.md). Household topology and current release are in the [blueprint](../blueprint.md). Fresh appdata starts empty with downloads paused. Use Scan library against the configured music directory, then review any matching or organisation changes. `scripts/seed_prototype.py` is an optional import tool and queues nothing.
 
-## Local development
-
-Python 3.14, Node 24 and FFmpeg are the container runtimes. Install project dependencies into a virtual environment and use `npm ci` in `client/`. Build the client before serving FastAPI.
-
-```powershell
-python -m venv .venv
-.venv/Scripts/python.exe -m pip install -r requirements.lock.txt -r requirements-dev.txt
-Set-Location client
-npm ci
-npm run build
-Set-Location ..
-$env:PIG_MUSIC_DATA = "$PWD/.localdata/dev"
-$env:PIG_MUSIC_PRELOAD = "false"
-.venv/Scripts/python.exe -m uvicorn server.app:app --host 127.0.0.1 --port 8765
-```
-
-On macOS without a system Python 3.14, [uv](https://docs.astral.sh/uv/) provides the matching interpreter. Then run the backend suite:
-
-```sh
-uv venv --python 3.14 .venv
-uv pip install --python .venv/bin/python -r requirements.lock.txt -r requirements-dev.txt
-PIG_MUSIC_PRELOAD=false .venv/bin/python -m pytest tests -q
-```
-
-A fresh install shows the first-run administrator form; use generated test credentials, never real ones, for local browser checks. Fresh appdata starts empty and downloads paused. Use the native Scan library against the explicitly configured music directory, then review any matching or organisation changes. The Import screen starts empty; it does not automatically load the historical Favourites export. `scripts/seed_prototype.py` is an explicit optional import tool and queues nothing. Retired Music Grabber is not required for ingestion.
-
-`compose.yaml` is an isolated local example; `compose.unraid-preview.yaml` describes the current household NAS deployment. Do not assume they mount the same music. `PIG_MUSIC_LIBRARY` selects the scan/playback root; `PIG_MUSIC_DOWNLOAD_ROOT` selects the managed workspace. Direct NAS mode requires the export configuration's `library_id` to match the marker on the expected library.
+`compose.yaml` is an isolated local example. The live server is managed by Unraid Docker Manager from `unraid/PigMusic.xml`; Compose is retired there. Direct NAS mode requires the export configuration's `library_id` to match the marker on the expected library.
 
 ## Private configuration
 
-Keep these under appdata, excluded from source control/bundles and accessible only to the runtime owner:
+These files live under appdata. They stay out of source control and bundles, and only the runtime owner can read them.
 
 | File | Purpose / required fields |
 | --- | --- |
 | `slskd-connection.json` | Internal API `url`, `api_key`, engine `download_root` mapping |
-| `engine/engine.env` / `engine/slskd.yml` | Engine login/runtime configuration; internal API stays loopback-only |
-| `media-settings.json` | Portrait/remote toggles and optional `fanart_key`, `listenbrainz_token`; public API returns configured flags only |
-| `plex-connection.json` | `url`, owner `token`, `section_id`, `machine_id`, Plex-visible `library_root` mapping |
-| `library-export.json` | Publication `enabled`, expected `library_id`, relative `marker_path` and optional publication folder settings |
+| `engine/engine.env`, `engine/slskd.yml` | Engine login/runtime configuration; internal API stays loopback-only |
+| `media-settings.json` | Portrait/remote toggles, optional `fanart_key` and `listenbrainz_token`; the API returns configured flags only |
+| `plex-connection.json` | `url`, owner `token`, `section_id`, `machine_id`, Plex-visible `library_root` |
+| `library-export.json` | Publication `enabled`, expected `library_id`, relative `marker_path`, optional folder settings |
 
-Use existing authorised credentials; this document deliberately contains no values. Download/quality preferences, membership and queue state are in SQLite. Back up the entire appdata directory, not just one connection file.
+Per-person Plex tokens are encrypted in SQLite with a key derived from the server authentication secret. Back up and restore the whole appdata directory, including that secret. A copy of a live database is not a backup.
 
-## Current release path (account releases)
+## Container images
 
-PigMusic is managed by Unraid Docker Manager and already runs an account release. Every routine release has two steps:
+`.github/workflows/container.yml` builds the pinned Dockerfile, tests that exact image (backend suite, then 1 GB artwork, delivery and sync scale gates), and publishes `ghcr.io/maroge1990/pig-music:sha-<rev>` (plus `:main` on main, `:vX.Y.Z` on tags). Pull requests only validate. No workflow deploys, and there is no `latest` tag. Images carry OCI source/revision labels. The package stays private.
 
-1. **Verify the exact image on Unraid** without changing the live service. Push `main`, let the registry workflow publish `sha-<revision>`, then run `scripts/deploy_unraid.py --version <unused-name> --image ghcr.io/maroge1990/pig-music@sha256:<digest>` without `--deploy`, saving its output to a log. The image tests also read the staged checkout through `/source` for source-level contract checks.
-2. **Release** with `scripts/deploy_release.py --image <digest> --revision <sha> --version <same-name> --verified-log <log>`. Without `--apply` it is a read-only preflight. It checks:
-   - the exact image and its source labels
-   - Docker Manager ownership, a 1–8 GiB memory limit (template: 4 GiB), 99:100, read-only root and both fixed addresses
-   - private HTTPS health
-   - that the owner account exists
-   - that no transfers are active
+Unraid pulls with a GitHub credential that has `read:packages`, entered through `docker login ghcr.io --password-stdin`. Never put it in templates, Git, docs, shell history or build arguments.
+
+## Releasing
+
+Each release has two steps:
+
+1. **Verify the exact image** without touching the live service. After the workflow publishes the image, run:
+   ```sh
+   .venv/bin/python scripts/deploy_unraid.py --version <unused-name> --image ghcr.io/maroge1990/pig-music@sha256:<digest> --key <ssh-key> | tee verify.log
+   ```
+   It pulls the image and checks its labels against the local checkout, which must be clean and at the image's revision. It then runs the image tests and scale gates on Unraid.
+2. **Release:**
+   ```sh
+   .venv/bin/python scripts/deploy_release.py --image <digest> --revision <sha> --version <same-name> --verified-log verify.log
+   ```
+   Without `--apply` it is a read-only preflight. It checks:
+   - the image and its labels;
+   - Docker Manager ownership, a 1–8 GiB memory limit, UID/GID 99:100, a read-only root and both fixed addresses;
+   - private HTTPS, that the owner account exists, and that no transfers are active.
 
    With `--apply` it:
-   - pauses downloads through the container's own SQLite state, since the HTTP API requires a session
-   - stops the container and backs up appdata, the template and autostart
-   - computes the baseline from the backup using the *old* image
-   - verifies migration on a disposable copy with the *new* image
-   - recreates PigMusic from the reviewed template, keeping `PigMusic-before-<version>`
-   - checks readiness, HTTPS, owner state and container protections
-   - restores the original download setting
+   1. pauses downloads and stops the container;
+   2. backs up appdata, the template and autostart;
+   3. computes the baseline from the backup with the old image;
+   4. verifies migration on a disposable copy with the new image;
+   5. recreates PigMusic from the template, keeping `PigMusic-before-<version>`;
+   6. checks readiness, HTTPS, owner state and protections;
+   7. restores the original download setting.
 
    Any failure restores the complete stopped appdata, template, container and networks.
 
-`scripts/deploy_release.py --retention 2` lists backups and rollback/failed containers older than the two newest releases. It always keeps the pre-account baseline (`pre-first-run-20261007-v1`) and legacy manager material. It **never deletes**; remove listed items manually once the owner is satisfied.
+`deploy_release.py --retention 2` lists backups and containers older than the two newest releases. It always keeps `pre-first-run-20261007-v1` and legacy manager material, and it **never deletes**. Remove listed items by hand once the owner agrees.
 
-`deploy_first_run_unraid.py` was the one-time legacy-to-accounts switch, and `deploy_unraid.py --deploy` is the retired Compose path, which refuses account releases. Both are kept as history only.
-
-## Historical: candidate and live delivery before accounts
-
-Use a unique version suffix. From the repository root:
-
-```powershell
-# Replace this sample suffix with a new, unique release name.
-.venv/Scripts/python.exe scripts/deploy_unraid.py --version candidate-yyyymmdd-v1
-```
-
-This allowlists source, uploads to a new release directory on Unraid, builds the image and runs backend tests in a separate Linux container as `99:100`, without networking or live appdata/music mounts. The frontend builds inside the image. It does not deploy unless `--deploy` is included.
-
-For an authorised delivery, use a **new** version suffix and include `--deploy` in that invocation. Existing `cleanup-20261006-v1/v2/v3` names are already used; choose a new suffix for the next release. Each invocation builds and tests its exact source before any live update; it does not resume an earlier release directory. The tool checks for active transfers, pauses downloads, stops the old container, backs up appdata/Compose, verifies migration on a disposable copy, retains the old container, applies the reviewed Compose with the candidate image, checks readiness/storage and read-only APIs, then restores the original download settings. An active transfer defers deployment rather than interrupting it. Run frontend journey checks and compare performance against the release before declaring completion.
-
-The default topology is recorded in the blueprint. `--host`, `--key` and `--url` allow explicit access overrides; this is a household deployment tool, not a generic infrastructure provisioner. A version's release directory must not already exist. Do not use unique names to claim an untested image is equivalent to a passing candidate.
-
-Historical tools `package_unraid_preview.py` (private initial bootstrap), `unraid_preview_smoke.py` (real provider acquisition probe) and `export_library_snapshot.py` (retired Music Grabber snapshot extraction) are retained for migration history. They are not required for normal delivery or fresh-library ingestion.
-
-Each live release uses a unique Compose project name (`pig-music-<version>`). A renamed container retains its old Compose service labels; reusing that project would let Compose delete the rollback container during recreation. Keep external network names/static LAN address unchanged. The unique-project behaviour was verified with isolated stopped containers. The current release uses the unique project `pig-music-audit-followup-20261007-v1`; its stopped predecessor and matching backup are retained.
+Historical tools, kept for migration history only: `deploy_unraid.py --deploy` (the old Compose path, which refuses account releases), `deploy_first_run_unraid.py`, `adopt_unraid_template.py`, `package_unraid_preview.py`, `unraid_preview_smoke.py` and `export_library_snapshot.py`.
 
 ## Rollback and partial failures
 
-Automatic rollback retains the failed candidate and restores the previous container/Compose when possible. Read the command result: a failed rollback is not recovery. A failed update must leave downloads paused until the correct library and state are confirmed.
+Read the command result: a failed rollback is not recovery. A failed update leaves downloads paused until the library and state are confirmed. Restarting an old image against a migrated database is not a rollback; restore the matching pre-release appdata backup with it.
 
 Manual recovery order:
 
-1. Inspect container names/images and queue/storage status without dumping private environment values.
-2. Stop the candidate before reconnecting the former container to the static LAN address. Disconnect the candidate from `br0` so there is no IP collision.
-3. Restore the prior container name/network wiring and corresponding Compose from the stopped-state backup; start it and verify health, storage marker and API reads.
-4. Restore original download settings only after readiness. Compare library track counts, playlist membership and queue state.
-5. If durable state needs restoration, stop all app writers first and restore a matching appdata backup. Do not blindly restore old state after new music has published: compare journals/files and use guarded recovery to reconcile changes.
+1. Inspect container names, images, queue and storage status, without dumping private environment values.
+2. Stop the candidate before reconnecting the old container to the static LAN address. Disconnect the candidate from `br0` to avoid an IP collision.
+3. Restore the previous container, template and network wiring from the stopped-state backup. Start it, then verify health, the storage marker and API reads.
+4. Restore the download setting only after readiness. Compare track counts, playlist membership and queue state.
+5. If durable state must be restored, stop all writers first. Don't blindly restore old state after new music has been published: compare journals and files, then reconcile with guarded recovery.
 
-Backups live below `/mnt/user/appdata/pig-music-preview/backups/`; retained containers identify their release suffix. Keep old manager recovery material and images until explicitly retired by the owner. Do not purge trash, backups or old images as an incidental cleanup.
+Keep old manager recovery material, images, trash and backups until the owner retires them.
+
+## Download-source acceptance
+
+Owner diagnostics in Admin separate **metadata reachable** from **audio transfer verified**. For an authorised test recording (a JSON file with artist, title, album, duration and optional ISRCs), run:
+
+```sh
+.venv/bin/python -m scripts.verify_download_source --source youtube|soundcloud|monochrome --track track.json --output <new-empty-dir>
+```
+
+Add `--metadata-only` to skip the audio transfer. The harness uses fresh appdata and the real pipeline. Never reuse an output directory or point the harness at the household library. For each source, check:
+- artist, recording, album and duration;
+- the retained codec and bitrate;
+- publication and restart persistence;
+- authenticated playback and range requests;
+- fallback order, preview rejection and cancellation.
+
+The yt-dlp, EJS and Node runtimes are pinned in the image. Release changes to them only through CI. YouTube cookies are uploaded in Admin (Netscape format) and are never echoed back.
+
+## Native app installation (free Apple account)
+
+1. Open `swift/PigMusic.xcodeproj` and select scheme **PigMusic**, which embeds **PigMusicWatch**.
+2. In Xcode Settings → Accounts, add the Apple Account. In Signing & Capabilities, choose the **Personal Team** with automatic signing. If you change bundle IDs, update the Watch identifier and `WKCompanionAppBundleIdentifier` together. Keep signing changes local.
+3. Enable Developer Mode on the device, then build and run. The minimum OS is iOS/iPadOS 18 and watchOS 11.
+4. Sign in with the server's HTTPS address, or join with an invite link or code. People and providers are managed on the web.
+
+Personal Team profiles expire after seven days; rebuild and reinstall when they do. Use the device journeys in [testing](testing.md#native-device-acceptance).
 
 ## Troubleshooting
 
-- **NAS unavailable:** cached browsing/settings remain available; engine/workspace creation and downloads wait for the correct marker. Restore the actual SMB mount, not an empty local folder. Verify storage availability and engine connection before resuming transfers.
-- **Missing external changes:** use Scan library. There is no live filesystem watcher.
-- **Missing artwork/popularity:** check configured flags and provider availability. Optional failures hide enrichment; library browsing should remain usable.
-- **Playlist missing in Plex:** verify the single-owner connection and path mapping, then file publication/Plex indexing. Pig Music retains the complete ordered membership while Plex receives available files. Ownership markers prevent edits to unrelated playlists.
-- **Slow remote listening:** provider resolution is independent from library response. Saved-file playback is preferred; remote listening is experimental and does not queue or save a song.
-- **Quality mismatch:** inspect actual file format/bitrate and effective system/artist/album preference. Preserve existing music until a validated replacement completes. Do not bypass complete-file decoding to make the queue faster.
-
-## Registry images
-
-The owner has selected GHCR for the existing Unraid server. See [container releases](container-releases.md). Use `deploy_unraid.py --image ghcr.io/maroge1990/pig-music@sha256:<digest>` to verify a published image against its exact source commit. The normal backup, migration and explicit live-release safeguards still apply.
-
-## Private HTTPS transition
-
-The approved PigMusic endpoint is `https://passyflix.tail6d1471.ts.net:10000`. Keep the other service on 8443 unchanged. See [T01 delivery](t01-delivery.md) for source/proxy configuration and verification status. Both iPhones must run Tailscale and be tested on LAN and cellular before retiring the existing private LAN URL.
+- **NAS unavailable:** Cached browsing and settings stay up, while the engine, workspace and downloads wait for the correct marker. Restore the real SMB mount, never an empty folder, then verify storage and the engine before resuming.
+- **External changes missing:** Run Scan library.
+- **Missing artwork or popularity:** Check the configured flags and provider availability. Optional failures hide enrichment and must never block browsing.
+- **Playlist missing in Plex:** Check the person's Plex connection and path mapping, then file publication and indexing. Ownership markers prevent edits to unrelated playlists.
+- **Slow remote listening:** Provider resolution is independent of the library; saved playback is preferred.
+- **Quality mismatch:** Check the actual file format and bitrate and the effective preference. Never bypass complete-file decoding to speed up the queue.
