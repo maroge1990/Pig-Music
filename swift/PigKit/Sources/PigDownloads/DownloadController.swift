@@ -71,10 +71,36 @@ import PigDomain
     self.onFailure = onFailure
   }
   public func reload() async { records = await archive.snapshot() }
-  public func enqueue(_ tracks: [Track], quality: String = "original") async throws {
-    try await archive.enqueue(tracks, quality: quality)
+  public func enqueue(
+    _ tracks: [Track], quality: String = "original", origin: DownloadOrigin = .direct
+  ) async throws {
+    try await archive.enqueue(tracks, quality: quality, origin: origin)
     await reload()
     resume()
+  }
+  /// Removes an album's or playlist's claim on these songs; files still needed
+  /// by another album or playlist stay on the device.
+  public func release(ids: [String], origin: DownloadOrigin) async {
+    let leaving = Set(
+      records.filter { ids.contains($0.id) && $0.effectiveOrigins.allSatisfy { $0.same(origin) } }
+        .map(\.id))
+    guard !leaving.isEmpty else {
+      try? await archive.release(ids: ids, origin: origin)
+      await reload()
+      return
+    }
+    await pause()
+    #if os(iOS)
+      await background?.reconcile(Set(records.map(\.id)).subtracting(leaving))
+    #endif
+    try? await archive.release(ids: ids, origin: origin)
+    await reload()
+    for id in leaving { progress[id] = nil }
+    resume()
+  }
+  public func clearFinished(ids: Set<String>? = nil) async {
+    try? await archive.clearFinished(ids: ids)
+    await reload()
   }
   public func resume(automatic: Bool = false) {
     guard !automatic || !userPaused else { return }

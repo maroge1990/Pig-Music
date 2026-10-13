@@ -67,6 +67,31 @@ private final class CopyProtocol: URLProtocol, @unchecked Sendable {
     #expect(await reopened.snapshot().isEmpty)
     #expect(!FileManager.default.fileExists(atPath: file.path))
   }
+  @Test func songInAnAlbumAndAPlaylistStaysUntilBothAreRemoved() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let archive = try archive(root)
+    let song = try track()
+    let playlist = DownloadOrigin(playlistId: "p1", playlistName: "Road trip")
+    try await archive.enqueue([song], quality: "original")
+    let record = try #require(await archive.snapshot().first)
+    try await archive.transfer(
+      record, manifest: copy(),
+      request: URLRequest(url: URL(string: "https://server.invalid/song")!), budget: 1_000_000)
+    // Adding the same ready song through a playlist keeps one file with two origins.
+    try await archive.enqueue([song], quality: "original", origin: playlist)
+    #expect(await archive.snapshot().first?.effectiveOrigins == [.direct, playlist])
+    try await archive.clearFinished()
+    #expect(await archive.snapshot().first?.cleared == true)
+    #expect(try await archive.release(ids: ["song"], origin: .direct).isEmpty)
+    let file = try #require(await archive.localFile(song))
+    #expect(await archive.snapshot().first?.effectiveOrigins == [playlist])
+    // Reopening keeps the remaining origin; removing it deletes the file.
+    let reopened = try self.archive(root)
+    #expect(try await reopened.release(ids: ["song"], origin: playlist) == ["song"])
+    #expect(await reopened.snapshot().isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: file.path))
+  }
   @Test func corruptDownloadsAndQuotaCannotPublishAudio() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: root) }

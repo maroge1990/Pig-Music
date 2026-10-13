@@ -176,7 +176,9 @@ struct PlaylistView: View {
           PlayCapsule { model.play(songs) }.disabled(songs.isEmpty)
           RoundIcon(label: "Shuffle", systemImage: "shuffle") { model.play(songs.shuffled()) }
             .disabled(songs.isEmpty)
-          DownloadMenu(model: model, tracks: songs)
+          DownloadMenu(
+            model: model, tracks: songs,
+            origin: DownloadOrigin(playlistId: playlist.id, playlistName: playlist.name))
           Spacer()
         }.buttonStyle(.plain)
         if let message { Text(message).font(PigType.footnote) }

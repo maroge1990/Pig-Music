@@ -258,17 +258,19 @@ struct AlbumView: View {
 struct DownloadMenu: View {
   let model: AppModel
   let tracks: [Track]
+  /// A playlist's downloads are grouped under it on the device.
+  var origin: DownloadOrigin = .direct
   var body: some View {
     Menu {
       Button("Download originals", systemImage: "arrow.down.circle") {
-        Task { await model.download(tracks) }
+        Task { await model.download(tracks, origin: origin) }
       }
       Button("Download smaller AAC copies", systemImage: "arrow.down.circle.dotted") {
-        Task { await model.download(tracks, quality: "aac") }
+        Task { await model.download(tracks, quality: "aac", origin: origin) }
       }
       if model.watch?.supported == true {
         Button("Send to Apple Watch", systemImage: "applewatch") {
-          Task { await model.watch?.enqueue(tracks) }
+          Task { await model.watch?.enqueue(tracks, origin: origin) }
         }
       }
     } label: {

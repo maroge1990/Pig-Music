@@ -148,10 +148,12 @@ import UIKit
   func saveDownloadBudget(_ bytes: Int64) {
     defaults.set(Int(bytes), forKey: "pig.download-budget:" + artworkNamespace)
   }
-  func download(_ tracks: [Track], quality: String = "original") async {
+  func download(
+    _ tracks: [Track], quality: String = "original", origin: DownloadOrigin = .direct
+  ) async {
     guard let downloads else { return }
     do {
-      try await downloads.enqueue(tracks, quality: quality)
+      try await downloads.enqueue(tracks, quality: quality, origin: origin)
       let stamp = generation
       let covers = Set(tracks.compactMap(\.coverSha))
       for sha in covers {

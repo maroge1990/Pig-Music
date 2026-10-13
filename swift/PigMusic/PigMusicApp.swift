@@ -11,18 +11,32 @@ import UIKit
   var body: some Scene {
     WindowGroup {
       RootView(model: model)
-        .overlay { if starting { PigBrandSplash() } }
+        .overlay { if starting { PigBrandSplash().transition(.opacity) } }
         .task {
           await model.restore()
-          starting = false
+          finishStarting()
         }
         .onChange(of: model.person?.id) { _, person in
-          if person != nil { starting = false }
+          // A restored account is attached before its first refresh. Keep the
+          // splash over the half-filled library until that refresh ends, at most
+          // briefly, so no intermediate screen flashes.
+          guard person != nil, starting else { return }
+          Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            finishStarting()
+          }
         }
         .onChange(of: phase, initial: true) { _, value in
           Task { await model.sceneActive(value == .active) }
         }
     }
+  }
+}
+
+extension PigMusicApp {
+  fileprivate func finishStarting() {
+    guard starting else { return }
+    withAnimation(.easeOut(duration: 0.25)) { starting = false }
   }
 }
 

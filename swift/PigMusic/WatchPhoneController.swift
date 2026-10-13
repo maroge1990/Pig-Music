@@ -149,11 +149,13 @@ import SwiftUI
     await downloads.reconcile(allowed)
     guard generation == stamp else { return }
     verified = true
+    await followPlaylists()
+    guard generation == stamp else { return }
     downloads.resume()
     await publish()
   }
   var supported: Bool { link?.supported == true }
-  func enqueue(_ tracks: [Track]) async {
+  func enqueue(_ tracks: [Track], origin: DownloadOrigin = .direct) async {
     guard supported else {
       message = "Watch downloads are managed by its paired iPhone."
       return
@@ -181,7 +183,7 @@ import SwiftUI
         message = "Add these songs to your library before downloading them to Watch."
         return
       }
-      try await downloads.enqueue(personal, quality: "aac")
+      try await downloads.enqueue(personal, quality: "aac", origin: origin)
       if personal.count < Set(tracks.map(\.id)).count {
         message =
           "Only songs in your library can be sent to Watch. Add or request the remaining songs first."
@@ -192,6 +194,46 @@ import SwiftUI
   func remove(_ id: String) async {
     await downloads?.remove(id: id)
     await publish()
+  }
+  /// Removes an album's or playlist's claim; songs another one needs stay.
+  func release(_ ids: [String], origin: DownloadOrigin) async {
+    await downloads?.release(ids: ids, origin: origin)
+    await publish()
+  }
+  /// Playlists sent to the Watch follow later changes: new songs are added,
+  /// removed songs are released, and a deleted playlist leaves the Watch.
+  private func followPlaylists() async {
+    guard let downloads, let model, let store = model.store, !model.playlists.isEmpty else {
+      return
+    }
+    var sentPlaylists: [String: (name: String?, ids: Set<String>)] = [:]
+    for record in downloads.records {
+      for origin in record.effectiveOrigins {
+        guard let id = origin.playlistId else { continue }
+        sentPlaylists[id, default: (origin.playlistName, [])].ids.insert(record.id)
+      }
+    }
+    for (id, sent) in sentPlaylists {
+      guard let playlist = model.playlists.first(where: { $0.id == id }) else {
+        await downloads.release(
+          ids: Array(sent.ids), origin: DownloadOrigin(playlistId: id, playlistName: sent.name))
+        continue
+      }
+      guard let entries = playlist.entries else { continue }
+      let origin = DownloadOrigin(playlistId: id, playlistName: playlist.name)
+      let wanted = Set(entries.compactMap { $0.savedId ?? $0.savedTrack?.id })
+      let gone = sent.ids.subtracting(wanted)
+      if !gone.isEmpty { await downloads.release(ids: Array(gone), origin: origin) }
+      // New songs, or every song when the playlist was renamed.
+      let refresh = playlist.name == sent.name ? wanted.subtracting(sent.ids) : wanted
+      let room = 1000 - downloads.records.count
+      var tracks: [Track] = []
+      for songId in refresh.sorted() {
+        guard tracks.count < max(0, room) || sent.ids.contains(songId) else { continue }
+        if let track = try? await store.track(id: songId) { tracks.append(track) }
+      }
+      if !tracks.isEmpty { try? await downloads.enqueue(tracks, quality: "aac", origin: origin) }
+    }
   }
   func pause() async {
     poll?.cancel()
@@ -241,7 +283,11 @@ import SwiftUI
     songs.sort { $0.id < $1.id }
     let ids = Set(songs.map(\.id))
     var remainingOccurrences = 10000
-    let collections = (model?.playlists ?? []).prefix(200).map { playlist in
+    // Only playlists sent to the Watch appear there.
+    let sentPlaylists = Set(
+      downloads.records.flatMap { $0.effectiveOrigins.compactMap(\.playlistId) })
+    let collections = (model?.playlists ?? []).filter { sentPlaylists.contains($0.id) }.prefix(200)
+      .map { playlist in
       let selected = (playlist.entries ?? []).compactMap { $0.savedId ?? $0.savedTrack?.id }.filter
       { ids.contains($0) }
       let songIds = Array(selected.prefix(remainingOccurrences))
@@ -384,32 +430,75 @@ import SwiftUI
   }
 }
 
-/// Songs sent to Apple Watch. Music is chosen from album, artist and song
-/// pages; this is just the list, with transfer status kept at the bottom.
+/// Music sent to Apple Watch: transfers first, then what is on the Watch grouped
+/// by album and playlist. Music is chosen from album, artist, playlist and song pages.
 struct WatchDownloadsView: View {
   let model: AppModel
+  @State private var removing: DeviceGroup?
   var body: some View {
     List {
       if let watch = model.watch {
         let records = watch.downloads?.records ?? []
+        let delivered = records.filter { onWatch($0, watch: watch) }
+        let transfers = records.filter { !onWatch($0, watch: watch) || $0.cleared != true }
         if records.isEmpty {
-          Text("Nothing sent yet. Use Send to Apple Watch on an album, artist or song.")
+          Text("Nothing sent yet. Use Send to Apple Watch on an album, artist, playlist or song.")
             .foregroundStyle(.secondary)
         }
-        ForEach(records) { record in
-          VStack(alignment: .leading) {
-            Text(record.track.title)
-            Text("\(record.track.artist) · \(status(record, watch: watch))").font(PigType.caption)
-            if let error = record.error { Text(error).font(PigType.footnote) }
-            if record.state == "failed" {
-              Button("Retry") { Task { await watch.enqueue([record.track]) } }
-            }
-            Button("Remove from Watch", role: .destructive) {
-              Task { await watch.remove(record.id) }
+        if !transfers.isEmpty {
+          Section("Transfers") {
+            ForEach(transfers) { record in
+              HStack(spacing: 12) {
+                ArtworkThumb(
+                  model: model, source: record.track.artworkSource, title: record.track.title)
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(record.track.title).lineLimit(1)
+                  Text(record.track.artist).font(PigType.caption).foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                mark(record, watch: watch).frame(width: 28, height: 28)
+              }
+              .accessibilityElement(children: .combine)
+              .accessibilityValue(status(record, watch: watch))
+              .swipeActions {
+                if !onWatch(record, watch: watch) {
+                  Button("Cancel", role: .destructive) { Task { await watch.remove(record.id) } }
+                }
+              }
             }
           }
         }
-        Section("Transfers") {
+        let groups = DeviceGroup.build(delivered)
+        if !groups.isEmpty {
+          Section("On Apple Watch") {
+            ForEach(groups) { group in
+              DisclosureGroup {
+                ForEach(group.records) { record in
+                  HStack {
+                    Text(record.track.title).lineLimit(1)
+                    Spacer(minLength: 0)
+                    RemoveButton(label: "Remove \(record.track.title) from Apple Watch") {
+                      Task { await watch.release([record.id], origin: group.origin) }
+                    }
+                  }
+                }
+              } label: {
+                HStack(spacing: 12) {
+                  ArtworkThumb(model: model, source: group.artwork, title: group.title, size: 44)
+                  VStack(alignment: .leading, spacing: 2) {
+                    Text(group.title).lineLimit(1)
+                    Text(group.caption).font(PigType.caption).foregroundStyle(.secondary)
+                      .lineLimit(1)
+                  }
+                  Spacer(minLength: 0)
+                  RemoveButton(label: "Remove \(group.title) from Apple Watch") { removing = group }
+                }
+              }
+            }
+          }
+        }
+        Section("Status") {
           Text(
             watch.link?.available != true
               ? "Install Pig Music on your paired Watch"
@@ -424,16 +513,59 @@ struct WatchDownloadsView: View {
             Text(error).foregroundStyle(Color("PigDanger"))
           }
           Text(
-            "AAC copies also use storage on this iPhone while on the Watch. Transfers are scheduled by the system."
+            "Playlists sent to the Watch update when they change. AAC copies also use storage on this iPhone while on the Watch. Transfers are scheduled by the system."
           ).font(PigType.footnote)
         }
       }
-    }.pigCanvas().navigationTitle("Apple Watch")
+    }
+    .pigCanvas().navigationTitle("Apple Watch")
+    .toolbar {
+      if let watch = model.watch {
+        let records = watch.downloads?.records ?? []
+        Button("Clear finished") {
+          Task {
+            await watch.downloads?.clearFinished(
+              ids: Set(records.filter { onWatch($0, watch: watch) }.map(\.id)))
+          }
+        }.disabled(!records.contains { onWatch($0, watch: watch) && $0.cleared != true })
+      }
+    }
+    .confirmationDialog(
+      removing.map { "Remove \($0.title) from Apple Watch?" } ?? "",
+      isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+      titleVisibility: .visible
+    ) {
+      if let group = removing, let watch = model.watch {
+        Button("Remove", role: .destructive) {
+          Task { await watch.release(group.records.map(\.id), origin: group.origin) }
+        }
+      }
+    } message: {
+      Text("Songs also in another album or playlist on the Watch stay there.")
+    }
+  }
+  private func onWatch(_ record: DownloadRecord, watch: WatchPhoneController) -> Bool {
+    record.checksum != nil && watch.receipt?.ready[record.id] == record.checksum
+  }
+  @ViewBuilder private func mark(_ record: DownloadRecord, watch: WatchPhoneController)
+    -> some View
+  {
+    if onWatch(record, watch: watch) {
+      Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.accentColor)
+    } else if record.state == "failed" {
+      Button {
+        Task { await watch.enqueue([record.track], origin: record.effectiveOrigins.last ?? .direct) }
+      } label: {
+        Image(systemName: "exclamationmark.arrow.circlepath").foregroundStyle(Color("PigDanger"))
+      }.buttonStyle(.borderless).accessibilityLabel("Retry")
+    } else if record.state == "ready" {
+      Image(systemName: "applewatch.radiowaves.left.and.right").foregroundStyle(.secondary)
+    } else {
+      ProgressView().controlSize(.small)
+    }
   }
   private func status(_ record: DownloadRecord, watch: WatchPhoneController) -> String {
-    if record.checksum != nil, watch.receipt?.ready[record.id] == record.checksum {
-      return "On Watch"
-    }
+    if onWatch(record, watch: watch) { return "On Watch" }
     return switch record.state {
     case "ready": "Waiting for Watch"
     case "failed": "Failed"

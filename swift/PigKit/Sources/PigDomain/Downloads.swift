@@ -33,6 +33,18 @@ public struct RetainedDownload: Codable, Sendable {
     self.sourceRevision = sourceRevision
   }
 }
+/// Why a song is on the device: added directly (as a song or album) or as part
+/// of a playlist. A song can have several; its file stays until none remain.
+public struct DownloadOrigin: Codable, Sendable, Hashable {
+  public var playlistId: String?
+  public var playlistName: String?
+  public static let direct = DownloadOrigin()
+  public init(playlistId: String? = nil, playlistName: String? = nil) {
+    self.playlistId = playlistId
+    self.playlistName = playlistName
+  }
+  public func same(_ other: DownloadOrigin) -> Bool { playlistId == other.playlistId }
+}
 public struct DownloadRecord: Codable, Sendable, Identifiable {
   public let track: Track
   public var quality: String
@@ -43,7 +55,12 @@ public struct DownloadRecord: Codable, Sendable, Identifiable {
   public var checksum: String?
   public var error: String?
   public var retained: RetainedDownload?
+  /// Nil for downloads made before origins were kept; those count as direct.
+  public var origins: [DownloadOrigin]?
+  /// A finished transfer the person cleared from the activity list; the file stays.
+  public var cleared: Bool?
   public var id: String { track.id }
+  public var effectiveOrigins: [DownloadOrigin] { origins ?? [.direct] }
   public init(track: Track, quality: String) {
     self.track = track
     self.quality = quality

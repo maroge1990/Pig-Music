@@ -171,6 +171,11 @@ struct SavedArtistView: View {
             Label("Shuffle", systemImage: "shuffle").font(.subheadline.weight(.semibold))
               .padding(.horizontal, 6)
           }.pigPrimaryAction().buttonBorderShape(.capsule).disabled(albums.isEmpty)
+          if model.watch?.supported == true {
+            RoundIcon(label: "Send \(artist.name) to Apple Watch", systemImage: "applewatch") {
+              Task { await sendToWatch() }
+            }.disabled(albums.isEmpty)
+          }
           Spacer()
         }
         LazyVGrid(columns: cardColumns, spacing: 18) {
@@ -229,6 +234,11 @@ struct SavedArtistView: View {
       }
     }
     exploring = identity != nil
+  }
+  private func sendToWatch() async {
+    var tracks: [Track] = []
+    for album in albums { tracks += await model.albumTracks(album) }
+    await model.watch?.enqueue(tracks)
   }
   private func shuffleArtist() async {
     var tracks: [Track] = []

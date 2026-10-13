@@ -1,4 +1,5 @@
 import PigBrand
+import PigDomain
 import PigDownloads
 import SwiftUI
 
@@ -19,33 +20,55 @@ private struct DownloadList: View {
   @Bindable var downloads: DownloadController
   @State private var budget = 5
   @State private var clearing = false
+  @State private var removing: DeviceGroup?
   var body: some View {
+    let transfers = downloads.records.filter { $0.state != "ready" || $0.cleared != true }
+    let groups = DeviceGroup.build(downloads.records.filter { $0.state == "ready" })
     List {
       if downloads.records.isEmpty {
         Text("No downloads yet. Choose songs, albums or playlists to download.").foregroundStyle(
           .secondary)
       }
-      ForEach(downloads.records) { record in
-        VStack(alignment: .leading) {
-          Text(record.track.title)
-          Text(
-            "\(record.track.artist) · \(record.quality == "aac" ? "AAC" : "Original") · \(record.state)"
-          ).font(PigType.caption)
-          if record.state == "ready" {
-            Button("Play", systemImage: "play.fill") { model.play([record.track]) }
+      if !transfers.isEmpty {
+        Section("Transfers") {
+          ForEach(transfers) { record in
+            TransferRow(model: model, downloads: downloads, record: record)
           }
-          if let value = downloads.progress[record.id], record.state != "ready" {
-            ProgressView(value: value)
-          }
-          if let error = record.error { Text(error).font(PigType.footnote) }
-          if record.state == "failed" {
-            Button("Retry") {
-              Task { try? await downloads.enqueue([record.track], quality: record.quality) }
+        }
+      }
+      if !groups.isEmpty {
+        Section("On this device") {
+          ForEach(groups) { group in
+            DisclosureGroup {
+              ForEach(Array(group.records.enumerated()), id: \.element.id) { index, record in
+                HStack(spacing: 10) {
+                  Button {
+                    model.play(group.records.map(\.track), at: index)
+                  } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                      Text(record.track.title).lineLimit(1)
+                      Text(record.track.artist).font(PigType.caption).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                  }.buttonStyle(.plain)
+                  RemoveButton(label: "Remove \(record.track.title) from this device") {
+                    Task { await downloads.release(ids: [record.id], origin: group.origin) }
+                  }
+                }
+              }
+            } label: {
+              HStack(spacing: 12) {
+                ArtworkThumb(model: model, source: group.artwork, title: group.title, size: 44)
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(group.title).lineLimit(1)
+                  Text(group.caption).font(PigType.caption).foregroundStyle(.secondary)
+                    .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                RemoveButton(label: "Remove \(group.title) from this device") { removing = group }
+              }
             }
           }
-          Button(
-            record.state == "ready" ? "Remove download" : "Cancel download", role: .destructive
-          ) { Task { await downloads.remove(id: record.id) } }
         }
       }
       Section("Storage") {
@@ -78,7 +101,12 @@ private struct DownloadList: View {
         }
         Button("Remove all device downloads", role: .destructive) { clearing = true }
       }
-    }.task {
+    }
+    .toolbar {
+      Button("Clear finished") { Task { await downloads.clearFinished() } }
+        .disabled(!transfers.contains { $0.state == "ready" })
+    }
+    .task {
       await downloads.reload()
       budget = Int(downloads.budgetBytes / (1024 * 1024 * 1024))
     }
@@ -86,6 +114,142 @@ private struct DownloadList: View {
       "Remove all music downloaded to this device? Server music is retained.",
       isPresented: $clearing
     ) { Button("Remove device downloads", role: .destructive) { Task { await downloads.clear() } } }
+    .confirmationDialog(
+      removing.map { "Remove \($0.title) from this device?" } ?? "",
+      isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }),
+      titleVisibility: .visible
+    ) {
+      if let group = removing {
+        Button("Remove", role: .destructive) {
+          Task { await downloads.release(ids: group.records.map(\.id), origin: group.origin) }
+        }
+      }
+    } message: {
+      Text("Songs also in another downloaded album or playlist stay on this device.")
+    }
+  }
+}
+
+/// One transfer, shown by its mark: clock (queued), progress ring, check, or a
+/// warning that retries.
+private struct TransferRow: View {
+  let model: AppModel
+  @Bindable var downloads: DownloadController
+  let record: DownloadRecord
+  @Environment(\.colorScheme) private var scheme
+  var body: some View {
+    HStack(spacing: 12) {
+      ArtworkThumb(model: model, source: record.track.artworkSource, title: record.track.title)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(record.track.title).lineLimit(1)
+        Text(record.track.artist).font(PigType.caption).foregroundStyle(.secondary).lineLimit(1)
+      }
+      Spacer(minLength: 0)
+      mark.frame(width: 28, height: 28)
+    }
+    .accessibilityElement(children: .combine)
+    .accessibilityValue(stateLabel)
+    .swipeActions {
+      if record.state != "ready" {
+        Button("Cancel", role: .destructive) { Task { await downloads.remove(id: record.id) } }
+      }
+    }
+  }
+  @ViewBuilder private var mark: some View {
+    switch record.state {
+    case "ready":
+      Image(systemName: "checkmark.circle.fill").foregroundStyle(PigBrand.accent(scheme))
+    case "downloading":
+      ProgressView(value: downloads.progress[record.id] ?? 0).progressViewStyle(.circular)
+        .controlSize(.small).tint(PigBrand.accent(scheme))
+    case "failed":
+      Button {
+        Task {
+          try? await downloads.enqueue(
+            [record.track], quality: record.quality,
+            origin: record.effectiveOrigins.last ?? .direct)
+        }
+      } label: {
+        Image(systemName: "exclamationmark.arrow.circlepath")
+          .foregroundStyle(PigBrand.danger(scheme))
+      }.buttonStyle(.borderless).accessibilityLabel("Retry")
+    default:
+      Image(systemName: "clock").foregroundStyle(.secondary)
+    }
+  }
+  private var stateLabel: String {
+    switch record.state {
+    case "ready": "Downloaded"
+    case "downloading": "Downloading"
+    case "failed": "Failed: \(record.error ?? "try again")"
+    default: "Waiting"
+    }
+  }
+}
+
+struct RemoveButton: View {
+  let label: String
+  let action: () -> Void
+  var body: some View {
+    Button(action: action) {
+      Image(systemName: "xmark.circle.fill").font(.title3).foregroundStyle(.secondary)
+        .frame(width: 32, height: 32).contentShape(Rectangle())
+    }
+    .buttonStyle(.borderless).accessibilityLabel(label)
+  }
+}
+
+/// Downloads grouped the way they were added: by album, or by playlist. A song
+/// added both ways appears in both groups.
+struct DeviceGroup: Identifiable {
+  let id: String
+  let title: String
+  let caption: String
+  let origin: DownloadOrigin
+  let artwork: AppModel.ArtworkSource?
+  let records: [DownloadRecord]
+  static func build(_ ready: [DownloadRecord]) -> [DeviceGroup] {
+    var playlists: [String: (name: String, records: [DownloadRecord])] = [:]
+    var albums: [String: [DownloadRecord]] = [:]
+    for record in ready {
+      for origin in record.effectiveOrigins {
+        if let id = origin.playlistId {
+          playlists[id, default: (origin.playlistName ?? "Playlist", [])].records.append(record)
+        } else {
+          let track = record.track
+          let key = track.albumId ?? "\(track.albumArtist ?? track.artist)|\(track.album ?? "")"
+          albums[key, default: []].append(record)
+        }
+      }
+    }
+    let playlistGroups = playlists.map { id, value in
+      DeviceGroup(
+        id: "playlist:" + id, title: value.name,
+        caption: caption("Playlist", value.records),
+        origin: DownloadOrigin(playlistId: id, playlistName: value.name),
+        artwork: value.records.lazy.compactMap(\.track.artworkSource).first,
+        records: value.records)
+    }
+    let albumGroups = albums.map { key, records in
+      let sorted = records.sorted {
+        ($0.track.discNumber ?? 1, $0.track.trackNumber ?? 0, $0.track.title)
+          < ($1.track.discNumber ?? 1, $1.track.trackNumber ?? 0, $1.track.title)
+      }
+      let first = sorted[0].track
+      return DeviceGroup(
+        id: "album:" + key, title: first.album.flatMap { $0.isEmpty ? nil : $0 } ?? first.title,
+        caption: caption(first.albumArtist ?? first.artist, sorted), origin: .direct,
+        artwork: sorted.lazy.compactMap(\.track.artworkSource).first, records: sorted)
+    }
+    func order(_ groups: [DeviceGroup]) -> [DeviceGroup] {
+      groups.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
+    return order(playlistGroups) + order(albumGroups)
+  }
+  private static func caption(_ lead: String, _ records: [DownloadRecord]) -> String {
+    let size = ByteCountFormatter.string(
+      fromByteCount: records.reduce(0) { $0 + $1.total }, countStyle: .file)
+    return "\(lead) · \(records.count) song\(records.count == 1 ? "" : "s") · \(size)"
   }
 }
 

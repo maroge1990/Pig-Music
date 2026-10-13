@@ -55,12 +55,13 @@ public actor DownloadArchive {
     try LibraryCodec.encoder().encode(records).write(
       to: directory.appendingPathComponent("downloads.json"), options: .atomic)
   }
-  public func enqueue(_ tracks: [Track], quality: String) throws {
+  public func enqueue(_ tracks: [Track], quality: String, origin: DownloadOrigin = .direct) throws {
     guard ["original", "aac"].contains(quality), tracks.count <= 10000 else {
       throw OfflineFailure.unsafeResponse
     }
     for track in tracks where track.serverState == nil || track.serverState == "in_library" {
       if let index = records.firstIndex(where: { $0.id == track.id }) {
+        records[index].origins = Self.adding(origin, to: records[index].effectiveOrigins)
         if records[index].state == "ready" && records[index].quality == quality
           && records[index].track.sourceRevision == track.sourceRevision
         {
@@ -69,6 +70,7 @@ public actor DownloadArchive {
         if records[index].state == "downloading" { continue }
         let old = records[index]
         var replacement = DownloadRecord(track: track, quality: quality)
+        replacement.origins = old.origins
         if old.track.sourceRevision == track.sourceRevision {
           if old.state == "ready", let name = old.fileName {
             replacement.retained = RetainedDownload(
@@ -86,9 +88,45 @@ public actor DownloadArchive {
           records.append(replacement)
         }
       } else {
-        records.append(DownloadRecord(track: track, quality: quality))
+        var record = DownloadRecord(track: track, quality: quality)
+        record.origins = [origin]
+        records.append(record)
       }
       invalidated.remove(track.id)
+    }
+    try persist()
+  }
+  private static func adding(_ origin: DownloadOrigin, to origins: [DownloadOrigin])
+    -> [DownloadOrigin]
+  {
+    var result = origins.filter { !$0.same(origin) }
+    result.append(origin)
+    return result
+  }
+  /// Removes one origin from these songs. A song's file is deleted only when no
+  /// other album or playlist still needs it. Returns the IDs whose files went.
+  @discardableResult
+  public func release(ids: [String], origin: DownloadOrigin) throws -> [String] {
+    var removed: [String] = []
+    for id in ids {
+      guard let index = records.firstIndex(where: { $0.id == id }) else { continue }
+      let remaining = records[index].effectiveOrigins.filter { !$0.same(origin) }
+      if remaining.isEmpty {
+        try remove(id: id)
+        removed.append(id)
+      } else {
+        records[index].origins = remaining
+      }
+    }
+    try persist()
+    return removed
+  }
+  /// Hides finished transfers from the activity list; their files stay. With
+  /// `ids`, only those songs count as finished.
+  public func clearFinished(ids: Set<String>? = nil) throws {
+    for index in records.indices
+    where records[index].state == "ready" && ids.map({ $0.contains(records[index].id) }) ?? true {
+      records[index].cleared = true
     }
     try persist()
   }
