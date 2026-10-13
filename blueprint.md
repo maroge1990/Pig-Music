@@ -32,7 +32,8 @@ Pig Music is a private household music-library manager with one container, one i
   - the 9 October music bug fixes;
   - YouTube, SoundCloud and Monochrome acquisition adapters;
   - the native contract and AAC device copies;
-  - the 12 October artwork and layout fixes.
+  - the 12 October artwork and layout fixes;
+  - the 14 October native fixes and features (N14A–D, W02, HH; see the roadmap).
 
   Schema migrations 7–9 are additive. Back up appdata before releasing, because rolling the image back does not reverse a migration.
 - **Native:** iPhone/iPad and an embedded independent Watch app, version **0.2.0 (3)**, Pig family brand 1.7.0. Everyday browsing, personal actions, offline edits, background downloads, gapless/crossfade and Watch offline playback are implemented and simulator-verified. Physical-device acceptance is open. Signing uses a free Personal Team.
@@ -50,12 +51,12 @@ Order is deliberate. Add entries with a stable ID and a gate. Reorder here; don'
 | 4 | SP | Real transfers for YouTube, SoundCloud and Monochrome from Unraid | Unverified | `scripts/verify_download_source.py` on an isolated output; codec playback on each Apple device |
 | 5 | SC1 | SoundCloud uploader identity | Owner decision | Official uploads lack a structured artist credit; accepting uploader names would admit fan uploads |
 | 6 | COV | Source coverage test: search-only, no downloads | Planned | One sample (household library, Apple AU chart, deep cuts, live and remaster editions); for each source record confident matches, wrong-version matches, latency and quality; run from Unraid. The results set the R01 and download order |
-| 7 | N14A | Native quick fixes: graphic-only request status, open the recommended edition (other editions at the bottom), Discography link at the bottom of both artist pages, album artist name opens the right artist page, Search artists open the full artist page (with a library link), artist page ready without visible loading, no flash at launch | Planned | Simulator journeys plus a device check of the launch flash |
-| 8 | N14B | Requested albums appear in full in the library, pending songs with status graphics | Planned | Membership migration fixtures and production-state comparison; backup before release |
-| 9 | N14C | Downloads: Clear finished (Server, iPhone, Watch); On this device grouped by album and playlist, with remove buttons | Planned | A song in both an album and a playlist shows in both; removing one group keeps the file while the other needs it |
-| 10 | N14D | Native graphical artist page (background, logo, scroll fade) matching the web | Planned | Fallback without Fanart |
-| 11 | W02 | Watch redesign: Now Playing, Playlists, Artists, Albums, Downloaded; send playlists and artists from the phone; sent playlists update automatically | Planned | Design pass first; Watch Ultra 3 and Series 7 |
-| 12 | HH | Household songs play for every member without adding them first | Planned | Contract change (see 14 Oct decisions); the membership-based removal rules stay the same |
+| 7 | N14A | Native quick fixes: graphic-only request status, open the recommended edition (other editions at the bottom), Full discography link at the bottom of both artist pages, album artist name opens the right artist page, Search artists open the full artist page (with a library link), catalogue pages draw from memory, splash held until the first refresh | Delivered, unverified | Built and unit-tested; not seen on a simulator or device (the app needs an HTTPS server). Device check of each journey and the launch flash |
+| 8 | N14B | Requested albums appear in full in the library, pending songs with status graphics | Delivered, unverified | Projection-only (no schema change); test covers merge, failed, replacements and counts. Compare a production-state projection before release |
+| 9 | N14C | Downloads: Clear finished (Server, iPhone, Watch); On this device grouped by album and playlist, with remove buttons | Delivered, unverified | PigKit test covers the album-and-playlist rule; device check |
+| 10 | N14D | Native graphical artist page (background, logo, scroll fade) matching the web | Delivered, unverified | Device check with and without Fanart |
+| 11 | W02 | Watch redesign: Now Playing, Playlists, Artists, Albums, Songs; send playlists and artists from the phone; sent playlists update automatically | Delivered, unverified | Watch Ultra 3 and Series 7 |
+| 12 | HH | Household songs play for every member without adding them first | Delivered | Streaming only; device copies still need membership. Security test covers it |
 | 13 | U01-4 / R17 | All client calls on `/api/v1`, owner APIs as `/api/v1/admin`; then retire legacy routes | Planned | Test rejecting unversioned client paths; needed before any native Admin |
 | 14 | R18 | Admin uses the shell's `/api/v1/events` stream | Planned | One visibility-aware fallback poll |
 | 15 | R19 | Playwright smoke tests (album cover, ambiguous artist, Home order, Admin status) at 1366/375 px, both themes | Planned | Runs in CI |
