@@ -48,3 +48,68 @@ def test_fast_remote_requires_release_context_and_caches_verified_urls():
 
     asyncio.run(run())
     assert calls == ["search", "probe"]
+
+
+def test_remote_falls_back_in_order_to_a_relayed_lossy_source(tmp_path, monkeypatch):
+    import shutil
+    import subprocess
+    from server.providers import network
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        pytest.skip("FFmpeg is required for the relay probe")
+    fixture = tmp_path / "fixture.mp3"
+    subprocess.run(
+        [ffmpeg, "-v", "error", "-f", "lavfi", "-i", "sine=duration=3", str(fixture)],
+        check=True,
+    )
+    target = {"artist": "Artist", "title": "Song", "album": "Album", "duration": 3}
+    candidate = {
+        "channel": "Artist",
+        "title": "Song",
+        "duration": 3,
+        "source_url": "https://zvu4it.org/song.mp3",
+    }
+    searched = []
+
+    def relay_search(source, track):
+        searched.append(source)
+        if source == "zvu4no":
+            # A live version is not the requested recording; the next source is tried.
+            return [{**candidate, "title": "Song (Live)"}]
+        # Several copies of one recording: the 320 kbps one is relayed.
+        return [
+            {
+                **candidate,
+                "source_url": "https://meln.top/low.mp3",
+                "quality": "128kbps",
+            },
+            {
+                **candidate,
+                "source_url": "https://meln.top/song.mp3",
+                "quality": "320kbps",
+            },
+        ]
+
+    def transfer(url, hosts, path, context):
+        assert url == "https://meln.top/song.mp3" and "meln.top" in hosts
+        shutil.copyfile(fixture, path)
+
+    monkeypatch.setattr(network, "transfer", transfer)
+    resolver = RemoteAudio(
+        lambda *_: [], directory=tmp_path / "relay", relay_search=relay_search
+    )
+
+    async def run():
+        async with httpx.AsyncClient() as client:
+            return await resolver.stream(client, target, "member")
+
+    found = asyncio.run(run())
+    assert found["source"] == "freemp3cloud" and searched == ["zvu4no", "freemp3cloud"]
+    path, media_type = resolver.relay(found["relay"], "member")
+    assert media_type == "audio/mpeg" and path.read_bytes() == fixture.read_bytes()
+    # A relay belongs to the person who asked for it.
+    assert resolver.relay(found["relay"], "someone-else") is None
+    # The fetched file is reused for the same recording.
+    assert asyncio.run(run())["source"] == "freemp3cloud"
+    assert searched == ["zvu4no", "freemp3cloud"]

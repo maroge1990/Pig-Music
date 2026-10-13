@@ -455,8 +455,10 @@ public actor NativeService: LibrarySource {
     switch response {
     case .ok(let success):
       let remote: Remote = try LibraryCodec.convert(success.body.json)
-      guard let url = URL(string: remote.url), url.scheme == "https", url.host != nil,
-        url.user == nil, url.password == nil
+      // JioSaavn answers with its own HTTPS address; other sources are relayed
+      // by the server as a signed path on this origin.
+      guard let url = URL(string: remote.url, relativeTo: server)?.absoluteURL,
+        url.scheme == "https", url.host != nil, url.user == nil, url.password == nil
       else { throw NativeFailure.invalidMediaURL }
       return url
     case .unauthorized: throw NativeFailure.authentication

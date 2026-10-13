@@ -26,6 +26,8 @@ PUBLIC = frozenset(
     }
 )
 PERSONAL_ACCOUNT_PREFIXES = ("/api/v1/me", "/api/v1/auth/logout")
+# Paths an audio element may open with a signed, expiring query instead of a session.
+SIGNED_PREFIXES = ("/api/playback/files/", "/api/playback/remote/")
 
 
 def secret_file(directory):
@@ -95,7 +97,7 @@ class Security:
         try:
             if (
                 not token
-                and request.url.path.startswith("/api/playback/files/")
+                and request.url.path.startswith(SIGNED_PREFIXES)
                 and request.method in {"GET", "HEAD"}
                 and any(key in request.query_params for key in ("exp", "sid", "sig"))
             ):
@@ -177,7 +179,7 @@ class Security:
         return person
 
     def sign_url(self, path, person, session):
-        if not path.startswith("/api/playback/files/") or "?" in path:
+        if not path.startswith(SIGNED_PREFIXES) or "?" in path:
             raise ValueError("Only a saved-track playback path can be signed")
         expiry = min(self.auth.now() + 6 * 3600, session["expires_at"])
         message = f"{person['id']}|{session['public_id']}|{path}|{expiry}"

@@ -63,7 +63,7 @@ from .media import (
     saved_track,
     settings as private_media_settings,
 )
-from .remote import RemoteAudio
+from .remote import LABELS, RemoteAudio
 from .scanner import LibraryScanner
 from .playlists import Playlists
 from .plex import Plex
@@ -88,8 +88,10 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     popularity = Popularity(store, music_catalogue)
     backgrounds = Backgrounds(store, artwork, fanart)
     logos = Logos(store, fanart)
-    remote_audio = RemoteAudio()
     source_runtime = SourceRuntime(store)
+    remote_audio = RemoteAudio(
+        directory=store.directory / "remote-cache", runtime=source_runtime
+    )
     scanner = LibraryScanner(store)
     playlists = Playlists(store)
     plex = Plex(store, playlists)
@@ -1077,7 +1079,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         recording_id: str | None = Field(None, max_length=64)
 
     @app.post("/api/playback/catalogue", tags=["personal-library"])
-    async def playback_catalogue(body: PlaybackRequest):
+    async def playback_catalogue(body: PlaybackRequest, request: Request):
         if not body.track_id and not body.recording_id:
             raise HTTPException(422, "Choose a song to play.")
         tracks = music_catalogue.presence(
@@ -1099,21 +1101,35 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             raise HTTPException(404, "Song not found in this release.")
         if track.get("saved_id"):
             return playback_saved(track["saved_id"])
-        return await remote_playback(track)
+        return await remote_playback(track, request)
 
     from .routes.personal import TrackInput
 
     @app.post("/api/v1/remote-playback", tags=["personal-library"])
-    async def playback_remote(body: TrackInput):
-        return await remote_playback(body.model_dump(exclude_none=True))
+    async def playback_remote(body: TrackInput, request: Request):
+        return await remote_playback(body.model_dump(exclude_none=True), request)
 
-    async def remote_playback(track):
+    @app.get("/api/playback/remote/{token}", tags=["personal-library"])
+    @app.head("/api/playback/remote/{token}", tags=["personal-library"])
+    def playback_relayed(token: str, request: Request):
+        found = remote_audio.relay(token, request.state.user["id"])
+        if not found:
+            raise HTTPException(404, "This stream has expired. Play the song again.")
+        return FileResponse(
+            found[0],
+            media_type=found[1],
+            headers={"Cache-Control": "private, no-store"},
+        )
+
+    async def remote_playback(track, request):
         if not public_settings(store)["remote_playback"]:
             raise HTTPException(
                 409, "Experimental remote playback is disabled in Settings."
             )
         try:
-            url = await remote_audio.resolve(app.state.http, track)
+            found = await remote_audio.stream(
+                app.state.http, track, request.state.user["id"]
+            )
         except (httpx.HTTPError, TimeoutError):
             raise HTTPException(
                 503,
@@ -1124,10 +1140,15 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 404,
                 "No reliable remote stream matched this release. You can still download it.",
             )
+        url = found.get("url") or security.sign_url(
+            "/api/playback/remote/" + found["relay"],
+            request.state.user,
+            request.state.session,
+        )
         return {
             **track,
             "url": url,
-            "source": "Remote · JioSaavn",
+            "source": "Remote · " + LABELS[found["source"]],
             "note": "Not saved. Provider quality and exact mastering are unverified.",
         }
 

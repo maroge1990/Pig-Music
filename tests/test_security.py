@@ -299,3 +299,51 @@ def test_members_can_stream_a_catalogue_song_by_its_recording(tmp_path, monkeypa
         assert played.json()["url"] == "https://aac.saavncdn.com/song.mp4"
         missing = client.post("/api/playback/catalogue", json={"release_id": release})
         assert missing.status_code == 422
+
+
+def test_relayed_remote_audio_uses_a_signed_link_bound_to_its_listener(
+    tmp_path, monkeypatch
+):
+    from server.remote import RemoteAudio
+
+    async def no_direct_stream(self, client, track):
+        raise ValueError("No unique remote recording matched this release.")
+
+    def fetch(self, source, track):
+        assert source == "zvu4no"
+        self.directory.mkdir(parents=True, exist_ok=True)
+        path = self.directory / "fixture.mp3"
+        path.write_bytes(b"relayed audio bytes")
+        return path
+
+    monkeypatch.setattr(RemoteAudio, "resolve", no_direct_stream)
+    monkeypatch.setattr(RemoteAudio, "fetch", fetch)
+    app, owner = protected(tmp_path, monkeypatch)
+    code = app.state.auth.setup_code(owner, "member", "Member")
+    app.state.auth.activate(code["code"], PASSWORD, "fixture")
+    member = app.state.auth.login(
+        "member", PASSWORD, "device", "phone", "ios", "fixture"
+    )["token"]
+    owner_token = app.state.auth.login(
+        "mark", PASSWORD, "device", "phone", "ios", "fixture"
+    )["token"]
+    song = {"artist": "Artist", "title": "Song", "album": "Album", "duration": 3}
+    with TestClient(app, base_url="https://private.ts.net") as client:
+        played = client.post(
+            "/api/v1/remote-playback",
+            json=song,
+            headers={"Authorization": "Bearer " + member},
+        )
+        assert played.status_code == 200, played.text
+        assert played.json()["source"] == "Remote · zvu4no"
+        url = played.json()["url"]
+        assert url.startswith("/api/playback/remote/") and "sig=" in url
+        response = client.get(url, headers={"Range": "bytes=0-6"})
+        assert response.status_code == 206 and response.content == b"relayed"
+        assert client.get(url + "x").status_code == 403
+        bare = url.split("?")[0]
+        assert client.get(bare).status_code == 401
+        owner_view = client.get(
+            bare, headers={"Authorization": "Bearer " + owner_token}
+        )
+        assert owner_view.status_code == 404
