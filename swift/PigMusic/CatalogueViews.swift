@@ -591,10 +591,6 @@ struct CatalogueReleaseView: View {
               model.play(release.songs.map(\.track), at: index)
             }
           }
-        } footer: {
-          Text(
-            "Household songs need adding to your library before they play from the server. Other catalogue songs use experimental streaming. Adding or requesting music is a separate action."
-          )
         }
         if let groupId, editionCount > 1 {
           Section {

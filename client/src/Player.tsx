@@ -16,15 +16,7 @@ import type { Track } from "./types";
 import { PersonalSongActions } from "./PersonalSongActions";
 import { useFixedHeight } from "./useFixedHeight";
 import { Cover } from "./Cover";
-import {
-  fromTrack,
-  goToAlbum,
-  goToArtist,
-  requestSong,
-  songBody,
-  withLibrary,
-  type Song,
-} from "./songs";
+import { fromTrack, goToAlbum, goToArtist, songBody, type Song } from "./songs";
 
 type Playing = Song & {
   url?: string;
@@ -122,12 +114,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   /** Resolve the audio for one song: your file, or a stream when unsaved. */
   async function resolve(s: Song) {
-    if (s.state === "server" && s.server) {
-      // On the server already: adding to your library is instant.
-      await requestSong(s);
-      const [added] = await withLibrary([s]);
-      return resolveSaved(added.saved?.id || s.server.id);
-    }
+    // Household files play straight from the server without being added.
+    if (s.state === "server" && s.server) return resolveSaved(s.server.id);
     if (s.saved) return resolveSaved(s.saved.id);
     if (s.release_id && (s.track_id || s.recording_id)) {
       const response = await apiFetch("/api/playback/catalogue", {

@@ -48,7 +48,7 @@ struct SongActionsView: View {
           }
         }
         Section {
-          if model.player.queue.current != nil && track.serverState != "household_available" {
+          if model.player.queue.current != nil {
             Button("Play next") { model.player.enqueue([track], next: true) }
             Button("Add to queue") { model.player.enqueue([track]) }
           }

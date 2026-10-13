@@ -128,8 +128,22 @@ class Security:
         ) or request.url.path.startswith("/api/v1/playback/")
         media_path = media_path or request.url.path.startswith("/api/v1/tracks/")
         if media_path:
+            from .media import saved_track
+
             track_id = request.path_params.get("track_id")
-            if not self.auth.store.user_libraries.contains(person["id"], track_id):
+            # Household files stream for every member without being added first.
+            # Device copies stay limited to the member's own library.
+            streaming = (
+                request.url.path.startswith(
+                    ("/api/playback/files/", "/api/v1/playback/")
+                )
+                or request.url.path == f"/api/v1/tracks/{track_id}/file"
+            )
+            if not self.auth.store.user_libraries.contains(person["id"], track_id) and (
+                not streaming
+                or not track_id
+                or saved_track(self.auth.store, track_id)[0] is None
+            ):
                 raise HTTPException(404, "Track not found")
             scoped = True
         if person["role"] != "owner" and request.url.path.startswith(

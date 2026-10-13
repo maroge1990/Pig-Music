@@ -160,6 +160,36 @@ def test_signed_playback_ranges_tamper_expiry_and_revocation(tmp_path, monkeypat
         assert client.get(url).status_code == 403
 
 
+def test_members_stream_household_files_without_adding_them(tmp_path, monkeypatch):
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    (nas / "song.mp3").write_bytes(b"fixture audio bytes")
+    monkeypatch.setenv("PIG_MUSIC_LIBRARY", str(nas))
+    song = {"id": "song", "title": "Song", "artist": "Artist", "album": "Album"}
+    (tmp_path / "library-snapshot.json").write_text(
+        json.dumps({"tracks": [{**song, "relative_path": "song.mp3"}]})
+    )
+    app, owner = protected(tmp_path, monkeypatch)
+    setup = app.state.auth.setup_code(owner, "member", "Member")
+    member = app.state.auth.activate(setup["code"], PASSWORD, "fixture")["id"]
+    token = app.state.auth.login(
+        "member", PASSWORD, "device", "phone", "ios", "fixture"
+    )["token"]
+    assert not app.state.store.user_libraries.contains(member, "song")
+    with TestClient(
+        app,
+        base_url="https://private.ts.net",
+        headers={"Authorization": "Bearer " + token},
+    ) as client:
+        result = client.post("/api/v1/playback/song/url")
+        assert result.status_code == 200, result.text
+        response = client.get(result.json()["url"], headers={"Range": "bytes=0-6"})
+        assert response.status_code == 206 and response.content == b"fixture"
+        assert client.post("/api/v1/playback/other/url").status_code == 404
+    # Playing never adds the song to the member's library.
+    assert not app.state.store.user_libraries.contains(member, "song")
+
+
 def test_cookie_mutations_require_header_and_https(tmp_path, monkeypatch):
     app, _ = protected(tmp_path, monkeypatch)
     with TestClient(

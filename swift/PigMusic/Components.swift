@@ -245,7 +245,7 @@ struct SongRow: View {
   var body: some View {
     HStack(spacing: 12) {
       Button {
-        if track.serverState == "household_available" { model.actionTrack = track } else { play() }
+        play()
       } label: {
         HStack(spacing: 12) {
           if let number {
@@ -269,7 +269,7 @@ struct SongRow: View {
       }
       .buttonStyle(.plain)
       .accessibilityLabel(
-        "\(track.serverState == "household_available" ? "Add" : "Play") \(track.title) by \(track.artist)"
+        "Play \(track.title) by \(track.artist)"
       )
       .accessibilityValue(current ? "Now playing" : ([stateLabel] + deviceLabels).joined(separator: ", "))
       indicator
