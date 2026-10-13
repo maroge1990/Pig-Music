@@ -615,6 +615,23 @@ import UIKit
     }
   }
   func artistArtwork(id: String) async -> UIImage? { await artwork(.artist(id), width: 512) }
+  /// Fanart background and logo for the full artist page; nil when unavailable.
+  func artistBackground(id: String) async -> UIImage? {
+    await catalogueImage("background", id, 1024) {
+      try await $0.artistBackground(id: id, request: $1)
+    }
+  }
+  func artistLogo(id: String) async -> UIImage? {
+    await catalogueImage("logo", id, 1024) { service, _ in try await service.artistLogo(id: id) }
+  }
+  /// The image already decoded in memory, for drawing a revisited page at once.
+  func memoryCatalogueImage(_ kind: String, _ id: String, width: Int) -> UIImage? {
+    let sha = SHA256.hash(data: Data(("catalogue-\(kind):" + id.lowercased()).utf8)).map {
+      String(format: "%02x", $0)
+    }.joined()
+    guard let request = try? ArtworkRequest(sha: sha, width: width) else { return nil }
+    return artworkMemory.object(forKey: request.filename as NSString)
+  }
   private func catalogueImage(
     _ kind: String, _ id: String, _ width: Int,
     fetch: @escaping @Sendable (NativeService, ArtworkRequest) async throws -> Data

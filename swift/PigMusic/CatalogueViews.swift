@@ -27,12 +27,11 @@ struct CatalogueArtistView: View {
       initialValue: Self.songs(popular, model.peekCatalogue(key: "popular-matches:" + artistId)))
     _albums = State(initialValue: model.peekCatalogue(key: Self.albumsKey(artistId)))
   }
+  @State private var scrolledPastHero = false
   var body: some View {
     ScrollView {
+      ArtistHero(model: model, artistId: artistId, name: name, subtitle: profileLine)
       VStack(alignment: .leading, spacing: 16) {
-        DetailHeader(
-          model: model, source: .artist(artistId), eyebrow: "ARTIST", title: name,
-          subtitle: profileLine, circle: true)
         if saved != nil {
           Button {
             showingLibrary = true
@@ -104,7 +103,13 @@ struct CatalogueArtistView: View {
         }
       }.padding(.horizontal).padding(.bottom, 24)
     }
-    .pigCanvas().navigationTitle(name).navigationBarTitleDisplayMode(.inline)
+    .ignoresSafeArea(edges: .top)
+    .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y > ArtistHero.height - 120 } action: {
+      _, past in
+      withAnimation(.easeInOut(duration: 0.2)) { scrolledPastHero = past }
+    }
+    .pigCanvas().navigationTitle(scrolledPastHero ? name : "").navigationBarTitleDisplayMode(.inline)
+    .toolbarBackground(scrolledPastHero ? .automatic : .hidden, for: .navigationBar)
     .navigationDestination(isPresented: $showingLibrary) {
       if let saved { SavedArtistView(model: model, artist: saved) }
     }
@@ -171,6 +176,101 @@ struct CatalogueArtistView: View {
       if identity.id == artistId { saved = candidate }
     } catch is CancellationError {} catch {
       if model.service == nil { saved = candidate }
+    }
+  }
+}
+
+/// The full artist page's header, like the web: an edge-to-edge photograph that
+/// fades and drifts as the page scrolls, with the portrait and the artist's logo
+/// (or name). Without a Fanart photograph a blurred portrait fills the same space,
+/// so the layout never jumps when the photograph arrives.
+struct ArtistHero: View {
+  static let height: CGFloat = 340
+  let model: AppModel
+  let artistId: String
+  let name: String
+  let subtitle: String?
+  @State private var background: UIImage?
+  @State private var portrait: UIImage?
+  @State private var logo: UIImage?
+  @Environment(\.colorScheme) private var scheme
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  init(model: AppModel, artistId: String, name: String, subtitle: String?) {
+    self.model = model
+    self.artistId = artistId
+    self.name = name
+    self.subtitle = subtitle
+    _background = State(initialValue: model.memoryCatalogueImage("background", artistId, width: 1024))
+    _portrait = State(initialValue: model.memoryCatalogueImage("artist", artistId, width: 512))
+    _logo = State(initialValue: model.memoryCatalogueImage("logo", artistId, width: 1024))
+  }
+  var body: some View {
+    GeometryReader { proxy in
+      let offset = proxy.frame(in: .scrollView).minY
+      let progress = min(1, max(0, -offset / (Self.height * 0.8)))
+      ZStack(alignment: .bottomLeading) {
+        backdrop
+          .frame(width: proxy.size.width, height: Self.height + max(0, offset))
+          .clipped()
+          .opacity(1 - progress * 0.9)
+          .blur(radius: reduceMotion ? 0 : progress * 12)
+          .offset(y: offset > 0 ? -offset : (reduceMotion ? 0 : -offset * 0.45))
+          .overlay(alignment: .bottom) {
+            LinearGradient(
+              colors: [.clear, PigBrand.canvas(scheme).opacity(0.7), PigBrand.canvas(scheme)],
+              startPoint: .top, endPoint: .bottom
+            ).frame(height: Self.height * 0.55)
+          }
+        HStack(alignment: .bottom, spacing: 14) {
+          Artwork(model: model, source: .artist(artistId), title: name, width: 512, circle: true)
+            .frame(width: 92, height: 92)
+            .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
+          VStack(alignment: .leading, spacing: 4) {
+            Text("ARTIST").font(.caption.weight(.bold)).tracking(1.2)
+              .foregroundStyle(PigBrand.textAccent(scheme))
+            if let logo {
+              Image(uiImage: logo).resizable().scaledToFit()
+                .frame(maxWidth: 220, maxHeight: 64, alignment: .leading)
+                .accessibilityLabel(name)
+            } else {
+              Text(name).font(.largeTitle.weight(.bold)).lineLimit(2).minimumScaleFactor(0.6)
+            }
+            if let subtitle {
+              Text(subtitle).font(PigType.subhead).foregroundStyle(.secondary).lineLimit(1)
+            }
+          }
+          Spacer(minLength: 0)
+        }
+        .padding(.horizontal).padding(.bottom, 8)
+        .opacity(1 - progress)
+      }
+    }
+    .frame(height: Self.height)
+    .accessibilityElement(children: .combine)
+    .accessibilityAddTraits(.isHeader)
+    // Each image appears as soon as it arrives.
+    .task(id: artistId) {
+      if background == nil, let image = await model.artistBackground(id: artistId) {
+        withAnimation(.easeIn(duration: 0.3)) { background = image }
+      }
+    }
+    .task(id: artistId) {
+      if portrait == nil, let image = await model.artistArtwork(id: artistId) { portrait = image }
+    }
+    .task(id: artistId) {
+      if logo == nil, let image = await model.artistLogo(id: artistId) {
+        withAnimation(.easeIn(duration: 0.3)) { logo = image }
+      }
+    }
+  }
+  @ViewBuilder private var backdrop: some View {
+    if let background {
+      Image(uiImage: background).resizable().scaledToFill()
+    } else if let portrait {
+      Image(uiImage: portrait).resizable().scaledToFill().blur(radius: 40).saturation(1.3)
+        .opacity(0.7)
+    } else {
+      PigBrand.surface(scheme)
     }
   }
 }

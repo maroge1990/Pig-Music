@@ -34,10 +34,12 @@ final class ArtworkTransport: Sendable {
   deinit { session.invalidateAndCancel() }
   /// Server-side artwork aliases. They answer with a redirect to stored bytes.
   enum Alias: Sendable {
-    case artist(UUID), release(UUID), releaseGroup(UUID)
+    case artist(UUID), background(UUID), release(UUID), releaseGroup(UUID)
     var path: String {
       switch self {
       case .artist(let id): "/api/catalogue/artists/" + id.uuidString.lowercased() + "/artwork"
+      case .background(let id):
+        "/api/catalogue/artists/" + id.uuidString.lowercased() + "/background"
       case .release(let id): "/api/catalogue/artwork/release/" + id.uuidString.lowercased()
       case .releaseGroup(let id):
         "/api/catalogue/artwork/release-group/" + id.uuidString.lowercased()
@@ -64,6 +66,33 @@ final class ArtworkTransport: Sendable {
       throw ArtworkFailure.unavailable
     }
     return try await stored(sha, width: artwork.width, origin)
+  }
+  /// An artist logo, which the server returns as PNG bytes rather than a redirect.
+  func logo(artist id: UUID) async throws -> Data {
+    let origin = try ServerAddress.validate(server.absoluteString)
+    var parts = URLComponents(url: origin, resolvingAgainstBaseURL: false)!
+    parts.path = "/api/catalogue/artists/" + id.uuidString.lowercased() + "/logo"
+    let url = parts.url!
+    let (bytes, response) = try await send(url)
+    defer { bytes.task.cancel() }
+    guard response.statusCode == 200, response.url == url,
+      response.mimeType?.lowercased() == "image/png"
+    else { throw ArtworkFailure.unavailable }
+    return try await body(bytes, response)
+  }
+  private func body(_ bytes: URLSession.AsyncBytes, _ response: HTTPURLResponse) async throws
+    -> Data
+  {
+    guard response.expectedContentLength <= ArtworkCache.maximumImageBytes else {
+      throw ArtworkFailure.tooLarge
+    }
+    var data = Data()
+    for try await byte in bytes {
+      if data.count >= ArtworkCache.maximumImageBytes { throw ArtworkFailure.tooLarge }
+      if data.count % 16384 == 0 { try Task.checkCancellation() }
+      data.append(byte)
+    }
+    return data
   }
   private func send(_ url: URL) async throws -> (URLSession.AsyncBytes, HTTPURLResponse) {
     guard let token = try await vault.read() else { throw NativeFailure.authentication }
@@ -92,15 +121,6 @@ final class ArtworkTransport: Sendable {
     guard response.statusCode == 200, response.url == url,
       ["image/webp", "image/jpeg", "image/png"].contains(response.mimeType?.lowercased() ?? "")
     else { throw ArtworkFailure.unavailable }
-    guard response.expectedContentLength <= ArtworkCache.maximumImageBytes else {
-      throw ArtworkFailure.tooLarge
-    }
-    var data = Data()
-    for try await byte in bytes {
-      if data.count >= ArtworkCache.maximumImageBytes { throw ArtworkFailure.tooLarge }
-      if data.count % 16384 == 0 { try Task.checkCancellation() }
-      data.append(byte)
-    }
-    return data
+    return try await body(bytes, response)
   }
 }

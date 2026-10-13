@@ -184,6 +184,15 @@ public actor NativeService: LibrarySource {
     return try await artworkTransport.fetch(
       request, alias: kind == .release ? .release(uuid) : .releaseGroup(uuid))
   }
+  /// The artist's wide Fanart background; unavailable without a Fanart key.
+  public func artistBackground(id: String, request: ArtworkRequest) async throws -> Data {
+    guard let uuid = UUID(uuidString: id) else { throw ArtworkFailure.invalidRequest }
+    return try await artworkTransport.fetch(request, alias: .background(uuid))
+  }
+  public func artistLogo(id: String) async throws -> Data {
+    guard let uuid = UUID(uuidString: id) else { throw ArtworkFailure.invalidRequest }
+    return try await artworkTransport.logo(artist: uuid)
+  }
   public func catalogueEditions(groupId: String, offset: Int = 0) async throws -> CatalogueEditions
   {
     switch try await client.editions_api_v1_catalogue_groups__group_id__editions_get(
