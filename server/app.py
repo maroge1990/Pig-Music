@@ -1109,6 +1109,21 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     async def playback_remote(body: TrackInput, request: Request):
         return await remote_playback(body.model_dump(exclude_none=True), request)
 
+    class RemotePreparation(BaseModel):
+        tracks: list[TrackInput] = Field(max_length=3)
+
+    @app.post("/api/v1/remote-playback/prepare", tags=["personal-library"])
+    async def prepare_remote(body: RemotePreparation):
+        """Players name the next songs in their queue so slow sources are
+        fetched before they are reached."""
+        if not public_settings(store)["remote_playback"]:
+            return {"preparing": 0}
+        return {
+            "preparing": remote_audio.prepare(
+                app.state.http, [t.model_dump(exclude_none=True) for t in body.tracks]
+            )
+        }
+
     @app.get("/api/playback/remote/{token}", tags=["personal-library"])
     @app.head("/api/playback/remote/{token}", tags=["personal-library"])
     def playback_relayed(token: str, request: Request):

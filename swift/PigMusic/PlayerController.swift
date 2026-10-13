@@ -14,6 +14,8 @@ import PigPlayback
   private(set) var duration: Double = 0
   var error: String?
   @ObservationIgnored var onListen: (@MainActor (ListeningEvent) -> Void)?
+  /// Called when a new song becomes current, with the songs queued after it.
+  @ObservationIgnored var onUpcoming: (@MainActor ([Track]) -> Void)?
   @ObservationIgnored private var listenOccurrence: UUID?
   @ObservationIgnored private var listenSeconds: Double = 0
   @ObservationIgnored private var listenReported = false
@@ -30,6 +32,8 @@ import PigPlayback
       listenOccurrence = item.id
       listenSeconds = 0
       listenReported = false
+      let next = queue.items.dropFirst(queue.index + 1).prefix(2).map(\.track)
+      onUpcoming?(Array(next))
       return
     }
     if playing { listenSeconds += delta }

@@ -196,11 +196,24 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           }
         : null;
       setSong({ ...s, ...found });
+      prepareUpcoming();
     } catch (e) {
       if (request === serial.current) setError((e as Error).message);
     } finally {
       if (request === serial.current) setBusy(false);
     }
+  }
+  /** Ask the server to fetch the next streamed songs before they are reached. */
+  function prepareUpcoming() {
+    const next = queue.current
+      .slice(cursor.current + 1, cursor.current + 3)
+      .filter((s) => !s.saved && s.state !== "server");
+    if (!next.length) return;
+    void apiFetch("/api/v1/remote-playback/prepare", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tracks: next.map(songBody) }),
+    }).catch(() => undefined);
   }
   function play(songs: Song[], index = 0) {
     if (!songs[index]) return;

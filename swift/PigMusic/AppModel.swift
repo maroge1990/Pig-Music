@@ -281,6 +281,15 @@ import UIKit
         await self?.flushHistory()
       }
     }
+    player.onUpcoming = { [weak self] tracks in
+      guard let self, let service = self.service else { return }
+      let archive = self.downloads?.archive
+      Task {
+        var remote: [Track] = []
+        for track in tracks where await archive?.localFile(track) == nil { remote.append(track) }
+        await service.prepareRemote(remote)
+      }
+    }
     player.onCheckpoint = { checkpoint in
       let ids = checkpoint.queue.items.map(\.id)
       let changed = ids != savedOccurrenceIds

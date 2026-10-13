@@ -436,6 +436,24 @@ public actor NativeService: LibrarySource {
     default: throw NativeFailure.unavailable("Unable to prepare this song for playback.")
     }
   }
+  private func remoteInput(_ track: Track) -> Components.Schemas.TrackInput {
+    .init(
+      album: track.album, album_artist: track.albumArtist, artist: track.artist,
+      disc_number: track.discNumber, duration: track.duration,
+      musicbrainz_recording_id: track.musicbrainzRecordingId,
+      musicbrainz_release_id: track.musicbrainzReleaseId, title: track.title,
+      track_number: track.trackNumber)
+  }
+  /// Songs that need remote streaming soon; the server fetches slow sources
+  /// ahead so they start at once. Best effort: failures are ignored.
+  public func prepareRemote(_ tracks: [Track]) async {
+    let wanted = tracks.filter {
+      ["not_in_library", "requested", "failed"].contains($0.serverState ?? "")
+    }.prefix(3)
+    guard !wanted.isEmpty else { return }
+    _ = try? await client.prepare_remote_api_v1_remote_playback_prepare_post(
+      .init(body: .json(.init(tracks: wanted.map(remoteInput)))))
+  }
   public func resolve(_ track: Track) async throws -> URL {
     // Household files stream like your own; playing never adds them to your library.
     // Requested songs have no file yet and stream like the catalogue.
@@ -443,14 +461,7 @@ public actor NativeService: LibrarySource {
       return try await playbackURL(trackId: track.id)
     }
     let response = try await client.playback_remote_api_v1_remote_playback_post(
-      .init(
-        body: .json(
-          .init(
-            album: track.album, album_artist: track.albumArtist, artist: track.artist,
-            disc_number: track.discNumber, duration: track.duration,
-            musicbrainz_recording_id: track.musicbrainzRecordingId,
-            musicbrainz_release_id: track.musicbrainzReleaseId, title: track.title,
-            track_number: track.trackNumber))))
+      .init(body: .json(remoteInput(track))))
     struct Remote: Decodable { let url: String }
     switch response {
     case .ok(let success):

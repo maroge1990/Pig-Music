@@ -309,7 +309,10 @@ def test_relayed_remote_audio_uses_a_signed_link_bound_to_its_listener(
     async def no_direct_stream(self, client, track):
         raise ValueError("No unique remote recording matched this release.")
 
-    def fetch(self, source, track):
+    def find(self, source, track):
+        return {"source": source}
+
+    def download(self, source, track, candidate):
         assert source == "zvu4no"
         self.directory.mkdir(parents=True, exist_ok=True)
         path = self.directory / "fixture.mp3"
@@ -317,7 +320,8 @@ def test_relayed_remote_audio_uses_a_signed_link_bound_to_its_listener(
         return path
 
     monkeypatch.setattr(RemoteAudio, "resolve", no_direct_stream)
-    monkeypatch.setattr(RemoteAudio, "fetch", fetch)
+    monkeypatch.setattr(RemoteAudio, "find", find)
+    monkeypatch.setattr(RemoteAudio, "download", download)
     app, owner = protected(tmp_path, monkeypatch)
     code = app.state.auth.setup_code(owner, "member", "Member")
     app.state.auth.activate(code["code"], PASSWORD, "fixture")

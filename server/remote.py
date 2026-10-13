@@ -46,6 +46,7 @@ class RemoteAudio:
         self.runtime = runtime
         self.relay_search = relay_search
         self.relayed = {}
+        self.inflight = {}
 
     @staticmethod
     def key(track):
@@ -59,8 +60,33 @@ class RemoteAudio:
         )
 
     async def stream(self, client, track, user_id):
-        """The first source with one confident match: JioSaavn's address, or
-        a relay token for audio the server fetched from another source."""
+        """The first source with a confident match: JioSaavn's address, or a
+        relay token for audio the server fetched from another source."""
+        found = await self.shared(client, track)
+        if "url" in found:
+            return found
+        token = secrets.token_urlsafe(24)
+        self.relayed[token] = (time.monotonic() + TOKEN_SECONDS, found["path"], user_id)
+        return {"relay": token, "source": found["source"]}
+
+    def prepare(self, client, tracks):
+        """Warm the cache for songs about to play; nobody waits for it."""
+        for track in tracks:
+            task = asyncio.ensure_future(self.shared(client, track))
+            task.add_done_callback(lambda t: t.cancelled() or t.exception())
+        return len(tracks)
+
+    async def shared(self, client, track):
+        # Playing a song that is being prepared joins that work.
+        name = self.name(track)
+        task = self.inflight.get(name)
+        if task is None:
+            task = asyncio.ensure_future(self.locate(client, track))
+            self.inflight[name] = task
+            task.add_done_callback(lambda _: self.inflight.pop(name, None))
+        return await asyncio.shield(task)
+
+    async def locate(self, client, track):
         try:
             return {"url": await self.resolve(client, track), "source": "jiosaavn"}
         except (ValueError, KeyError, TypeError) as exc:
@@ -70,24 +96,38 @@ class RemoteAudio:
         if self.directory is None:
             raise failure
         found = await asyncio.to_thread(self.cached, track)
-        if not found:
-            async with self.slots:
-                found = await asyncio.to_thread(self.cached, track)
-                for source in () if found else RELAYED:
-                    try:
-                        path = await asyncio.to_thread(self.fetch, source, track)
-                    except Exception:  # One broken source must not stop the next.
-                        continue
-                    found = (path, source)
-                    break
-        if not found:
-            raise failure
-        token = secrets.token_urlsafe(24)
-        self.relayed[token] = (time.monotonic() + TOKEN_SECONDS, found[0], user_id)
-        return {"relay": token, "source": found[1]}
+        if found:
+            return {"path": found[0], "source": found[1]}
+        async with self.slots:
+            # Every source searches at once; the best in priority order wins
+            # and only it is transferred.
+            searches = [
+                asyncio.ensure_future(asyncio.to_thread(self.find, source, track))
+                for source in RELAYED
+            ]
+            for search in searches:
+                search.add_done_callback(lambda t: t.cancelled() or t.exception())
+            for source, search in zip(RELAYED, searches):
+                try:
+                    candidate = await search
+                    path = await asyncio.to_thread(
+                        self.download, source, track, candidate
+                    )
+                except Exception:  # One broken source must not stop the next.
+                    continue
+                return {"path": path, "source": source}
+        raise failure
 
     def name(self, track):
-        return hashlib.sha256(json.dumps(self.key(track)).encode()).hexdigest()[:32]
+        # Players describe a catalogue song by its release and recording; the
+        # other fields can differ slightly between a preparation and a play.
+        if track.get("musicbrainz_release_id") and track.get(
+            "musicbrainz_recording_id"
+        ):
+            key = [track["musicbrainz_release_id"], track["musicbrainz_recording_id"]]
+        else:
+            key = [normalise(track.get(k) or "") for k in ("artist", "title", "album")]
+        return hashlib.sha256(json.dumps(key).encode()).hexdigest()[:32]
 
     def cached(self, track):
         """A relayed copy of this recording that has not expired, marked as
@@ -117,17 +157,25 @@ class RemoteAudio:
         return (path, MEDIA_TYPES[path.suffix]) if path.is_file() else None
 
     def fetch(self, source, track):
-        from .audio import probe_file
-        from .providers import REGISTRY
+        return self.download(source, track, self.find(source, track))
+
+    @staticmethod
+    def context(source):
         from .providers.contracts import Context
-        from .providers.legacy import search as legacy_search
-        from .providers.network import transfer
 
         context = Context(
             "native_standard",
             deadline=time.monotonic() + (90 if source == "youtube" else 30),
         )
         context.max_bytes = 40_000_000
+        return context
+
+    def find(self, source, track):
+        """This source's best confident copy of the recording."""
+        from .providers import REGISTRY
+        from .providers.legacy import search as legacy_search
+
+        context = self.context(source)
         if self.relay_search:
             candidates = self.relay_search(source, track)
         elif REGISTRY[source].adapter:
@@ -153,6 +201,14 @@ class RemoteAudio:
                 c.get("quality") != "320kbps",
             ),
         )
+        return candidate
+
+    def download(self, source, track, candidate):
+        from .audio import probe_file
+        from .providers import REGISTRY
+        from .providers.network import transfer
+
+        context = self.context(source)
         extension = REGISTRY[source].extension(candidate)
         self.prune()
         self.directory.mkdir(parents=True, exist_ok=True)

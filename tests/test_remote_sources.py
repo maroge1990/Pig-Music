@@ -105,14 +105,16 @@ def test_remote_falls_back_in_order_to_a_relayed_lossy_source(tmp_path, monkeypa
             return await resolver.stream(client, target, "member")
 
     found = asyncio.run(run())
-    assert found["source"] == "freemp3cloud" and searched == ["zvu4no", "freemp3cloud"]
+    # Every source is searched at once; the best match in order is relayed.
+    assert found["source"] == "freemp3cloud"
+    assert sorted(searched) == ["freemp3cloud", "youtube", "zvu4no"]
     path, media_type = resolver.relay(found["relay"], "member")
     assert media_type == "audio/mpeg" and path.read_bytes() == fixture.read_bytes()
     # A relay belongs to the person who asked for it.
     assert resolver.relay(found["relay"], "someone-else") is None
     # The fetched file is reused for the same recording.
     assert asyncio.run(run())["source"] == "freemp3cloud"
-    assert searched == ["zvu4no", "freemp3cloud"]
+    assert len(searched) == 3
 
 
 def test_relay_cache_survives_restarts_expires_and_keeps_recent_plays(
@@ -143,3 +145,44 @@ def test_relay_cache_survives_restarts_expires_and_keeps_recent_plays(
         os.utime(stale, (time.time() - age, time.time() - age))
     resolver.prune()
     assert sorted(p.name[0] for p in directory.iterdir()) == ["c"]
+
+
+def test_playing_a_song_being_prepared_joins_that_work(tmp_path):
+    import threading
+
+    target = {"artist": "Artist", "title": "Song", "album": "Album", "duration": 3}
+    calls = []
+    release = threading.Event()
+
+    class Resolver(RemoteAudio):
+        async def resolve(self, client, track):
+            raise ValueError("No direct stream")
+
+        def find(self, source, track):
+            calls.append(source)
+            release.wait(5)
+            if source != "youtube":
+                raise ValueError("No recording matched.")
+            return {"source": source}
+
+        def download(self, source, track, candidate):
+            self.directory.mkdir(parents=True, exist_ok=True)
+            path = self.directory / f"{self.name(track)}.youtube.m4a"
+            path.write_bytes(b"audio")
+            return path
+
+    resolver = Resolver(directory=tmp_path / "relay")
+
+    async def run():
+        assert resolver.prepare(None, [target]) == 1
+        await asyncio.sleep(0.05)
+        playing = asyncio.ensure_future(resolver.stream(None, target, "member"))
+        await asyncio.sleep(0.05)
+        release.set()
+        return await playing
+
+    found = asyncio.run(run())
+    assert found["source"] == "youtube"
+    # One search per source, shared by the preparation and the play.
+    assert sorted(calls) == ["freemp3cloud", "youtube", "zvu4no"]
+    assert resolver.relay(found["relay"], "member")[1] == "audio/mp4"
