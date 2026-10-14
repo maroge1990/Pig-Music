@@ -328,45 +328,46 @@ import SwiftUI
   /// the person has no playlists left and the last one's songs are released.
   private func followPlaylists() async {
     guard let downloads, let model, let store = model.store else { return }
-    var sentPlaylists: [String: (name: String?, ids: Set<String>)] = [:]
-    for (id, name) in subscriptions { sentPlaylists[id] = (name, []) }
+    var sent: [String: WatchPlaylistPlan.Sent] = [:]
     for record in downloads.records {
       for origin in record.effectiveOrigins {
         guard let id = origin.playlistId else { continue }
-        sentPlaylists[id, default: (origin.playlistName, [])].ids.insert(record.id)
+        sent[id, default: .init(name: origin.playlistName, songIds: [])].songIds.insert(record.id)
       }
     }
-    for (id, sent) in sentPlaylists {
-      guard let playlist = model.playlists.first(where: { $0.id == id }) else {
-        if !sent.ids.isEmpty {
-          await downloads.release(
-            ids: Array(sent.ids), origin: DownloadOrigin(playlistId: id, playlistName: sent.name))
-        }
-        unsubscribe(id)
-        continue
-      }
-      guard let entries = playlist.entries else { continue }
-      subscribe(id, name: playlist.name)
-      let origin = DownloadOrigin(playlistId: id, playlistName: playlist.name)
-      let listed = Set(entries.compactMap { $0.savedId ?? $0.savedTrack?.id })
-      // Exclusions end once a song leaves the playlist.
-      let excluded = exclusions[id, default: []].intersection(listed)
-      if excluded != exclusions[id, default: []] {
-        exclusions[id] = excluded.isEmpty ? nil : excluded
-        saveExclusions()
-      }
-      let wanted = listed.subtracting(excluded)
-      let gone = sent.ids.subtracting(wanted)
-      if !gone.isEmpty { await downloads.release(ids: Array(gone), origin: origin) }
-      // New songs, or every song when the playlist was renamed.
-      let refresh = playlist.name == sent.name ? wanted.subtracting(sent.ids) : wanted
-      let room = 1000 - downloads.records.count
+    var listed: [String: WatchPlaylistPlan.Listed] = [:]
+    for playlist in model.playlists {
+      listed[playlist.id] = .init(
+        name: playlist.name,
+        songIds: playlist.entries?.compactMap { $0.savedId ?? $0.savedTrack?.id })
+    }
+    // The rules live in PigCompanion, where they are unit-tested.
+    let plan = WatchPlaylistPlan.make(
+      subscriptions: subscriptions, exclusions: exclusions, sent: sent, playlists: listed,
+      onDevice: Set(downloads.records.map(\.id)))
+    for change in plan.release {
+      await downloads.release(
+        ids: change.songIds,
+        origin: DownloadOrigin(playlistId: change.playlistId, playlistName: change.name))
+    }
+    for change in plan.send {
       var tracks: [Track] = []
-      for songId in refresh.sorted() {
-        guard tracks.count < max(0, room) || sent.ids.contains(songId) else { continue }
+      for songId in change.songIds {
         if let track = try? await store.track(id: songId) { tracks.append(track) }
       }
-      if !tracks.isEmpty { try? await downloads.enqueue(tracks, quality: "aac", origin: origin) }
+      if !tracks.isEmpty {
+        try? await downloads.enqueue(
+          tracks, quality: "aac",
+          origin: DownloadOrigin(playlistId: change.playlistId, playlistName: change.name))
+      }
+    }
+    if plan.subscriptions != subscriptions {
+      subscriptions = plan.subscriptions
+      saveSubscriptions()
+    }
+    if plan.exclusions != exclusions {
+      exclusions = plan.exclusions
+      saveExclusions()
     }
   }
   /// The app left the foreground: stop polling and server-side preparation, but
@@ -713,16 +714,18 @@ struct WatchDownloadsView: View {
     records: [DownloadRecord], delivered: [DownloadRecord], watch: WatchPhoneController
   ) -> some View {
     let failed = records.filter { $0.state == "failed" && !onWatch($0, watch: watch) }.count
-    let waiting = records.count - delivered.count - failed
-    let seconds = delivered.reduce(0) { $0 + ($1.track.duration ?? 0) }
-    let bytes = delivered.reduce(Int64(0)) { $0 + $1.total }
+    let summary = WatchReadinessSummary(
+      ready: delivered.count, waiting: records.count - delivered.count - failed, failed: failed,
+      seconds: delivered.reduce(0) { $0 + ($1.track.duration ?? 0) },
+      bytes: delivered.reduce(Int64(0)) { $0 + $1.total })
+    let waiting = summary.waiting
     VStack(alignment: .leading, spacing: 6) {
       Label(
-        waiting == 0 && failed == 0 ? "Ready for your run" : "Almost ready",
-        systemImage: waiting == 0 && failed == 0 ? "checkmark.circle.fill" : "hourglass"
+        summary.complete ? "Ready for your run" : "Almost ready",
+        systemImage: summary.complete ? "checkmark.circle.fill" : "hourglass"
       ).font(.headline)
       Text(
-        "\(delivered.count) song\(delivered.count == 1 ? "" : "s") on Watch · \(Self.listening(seconds)) · \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))"
+        "\(delivered.count) song\(delivered.count == 1 ? "" : "s") on Watch · \(summary.listening) · \(ByteCountFormatter.string(fromByteCount: summary.bytes, countStyle: .file))"
       ).font(PigType.subhead)
       if waiting > 0 {
         Text("\(waiting) still on the way. Keep your iPhone near the Watch.")
@@ -739,25 +742,13 @@ struct WatchDownloadsView: View {
     }
     .accessibilityElement(children: .combine)
   }
-  static func listening(_ seconds: Double) -> String {
-    let minutes = Int(seconds / 60)
-    return minutes >= 60 ? "\(minutes / 60) h \(minutes % 60) min" : "\(minutes) min"
-  }
-  /// What is known about the Watch, without guessing "not installed" while the
-  /// connection is still being checked.
   private func connection(_ watch: WatchPhoneController) -> String {
-    guard watch.supported, let link = watch.link else {
-      return "This iPhone can't connect to Apple Watch."
-    }
-    if !link.activated {
-      return link.error.map { "Couldn't connect to Apple Watch: \($0)" }
-        ?? "Checking the Watch connection…"
-    }
-    if !link.paired { return "No Apple Watch is paired with this iPhone." }
-    if !link.installed {
-      return "Pig Music isn't on your Watch yet. Install it from the Watch app on this iPhone, then open it once."
-    }
-    return link.reachable ? "Watch connected" : "Watch not nearby · transfers continue when it is"
+    let link = watch.link
+    return WatchConnectionStatus(
+      supported: watch.supported && link != nil, activated: link?.activated == true,
+      error: link?.error, paired: link?.paired == true, installed: link?.installed == true,
+      reachable: link?.reachable == true
+    ).text
   }
   private func onWatch(_ record: DownloadRecord, watch: WatchPhoneController) -> Bool {
     record.checksum != nil && watch.receipt?.ready[record.id] == record.checksum

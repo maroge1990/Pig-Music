@@ -101,6 +101,60 @@ struct CompanionArchiveTests {
     let revoked = try CompanionArchive(directory: music)
     #expect(await revoked.localFile(id: item.id) == nil)
   }
+  @Test func damagedSavedLibraryStartsEmptyWithoutCrashing() async throws {
+    let root = try folder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let music = root.appendingPathComponent("Music")
+    let archive = try CompanionArchive(directory: music)
+    let context = CompanionContext(revision: 1, account: "one")
+    try await archive.apply(context)
+    try await archive.apply(CompanionManifest(context: context, songs: [song("a", bytes: Data("x".utf8))]))
+    // A half-written or corrupted manifest after a crash or full storage.
+    try Data("{\"songs\": [".utf8).write(to: music.appendingPathComponent("manifest.json"))
+    try Data("not a number".utf8).write(to: music.appendingPathComponent("applied.json"))
+    let recovered = try CompanionArchive(directory: music)
+    #expect(await recovered.snapshot().songs.isEmpty)
+    #expect(await recovered.localFile(id: "a") == nil)
+    #expect(await recovered.receipt().manifestApplied == false)
+    // The phone's next manifest restores it.
+    try await recovered.apply(
+      CompanionManifest(context: context, songs: [song("a", bytes: Data("x".utf8))]))
+    #expect(await recovered.receipt().manifestApplied)
+  }
+  @Test func fullBudgetRejectsMoreAudioAndKeepsWhatIsThere() async throws {
+    let root = try folder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let archive = try CompanionArchive(
+      directory: root.appendingPathComponent("Music"), budgetBytes: 8)
+    let context = CompanionContext(revision: 1, account: "one")
+    let first = Data("12345".utf8)
+    let second = Data("67890".utf8)
+    let a = song("a", bytes: first)
+    let b = song("b", bytes: second)
+    try await archive.apply(context)
+    try await archive.apply(CompanionManifest(context: context, songs: [a, b]))
+    let file = root.appendingPathComponent("incoming")
+    try first.write(to: file)
+    try await archive.accept(
+      file, ticket: CompanionFile(context: context, songId: a.id, checksum: a.checksum))
+    try second.write(to: file)
+    await #expect(throws: CompanionFailure.quota) {
+      try await archive.accept(
+        file, ticket: CompanionFile(context: context, songId: b.id, checksum: b.checksum))
+    }
+    #expect(await archive.localFile(id: a.id) != nil)
+    #expect(await archive.receipt().ready.keys.sorted() == [a.id])
+  }
+  @Test func interruptedSaveLeavesNoPartialFiles() async throws {
+    let root = try folder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let music = root.appendingPathComponent("Music")
+    _ = try CompanionArchive(directory: music)
+    let partial = music.appendingPathComponent(String(repeating: "a", count: 64) + ".partial")
+    try Data("half".utf8).write(to: partial)
+    _ = try CompanionArchive(directory: music)
+    #expect(!FileManager.default.fileExists(atPath: partial.path))
+  }
   @Test func retainedSongsAcceptEarlierTransfersButRevocationClearsFiles() async throws {
     let root = try folder()
     defer { try? FileManager.default.removeItem(at: root) }

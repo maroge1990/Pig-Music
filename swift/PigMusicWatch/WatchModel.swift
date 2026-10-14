@@ -349,11 +349,7 @@ import PigPlayback
         let applied = await archive.receipt().manifestApplied
         if previous != manifest || !applied {
           // Keep playing when every queued song is unchanged in the new library.
-          let kept = Dictionary(
-            manifest.songs.map { ($0.id, $0.checksum) }, uniquingKeysWith: { first, _ in first })
-          let unchanged = queue.allSatisfy { item in
-            previous.songs.contains { $0.id == item.track.id && kept[$0.id] == $0.checksum }
-          }
+          let unchanged = manifest.keepsPlaying(queue.map(\.track.id), replacing: previous)
           if !unchanged { await stop() }
           try await archive.apply(manifest)
           DiagnosticsLog.shared.record(

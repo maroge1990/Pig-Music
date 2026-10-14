@@ -33,8 +33,11 @@ private struct WatchReadiness: View {
   var body: some View {
     let ready = model.readySongs
     let total = model.manifest.songs.count
-    let minutes = Int(ready.reduce(0) { $0 + ($1.track.duration ?? 0) } / 60)
-    let complete = ready.count == total && model.receipt?.manifestApplied == true
+    let summary = WatchReadinessSummary(
+      ready: ready.count, waiting: total - ready.count, failed: 0,
+      seconds: ready.reduce(0) { $0 + ($1.track.duration ?? 0) },
+      bytes: ready.reduce(Int64(0)) { $0 + $1.bytes })
+    let complete = summary.complete && model.receipt?.manifestApplied == true
     VStack(alignment: .leading, spacing: 2) {
       Label(
         complete ? "Ready for your run" : "Almost ready",
@@ -42,7 +45,7 @@ private struct WatchReadiness: View {
       ).font(.headline)
       Text(complete ? "\(total) songs" : "\(ready.count) of \(total) songs on Watch")
         .font(.footnote)
-      Text(minutes >= 60 ? "\(minutes / 60) h \(minutes % 60) min" : "\(minutes) min")
+      Text(summary.listening)
         .font(.footnote).foregroundStyle(.secondary)
       if !complete {
         Text("Keep iPhone nearby").font(.footnote).foregroundStyle(.secondary)
