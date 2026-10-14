@@ -176,6 +176,12 @@ import PigPlayback
         }
       })
     observations.append(
+      NotificationCenter.default.publisher(for: AVAudioSession.mediaServicesWereResetNotification)
+        .receive(on: DispatchQueue.main).sink { [weak self] _ in
+          DiagnosticsLog.shared.record("audio", "media services reset")
+          Task { @MainActor in self?.sessionActive = false }
+        })
+    observations.append(
       NotificationCenter.default.publisher(for: .AVAudioEngineConfigurationChange).receive(on: DispatchQueue.main).sink {
         [weak self] notification in
         let identity = notification.object.map { ObjectIdentifier($0 as AnyObject) }
@@ -309,10 +315,8 @@ import PigPlayback
         refreshArtwork()
         return
       }
-      do { if intent.canPlay { try activate() } } catch {
-        self.error = error.localizedDescription
-        return
-      }
+      // Activation finishes long before the first song is prepared.
+      if intent.canPlay { activateForPlayback() }
       engine.replace(
         queue.items, startingAt: queue.index, autoplay: intent.canPlay,
         crossfade: crossfadeEnabled, repeatMode: repeatMode,
@@ -389,7 +393,8 @@ import PigPlayback
         let url = try await resolve(occurrence.track)
         try Task.checkCancellation()
         guard generation == stamp else { return }
-        if intent.canPlay { try activate() }
+        if intent.canPlay { try await activate() }
+        guard generation == stamp else { return }
         player.replaceCurrentItem(with: AVPlayerItem(url: url))
         preparing = false
         if pendingSeek > 0 {
@@ -407,10 +412,43 @@ import PigPlayback
       }
     }
   }
-  private func activate() throws {
-    try AVAudioSession.sharedInstance().setCategory(
-      .playback, mode: .default, policy: .longFormAudio)
-    try AVAudioSession.sharedInstance().setActive(true)
+  /// Activating the audio session can block for a long time, so it never runs
+  /// on the main thread (Xcode warns about UI unresponsiveness), and it is
+  /// skipped while the session is already active.
+  @ObservationIgnored private var sessionActive = false
+  private func activate() async throws {
+    guard !sessionActive else { return }
+    try await Self.activateSession()
+    sessionActive = true
+  }
+  /// One serial queue for every activation and deactivation, so a quick Stop
+  /// then Play can never finish in the wrong order and leave the session off.
+  nonisolated private static let sessionQueue = DispatchQueue(
+    label: "au.com.pig.music.audio-session", qos: .userInitiated)
+  nonisolated private static func activateSession() async throws {
+    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+      sessionQueue.async {
+        do {
+          let session = AVAudioSession.sharedInstance()
+          try session.setCategory(.playback, mode: .default, policy: .longFormAudio)
+          try session.setActive(true)
+          continuation.resume()
+        } catch { continuation.resume(throwing: error) }
+      }
+    }
+  }
+  /// Starts activation for a play request, reporting a failure.
+  private func activateForPlayback() {
+    guard !sessionActive else { return }
+    let stamp = generation
+    Task {
+      do { try await activate() } catch {
+        guard generation == stamp else { return }
+        self.error = error.localizedDescription
+        intent.pause()
+        suspend()
+      }
+    }
   }
   private func startClock() {
     clock?.cancel()
@@ -462,15 +500,20 @@ import PigPlayback
     DiagnosticsLog.shared.record(
       "audio", began ? "interruption began" : "interruption ended, resume=\(shouldResume)")
     if began {
+      // The system deactivates the session during an interruption.
+      sessionActive = false
       intent.beginInterruption()
       suspend()
     } else {
       intent.endInterruption(shouldResume: shouldResume)
-      if intent.canPlay {
-        do { try activate() } catch {
+      guard intent.canPlay else { return }
+      let stamp = generation
+      Task {
+        do { try await activate() } catch {
           self.error = error.localizedDescription
           return
         }
+        guard generation == stamp, intent.canPlay else { return }
         if usingEngine {
           engine?.recoverOutput()
           engine?.resume()
@@ -498,7 +541,7 @@ import PigPlayback
         engineOutput?.requiresRecovery == true
       else { return }
       do {
-        if intent.canPlay { try activate() }
+        if intent.canPlay { try await activate() }
         engine?.recoverOutput()
       } catch { self.error = error.localizedDescription }
     }
@@ -516,12 +559,21 @@ import PigPlayback
     if !usingEngine, duration > 0, elapsed >= duration { seek(0) }
     intent.play()
     guard intent.canPlay else { return }
-    do { try activate() } catch {
-      self.error = error.localizedDescription
-      return
+    let start = { [self] in
+      if usingEngine { engine?.resume() } else if player.currentItem != nil { player.play() }
+      publishNowPlaying()
     }
-    if usingEngine { engine?.resume() } else if player.currentItem != nil { player.play() }
-    publishNowPlaying()
+    // Usually already active: resume at once, without a main-thread wait.
+    if sessionActive { return start() }
+    let stamp = generation
+    Task {
+      do { try await activate() } catch {
+        self.error = error.localizedDescription
+        return
+      }
+      guard generation == stamp, intent.canPlay else { return }
+      start()
+    }
   }
   private func suspend() {
     if usingEngine { engine?.pause() } else { player.pause() }
@@ -619,7 +671,11 @@ import PigPlayback
     duration = 0
     error = nil
     MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-    try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    sessionActive = false
+    // Deactivation can block too: let other apps resume without stalling the UI.
+    Self.sessionQueue.async {
+      try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
   }
   private func refreshArtwork() {
     guard let occurrence = queue.current, artworkOccurrence != occurrence.id else { return }
