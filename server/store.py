@@ -23,7 +23,7 @@ from .library import (
 from .media import settings as media_settings, public_settings
 from .quality import policy, actual_profile, rank, PROFILES, satisfies
 from .providers import REGISTRY, supports
-from .storage import library_root
+from .storage import file_sha256, library_root
 from .matching import LibraryIndex, exclusion_key, same_song
 
 
@@ -362,7 +362,7 @@ class Store:
                 return
             target.parent.mkdir(parents=True, exist_ok=True)
             if target.exists():
-                if hashlib.sha256(target.read_bytes()).hexdigest() != sha:
+                if file_sha256(target) != sha:
                     raise ValueError(
                         "Import collision: an existing file has different content"
                     )
@@ -430,8 +430,7 @@ class Store:
                     if (
                         not target.is_relative_to(root)
                         or not target.is_file()
-                        or hashlib.sha256(target.read_bytes()).hexdigest()
-                        != metadata["sha256"]
+                        or file_sha256(target) != metadata["sha256"]
                     ):
                         continue
                     with self.connect() as conn:

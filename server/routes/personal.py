@@ -34,7 +34,7 @@ from ..api_models import (
     CancelledRequestDTO,
     LookupResultDTO,
 )
-from ..playlists import Playlists, PlaylistConflict
+from ..playlists import Playlists, PlaylistConflict, PlaylistFull
 from ..user_library import track_dto, SearchChanged
 from ..personal_removal import PersonalRemoval, RemovalChanged
 from ..household_policy import HouseholdPolicy
@@ -414,6 +414,8 @@ def personal_router(store, artist_jobs, recovery):
                     allow_repeat=allow_repeat,
                 )
             )
+        except PlaylistFull as exc:
+            raise HTTPException(409, str(exc))
         except ValueError:
             raise HTTPException(404, "Playlist not found")
 

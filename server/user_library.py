@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 from .library import identifier, normalise
 from .media import public_settings
 from .lifecycle import coordinated
+from .playlists import MAX_PLAYLIST_ENTRIES
 
 TRACK_FIELDS = frozenset(
     {
@@ -771,6 +772,11 @@ class UserLibrary:
         with self.store.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             for playlist in source.get("playlists", []):
+                if len(playlist["track_ids"]) > MAX_PLAYLIST_ENTRIES:
+                    raise ValueError(
+                        f"“{playlist.get('name', 'A playlist')}” has more than "
+                        "10,000 songs. Split it in Music, then import again."
+                    )
                 identity = identifier("user-playlist", user_id, playlist["id"])
                 previous = conn.execute(
                     "SELECT payload FROM playlists WHERE id=? AND owner_id=?",

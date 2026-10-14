@@ -43,7 +43,7 @@ from .providers.runtime import Runtime
 from .providers.legacy import search as legacy_search
 from .providers.network import transfer as http_transfer
 from .quality import CODEC_EXTENSIONS, policy, satisfies
-from .storage import download_root, library_root
+from .storage import download_root, file_sha256, library_root
 
 PROVIDERS = SEARCH_PROVIDERS
 VERSION_WORDS = {
@@ -481,9 +481,7 @@ class Downloader:
             / safe_name(job["album"])
             / filename
         )
-        self.store.publish_request(
-            job, path, target, probe, hashlib.sha256(path.read_bytes()).hexdigest()
-        )
+        self.store.publish_request(job, path, target, probe, file_sha256(path))
 
     def attempt(self, job, profile, errors):
         effective = {**job, "quality_profile": profile}

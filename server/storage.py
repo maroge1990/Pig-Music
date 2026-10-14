@@ -1,5 +1,6 @@
 """Configured transfer storage; appdata remains the default for previews/tests."""
 
+import hashlib
 import os
 from pathlib import Path
 
@@ -29,3 +30,9 @@ def download_root(store):
 
 def library_root(store):
     return download_root(store) / "library"
+
+
+def file_sha256(path):
+    """Hash a file in chunks, so large lossless files never load whole into memory."""
+    with open(path, "rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()

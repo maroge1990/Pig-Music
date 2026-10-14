@@ -6,7 +6,7 @@ import time
 from datetime import datetime, timezone
 from uuid import UUID
 from .lifecycle import coordinated
-from .playlists import Playlists, PlaylistConflict
+from .playlists import Playlists, PlaylistConflict, ensure_room
 from .user_library import bump
 
 
@@ -99,6 +99,7 @@ class NativeMutations:
                         if not playlists.same_song(t, track)
                     ]
                     if value:
+                        ensure_room(payload["tracks"])
                         payload["tracks"].append(track)
                     result["favourited"] = value
                 else:
@@ -120,8 +121,7 @@ class NativeMutations:
                     if action == "append":
                         if operation.get("track") is None:
                             raise ValueError("Song is required")
-                        if len(payload["tracks"]) >= 10000:
-                            raise ValueError("Playlist has reached 10,000 entries")
+                        ensure_room(payload["tracks"])
                         payload["tracks"].append(operation["track"])
                     elif action == "rename":
                         payload["name"] = self.name(operation.get("name"))

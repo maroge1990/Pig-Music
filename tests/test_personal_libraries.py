@@ -452,3 +452,34 @@ def test_lookup_reports_only_songs_in_the_persons_own_library(tmp_path, monkeypa
         response = client.post("/api/v1/library/lookup", json={"songs": songs})
         # The household has the file, but the member has not added it.
         assert response.json() == {"tracks": [None, None]}
+
+
+def test_playlist_size_limit_is_shared_by_web_and_favourites(tmp_path, monkeypatch):
+    from server import playlists
+
+    app, owner, member, token, track = household(tmp_path, monkeypatch)
+    monkeypatch.setattr(playlists, "MAX_PLAYLIST_ENTRIES", 2)
+    with TestClient(
+        app,
+        base_url="https://private.ts.net",
+        headers={"Authorization": "Bearer " + token},
+    ) as client:
+        own = client.post("/api/v1/playlists", json={"name": "Mine"}).json()
+        path = "/api/v1/playlists/" + own["id"] + "/songs?allow_repeat=true"
+        song = {"title": "One", "artist": "Artist", "album": "Studio"}
+        assert client.post(path, json=song).status_code == 200
+        assert client.post(path, json=song).status_code == 200
+        full = client.post(path, json=song)
+        assert full.status_code == 409
+        assert "10,000" in full.json()["detail"]
+        for title in ("A", "B"):
+            response = client.post(
+                "/api/v1/favourites",
+                json={"track": {"title": title, "artist": "X"}, "favourite": True},
+            )
+            assert response.status_code == 200
+        response = client.post(
+            "/api/v1/favourites",
+            json={"track": {"title": "C", "artist": "X"}, "favourite": True},
+        )
+        assert response.status_code == 400

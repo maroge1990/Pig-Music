@@ -11,6 +11,21 @@ class PlaylistConflict(ValueError):
     pass
 
 
+# One size for every playlist, however it is edited: web, iPhone, favourites and
+# imports all stay within what native reorder payloads can represent.
+MAX_PLAYLIST_ENTRIES = 10000
+
+
+class PlaylistFull(ValueError):
+    def __init__(self):
+        super().__init__("Playlist has reached 10,000 songs")
+
+
+def ensure_room(tracks):
+    if len(tracks) >= MAX_PLAYLIST_ENTRIES:
+        raise PlaylistFull()
+
+
 class Playlists:
     def __init__(self, store, user_id=None):
         self.store = store
@@ -196,6 +211,7 @@ class Playlists:
             if (allow_repeat and not payload.get("favourites")) or not any(
                 self.same_song(t, track) for t in payload["tracks"]
             ):
+                ensure_room(payload["tracks"])
                 payload["tracks"].append(track)
             payload["revision"] = payload.get("revision", 0) + 1
             conn.execute(
@@ -281,6 +297,8 @@ class Playlists:
             exists = any(self.same_song(t, track) for t in payload["tracks"])
             if value is None:
                 return {"favourited": exists}
+            if value and not exists:
+                ensure_room(payload["tracks"])
             payload["tracks"] = [
                 t for t in payload["tracks"] if not self.same_song(t, track)
             ]

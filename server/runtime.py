@@ -10,6 +10,12 @@ from pathlib import Path
 from .transport import proxy_trust
 from .storage import require_library_mount
 
+# A crashed source engine is restarted after 5 s, doubling to 5 minutes; the
+# delay resets once it has stayed up for 10 minutes.
+ENGINE_BACKOFF_START = 5
+ENGINE_BACKOFF_LIMIT = 300
+ENGINE_HEALTHY_SECONDS = 600
+
 
 def start_engine(root):
     log = None
@@ -104,14 +110,15 @@ def start_engine(root):
 
 
 def main():
-    children = []
+    server = None
+    engine = None
     stopping = False
 
     def stop(signum, frame):
         nonlocal stopping
         stopping = True
-        for child in children:
-            if child.poll() is None:
+        for child in (engine, server):
+            if child and child.poll() is None:
                 child.terminate()
 
     signal.signal(signal.SIGTERM, stop)
@@ -119,50 +126,66 @@ def main():
     log = None
     try:
         root = Path(os.environ.get("PIG_MUSIC_DATA", "/data"))
-        child, log = start_engine(root)
-        if child:
-            children.append(child)
-        children.append(
-            subprocess.Popen(
-                [
-                    sys.executable,
-                    "-m",
-                    "uvicorn",
-                    "server.app:app",
-                    "--host",
-                    "0.0.0.0",
-                    "--port",
-                    "8765",
-                    "--proxy-headers",
-                    "--forwarded-allow-ips",
-                    proxy_trust(),
-                    "--log-config",
-                    str(Path(__file__).with_name("logging.json")),
-                ],
-                env={
-                    key: value
-                    for key, value in os.environ.items()
-                    if key != "PIG_MUSIC_TEST_LEGACY_API"
-                },
-            )
+        engine, log = start_engine(root)
+        server = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "server.app:app",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8765",
+                "--proxy-headers",
+                "--forwarded-allow-ips",
+                proxy_trust(),
+                "--log-config",
+                str(Path(__file__).with_name("logging.json")),
+            ],
+            env={
+                key: value
+                for key, value in os.environ.items()
+                if key != "PIG_MUSIC_TEST_LEGACY_API"
+            },
         )
+        # The source engine is optional: browsing and saved playback keep working
+        # while it is down, so it is restarted with backoff instead of taking the
+        # server with it. Only the server exiting ends the container.
+        backoff = ENGINE_BACKOFF_START
+        started = time.monotonic()
         next_engine_check = 0
-        while not stopping and all(child.poll() is None for child in children):
+        while not stopping and server.poll() is None:
+            if engine and engine.poll() is not None:
+                if time.monotonic() - started >= ENGINE_HEALTHY_SECONDS:
+                    backoff = ENGINE_BACKOFF_START
+                print(
+                    f"Source engine exited ({engine.returncode}); restarting in {backoff}s",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                engine = None
+                next_engine_check = time.monotonic() + backoff
+                backoff = min(backoff * 2, ENGINE_BACKOFF_LIMIT)
             if (
-                len(children) == 1
+                engine is None
                 and os.environ.get("PIG_MUSIC_EMBEDDED_ENGINE", "true").lower()
                 == "true"
                 and time.monotonic() >= next_engine_check
             ):
-                child, log = start_engine(root)
-                if child:
-                    children.append(child)
-                next_engine_check = time.monotonic() + 5
+                if log:
+                    log.close()
+                engine, log = start_engine(root)
+                started = time.monotonic()
+                if not engine:
+                    next_engine_check = time.monotonic() + 5
             time.sleep(0.25)
         failed = not stopping
         stop(None, None)
         deadline = time.monotonic() + 25
-        for child in children:
+        for child in (engine, server):
+            if not child:
+                continue
             try:
                 child.wait(timeout=max(0, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:
@@ -170,8 +193,8 @@ def main():
                 child.wait()
         return 1 if failed else 0
     finally:
-        for child in children:
-            if child.poll() is None:
+        for child in (engine, server):
+            if child and child.poll() is None:
                 child.kill()
                 child.wait()
         if log:
