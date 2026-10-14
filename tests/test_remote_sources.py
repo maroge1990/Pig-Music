@@ -186,3 +186,21 @@ def test_playing_a_song_being_prepared_joins_that_work(tmp_path):
     # One search per source, shared by the preparation and the play.
     assert sorted(calls) == ["freemp3cloud", "youtube", "zvu4no"]
     assert resolver.relay(found["relay"], "member")[1] == "audio/mp4"
+
+
+def test_a_relayed_copy_plays_before_any_provider_is_asked(tmp_path):
+    asked = []
+
+    async def search(*args, **kwargs):
+        asked.append(args)
+        raise AssertionError("provider asked despite a relayed copy")
+
+    target = {"artist": "Artist", "title": "Song", "album": "Album", "duration": 3}
+    directory = tmp_path / "relay"
+    directory.mkdir()
+    resolver = RemoteAudio(search=search, directory=directory)
+    path = directory / f"{resolver.name(target)}.zvu4no.mp3"
+    path.write_bytes(b"x" * 10)
+    found = asyncio.run(resolver.locate(None, target))
+    assert found == {"path": path, "source": "zvu4no"}
+    assert asked == []

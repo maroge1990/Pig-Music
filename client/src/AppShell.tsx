@@ -105,6 +105,7 @@ export function AppShell() {
     // Appearance belongs to the account, as on iPhone: the browser copy only
     // gives the first paint the right theme before the account answers.
     if (!user) return;
+    window.dispatchEvent(new Event("music-signed-in"));
     let active = true;
     void api<{ appearance?: string }>("/v1/preferences")
       .then(({ appearance = "system" }) => {

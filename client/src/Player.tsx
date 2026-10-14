@@ -2,7 +2,12 @@ import { apiFetch } from "./api";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   ChevronDown,
+  Repeat,
+  Repeat1,
+  X,
   Play,
   Pause,
   SkipBack,
@@ -50,11 +55,31 @@ export const usePlayer = () => useContext(Context);
 const time = (n: number) =>
   `${Math.floor((n || 0) / 60)}:${String(Math.floor((n || 0) % 60)).padStart(2, "0")}`;
 
+const QUEUE_KEY = "pig-music-queue";
+function readSavedQueue(): {
+  songs: Song[];
+  cursor: number;
+  position: number;
+} | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(QUEUE_KEY) || "null");
+    if (!Array.isArray(saved?.songs) || !saved.songs[saved.cursor]) return null;
+    return {
+      songs: saved.songs,
+      cursor: saved.cursor,
+      position: Number(saved.position) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function PlayerProvider({ children }: { children: ReactNode }) {
+  const [restoredQueue] = useState(readSavedQueue);
   const audio = useRef<HTMLAudioElement>(null);
   const serial = useRef(0);
-  const queue = useRef<Song[]>([]);
-  const cursor = useRef(-1);
+  const queue = useRef<Song[]>(restoredQueue?.songs ?? []);
+  const cursor = useRef(restoredQueue?.cursor ?? -1);
   const playEvent = useRef<{
     event_id: string;
     track_id: string;
@@ -67,6 +92,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   function reportPlay() {
     playEvent.current = null;
   }
+  // A saved queue appears once someone is signed in, never on the sign-in page.
   const [song, setSong] = useState<Playing | null>(null);
   const [expanded, setExpanded] = useState(false);
   const bar = useFixedHeight("--player-height", !!song);
@@ -76,11 +102,38 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState(0);
   const [muted, setMuted] = useState(false);
-  const [, setQueueVersion] = useState(0);
+  const [queueVersion, setQueueVersion] = useState(0);
+  /** Where a restored queue resumes once its song loads. */
+  const resumeAt = useRef(restoredQueue?.position ?? 0);
+  const savedAt = useRef(0);
+  /** Like iPhone, the queue and position survive a reload, restored paused. */
+  function saveQueue(position?: number) {
+    savedAt.current = Date.now();
+    try {
+      if (!queue.current.length || cursor.current < 0)
+        localStorage.removeItem(QUEUE_KEY);
+      else
+        localStorage.setItem(
+          QUEUE_KEY,
+          JSON.stringify({
+            songs: queue.current.slice(0, 500),
+            cursor: Math.min(cursor.current, 499),
+            position: position ?? audio.current?.currentTime ?? 0,
+          }),
+        );
+    } catch {
+      /* Storage full or unavailable: the queue lasts for this visit. */
+    }
+  }
 
   useEffect(() => {
     const stop = () => {
       playEvent.current = null;
+      try {
+        localStorage.removeItem(QUEUE_KEY);
+      } catch {
+        /* nothing saved */
+      }
       ++serial.current;
       audio.current?.pause();
       audio.current?.removeAttribute("src");
@@ -95,6 +148,14 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       stop();
       forgetListens();
     };
+    const signedIn = () => {
+      if (restoredQueue && cursor.current === restoredQueue.cursor)
+        setSong(
+          (current) =>
+            current ?? { ...restoredQueue.songs[restoredQueue.cursor] },
+        );
+    };
+    window.addEventListener("music-signed-in", signedIn);
     // Whoever signs in next must never send this account's unsent listens.
     window.addEventListener("music-auth-required", signedOut);
     window.addEventListener("music-signed-out", signedOut);
@@ -103,6 +164,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const online = () => void flushListens();
     window.addEventListener("online", online);
     return () => {
+      window.removeEventListener("music-signed-in", signedIn);
       window.removeEventListener("music-auth-required", signedOut);
       window.removeEventListener("music-signed-out", signedOut);
       window.removeEventListener("online", online);
@@ -248,6 +310,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }
   function play(songs: Song[], index = 0) {
     if (!songs[index]) return;
+    resumeAt.current = 0;
     queue.current = songs;
     cursor.current = index;
     setQueueVersion((v) => v + 1);
@@ -274,10 +337,46 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     queue.current.push(s);
     setQueueVersion((v) => v + 1);
   }
+  /** Like iPhone: off, the whole queue again, or the current song again. */
+  const [repeat, setRepeat] = useState<"off" | "all" | "one">(() => {
+    try {
+      const saved = localStorage.getItem("pig-music-repeat");
+      return saved === "all" || saved === "one" ? saved : "off";
+    } catch {
+      return "off";
+    }
+  });
+  function cycleRepeat() {
+    const next = repeat === "off" ? "all" : repeat === "all" ? "one" : "off";
+    setRepeat(next);
+    try {
+      localStorage.setItem("pig-music-repeat", next);
+    } catch {
+      /* Remembered for this visit only. */
+    }
+  }
+  function moveUpcoming(at: number, delta: number) {
+    const target = at + delta;
+    if (target <= cursor.current || target >= queue.current.length) return;
+    const [item] = queue.current.splice(at, 1);
+    queue.current.splice(target, 0, item);
+    setQueueVersion((v) => v + 1);
+    prepareUpcoming();
+  }
+  function removeUpcoming(at: number) {
+    if (at <= cursor.current) return;
+    queue.current.splice(at, 1);
+    setQueueVersion((v) => v + 1);
+    prepareUpcoming();
+  }
   function step(delta: number) {
-    const index = cursor.current + delta;
+    let index = cursor.current + delta;
+    // Repeat all wraps around the queue in both directions.
+    if (repeat === "all" && queue.current.length)
+      index = (index + queue.current.length) % queue.current.length;
     const next = queue.current[index];
     if (!next) return;
+    resumeAt.current = 0;
     cursor.current = index;
     setQueueVersion((v) => v + 1);
     void load(next);
@@ -294,9 +393,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       if (playEvent.current) playEvent.current.last = 0;
     } else step(-1);
   }
+  useEffect(() => {
+    // A loaded song or an edited queue is saved; a restored, unloaded one keeps
+    // its saved position.
+    if (song?.url) saveQueue();
+  }, [song?.url, queueVersion]);
   const canPrevious = !busy && (!!song?.url || cursor.current > 0);
   const index = cursor.current;
-  const hasNext = index >= 0 && index < queue.current.length - 1;
+  const hasNext =
+    index >= 0 &&
+    (index < queue.current.length - 1 ||
+      (repeat === "all" && queue.current.length > 0));
   useEffect(() => {
     if (!song?.url) return;
     void audio.current
@@ -362,6 +469,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setBusy(false);
     queue.current = [];
     cursor.current = -1;
+    saveQueue();
     if ("mediaSession" in navigator) navigator.mediaSession.metadata = null;
   }
   function toggle() {
@@ -381,8 +489,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     <button
       className="np-play"
       aria-label={playing ? "Pause" : "Play"}
-      disabled={busy || !song?.url}
-      onClick={toggle}
+      disabled={busy || !song}
+      onClick={() =>
+        // A restored song loads on the first Play, at its saved position.
+        song?.url ? toggle() : song && void load(queue.current[cursor.current])
+      }
     >
       {busy ? (
         <LoaderCircle size={size} className="spin" />
@@ -433,6 +544,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
               }
             }
             setPosition(current);
+            if (Date.now() - savedAt.current > 5000) saveQueue(current);
+          }}
+          onLoadedMetadata={() => {
+            if (resumeAt.current > 0 && audio.current) {
+              audio.current.currentTime = resumeAt.current;
+              resumeAt.current = 0;
+            }
           }}
           onDurationChange={() => {
             const n = audio.current?.duration;
@@ -441,7 +559,9 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           onEnded={() => {
             reportPlay();
             setPlaying(false);
-            step(1);
+            // Repeat one plays the song again as a new play.
+            if (repeat === "one") void load(queue.current[cursor.current]);
+            else step(1);
           }}
           onError={() => {
             if (song?.url)
@@ -595,6 +715,23 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             <div className="np-actions">
               <PersonalSongActions song={song} />
               <button
+                aria-label={
+                  repeat === "off"
+                    ? "Repeat off"
+                    : repeat === "all"
+                      ? "Repeat all"
+                      : "Repeat this song"
+                }
+                aria-pressed={repeat !== "off"}
+                onClick={cycleRepeat}
+              >
+                {repeat === "one" ? (
+                  <Repeat1 size={20} />
+                ) : (
+                  <Repeat size={20} opacity={repeat === "off" ? 0.45 : 1} />
+                )}
+              </button>
+              <button
                 aria-label={muted ? "Unmute" : "Mute"}
                 onClick={() => {
                   setMuted(!muted);
@@ -616,15 +753,45 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
               <section className="np-queue" aria-label="Up next">
                 <h3>Up next</h3>
                 <ol>
-                  {queue.current.slice(index + 1, index + 6).map((s, i) => (
-                    <li key={s.key + i}>
-                      <button onClick={() => step(i + 1)}>
-                        <strong>{s.title}</strong>
-                        <small>{s.artist}</small>
-                      </button>
-                    </li>
-                  ))}
+                  {queue.current.slice(index + 1, index + 21).map((s, i) => {
+                    const at = index + 1 + i;
+                    return (
+                      <li key={s.key + at}>
+                        <button onClick={() => step(i + 1)}>
+                          <strong>{s.title}</strong>
+                          <small>{s.artist}</small>
+                        </button>
+                        <span className="np-queue-tools">
+                          <button
+                            aria-label={`Move ${s.title} up`}
+                            disabled={i === 0}
+                            onClick={() => moveUpcoming(at, -1)}
+                          >
+                            <ArrowUp size={16} />
+                          </button>
+                          <button
+                            aria-label={`Move ${s.title} down`}
+                            disabled={at === queue.current.length - 1}
+                            onClick={() => moveUpcoming(at, 1)}
+                          >
+                            <ArrowDown size={16} />
+                          </button>
+                          <button
+                            aria-label={`Remove ${s.title} from Up next`}
+                            onClick={() => removeUpcoming(at)}
+                          >
+                            <X size={16} />
+                          </button>
+                        </span>
+                      </li>
+                    );
+                  })}
                 </ol>
+                {queue.current.length - index - 1 > 20 && (
+                  <p className="np-queue-more">
+                    and {queue.current.length - index - 21} more
+                  </p>
+                )}
               </section>
             )}
           </section>

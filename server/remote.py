@@ -87,6 +87,12 @@ class RemoteAudio:
         return await asyncio.shield(task)
 
     async def locate(self, client, track):
+        # A copy already relayed for this recording plays at once, before any
+        # provider is asked again.
+        if self.directory is not None:
+            found = await asyncio.to_thread(self.cached, track)
+            if found:
+                return {"path": found[0], "source": found[1]}
         try:
             return {"url": await self.resolve(client, track), "source": "jiosaavn"}
         except (ValueError, KeyError, TypeError) as exc:
@@ -95,9 +101,6 @@ class RemoteAudio:
             failure = exc
         if self.directory is None:
             raise failure
-        found = await asyncio.to_thread(self.cached, track)
-        if found:
-            return {"path": found[0], "source": found[1]}
         async with self.slots:
             # Every source searches at once; the best in priority order wins
             # and only it is transferred.

@@ -438,6 +438,34 @@
 .np-queue small {
   color: var(--media-secondary);
 }
+.np-queue li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+}
+.np-queue li > button {
+  flex: 1;
+  min-width: 0;
+}
+.np-queue-tools {
+  display: flex;
+  gap: var(--space-4);
+}
+.np-queue .np-queue-tools button {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--media-secondary);
+}
+.np-queue .np-queue-tools button:disabled {
+  opacity: 0.3;
+}
+.np-queue-more {
+  color: var(--media-secondary);
+  font-size: var(--type-footnote);
+}
 .now-playing-open body {
   overflow: hidden;
 }
