@@ -414,7 +414,7 @@ struct AccountView: View {
         Text("Playback")
       } footer: {
         Text(
-          "Seamless playback prepares songs for gapless albums and a three-second crossfade between unrelated songs. Switch it off to stream if a song cannot be prepared."
+          "Seamless playback gives gapless albums and a three-second crossfade between unrelated songs. A song that is very large or slow to arrive plays as a normal stream automatically."
         )
       }
       Section {

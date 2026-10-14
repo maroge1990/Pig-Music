@@ -73,6 +73,19 @@ public actor PlaybackSourceRepository {
     return lease(key)
   }
   /// Trusted local staging is deliberately separate from the remote resolver.
+  /// A song already on this device plays from its own file: no staging copy
+  /// and no size limit. The lease is not cached, and releasing it never
+  /// deletes the file, which belongs to downloads.
+  public func leaseLocal(_ file: URL) throws -> PreparedAudioSource {
+    try Task.checkCancellation()
+    guard file.isFileURL,
+      let size = try file.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]).fileSize,
+      size > 0
+    else { throw AudioSourceFailure.unavailable }
+    return PreparedAudioSource(file: file, byteCount: size)
+  }
+  /// Copies a local file into playback staging (bounded); used for sources that
+  /// must not be read in place.
   public func acquireLocal(_ track: Track, file: URL) async throws -> PreparedAudioSource {
     let key = Key(track)
     try Task.checkCancellation()

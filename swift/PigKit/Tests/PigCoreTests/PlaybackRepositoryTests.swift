@@ -64,6 +64,22 @@ struct PlaybackRepositoryTests {
     await repository.reset()
   }
 
+  @Test func downloadedFilesPlayInPlaceWithoutTheStagingLimit() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let input = root.appendingPathComponent("long.flac")
+    try Data(repeating: 7, count: 500).write(to: input)
+    let repository = PlaybackSourceRepository(
+      preparer: try AudioSourcePreparer(root: root, maximumFileBytes: 20, maximumTotalBytes: 40))
+    let lease = try await repository.leaseLocal(input)
+    #expect(lease.file == input)
+    #expect(lease.byteCount == 500)
+    await repository.release(lease)
+    await repository.reset()
+    #expect(FileManager.default.fileExists(atPath: input.path))
+  }
+
   @Test func changedRevisionCreatesDistinctSourceAndLocalStagingIsBounded() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

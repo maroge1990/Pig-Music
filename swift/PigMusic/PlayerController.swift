@@ -296,11 +296,17 @@ import PigPlayback
     }
     pendingSeek = restored?.elapsed ?? 0
     elapsed = pendingSeek
-    usingEngine = seamlessEnabled
+    // A new queue tries seamless playback again; a restart keeps a fallback.
+    if restored == nil { streamingFallback = false }
+    usingEngine = seamlessEnabled && !streamingFallback
     error = nil
     if usingEngine {
       guard let repository, let engine else {
-        error = "Playback storage is unavailable. Try Streaming mode."
+        streamingFallback = true
+        usingEngine = false
+        prepareStreaming()
+        checkpoint(force: true)
+        refreshArtwork()
         return
       }
       do { if intent.canPlay { try activate() } } catch {
@@ -312,9 +318,11 @@ import PigPlayback
         crossfade: crossfadeEnabled, repeatMode: repeatMode,
         acquire: { item in
           let url = try await resolve(item.track)
-          if url.isFileURL { return try await repository.acquireLocal(item.track, file: url) }
+          // Downloaded songs play from their own file, whatever their size.
+          if url.isFileURL { return try await repository.leaseLocal(url) }
           return try await repository.acquire(item.track, initialURL: url, resolve: resolve)
         }, release: { await repository.release($0) })
+      watchSlowStart()
     } else {
       prepareStreaming()
     }
@@ -342,9 +350,13 @@ import PigPlayback
     playing = snapshot.state == .playing
     preparing = snapshot.state == .preparing || snapshot.state == .buffering
     if snapshot.state == .failed {
-      error =
-        "Seamless playback could not prepare the audio. Try Streaming mode. "
-        + (snapshot.error ?? "")
+      // Too large to stage, or unreadable by the engine: play it as a normal
+      // stream instead of asking the person to change modes.
+      if !streamingFallback, resolve != nil {
+        fallBackToStreaming("engine could not prepare the song: \(snapshot.error ?? "unknown")")
+        return
+      }
+      error = "This song couldn't be played. " + (snapshot.error ?? "")
       intent.pause()
     } else if snapshot.state == .ended {
       intent.pause()
@@ -421,6 +433,27 @@ import PigPlayback
         publishNowPlaying()
         do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
       }
+    }
+  }
+  /// Set when seamless playback could not start this queue; it then streams.
+  @ObservationIgnored private var streamingFallback = false
+  @ObservationIgnored private var slowStart: Task<Void, Never>?
+  private func fallBackToStreaming(_ reason: String) {
+    DiagnosticsLog.shared.record("playback", "streaming instead: \(reason)")
+    streamingFallback = true
+    restartInCurrentMode()
+  }
+  /// Seamless playback downloads a whole remote song before it starts. On a
+  /// slow connection, start it as a stream instead of waiting.
+  private func watchSlowStart() {
+    slowStart?.cancel()
+    let stamp = generation
+    slowStart = Task {
+      do { try await Task.sleep(for: .seconds(8)) } catch { return }
+      guard generation == stamp, usingEngine, !streamingFallback, intent.canPlay,
+        engine?.snapshot.state == .preparing, (engine?.snapshot.elapsed ?? 0) < 1
+      else { return }
+      fallBackToStreaming("slow start")
     }
   }
   @ObservationIgnored private var loggedState: QueuePlaybackState?
@@ -568,6 +601,7 @@ import PigPlayback
     preparation?.cancel()
     clock?.cancel()
     routeRecovery?.cancel()
+    slowStart?.cancel()
     engine?.stop()
     usingEngine = false
     player.pause()
