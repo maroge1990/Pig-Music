@@ -7,6 +7,8 @@ pytest-cache-files-*/
 .localdata/
 client/node_modules/
 client/dist/
+client/test-results/
+client/playwright-report/
 .env
 swift/**/.build/
 swift/**/DerivedData/

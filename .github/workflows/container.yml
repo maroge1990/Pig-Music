@@ -76,6 +76,12 @@ jobs:
           npm ci
           npm test
           npm run format:check
+      - name: Browser smoke tests (1366 and 375 px, both themes)
+        working-directory: client
+        run: |
+          npx playwright install --with-deps chromium
+          npm run build
+          npm run test:e2e
       - name: Log in to GitHub Container Registry
         if: github.event_name != 'pull_request'
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3

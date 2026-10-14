@@ -172,11 +172,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const panel = useRef<HTMLElement>(null);
+  /** What opened Now Playing, to hand focus back to once it closes. */
+  const openedFrom = useRef<HTMLElement | null>(null);
   useEffect(() => {
     document.documentElement.classList.toggle("now-playing-open", expanded);
-    if (!expanded) return;
+    if (!expanded) {
+      // The mini player is visible again only now, so focus can return to it.
+      const trigger = openedFrom.current;
+      openedFrom.current = null;
+      if (trigger?.isConnected) trigger.focus();
+      return;
+    }
     // A modal keeps keyboard focus inside it and hands it back on close.
-    const trigger = document.activeElement as HTMLElement | null;
     const keydown = (e: KeyboardEvent) => {
       if (e.key === "Escape") return setExpanded(false);
       if (e.key !== "Tab" || !panel.current) return;
@@ -198,10 +205,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     };
     window.addEventListener("keydown", keydown);
-    return () => {
-      window.removeEventListener("keydown", keydown);
-      if (trigger?.isConnected) trigger.focus();
-    };
+    return () => window.removeEventListener("keydown", keydown);
   }, [expanded]);
   const collapse = () => setExpanded(false);
 
@@ -575,7 +579,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
             <button
               className="mini-open"
               aria-label={`Open now playing: ${song.title}`}
-              onClick={() => setExpanded(true)}
+              onClick={(e) => {
+                openedFrom.current = e.currentTarget;
+                setExpanded(true);
+              }}
             >
               <Cover title={song.title} src={song.cover} sizes="48px" />
               <span>
