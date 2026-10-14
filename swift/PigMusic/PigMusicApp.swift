@@ -76,10 +76,11 @@ struct SignInView: View {
           Text("Your music, wherever you are.").font(PigType.headline)
         }
         Section("Your server") {
-          TextField("https://your-server.ts.net:10000", text: $model.server)
+          TextField("https://music.example.com", text: $model.server)
             .textContentType(.URL).keyboardType(.URL).textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-          Text("Connect to Tailscale before signing in away from home.").font(PigType.footnote)
+          Text("Use the address from your invitation, or ask the person who runs your server.")
+            .font(PigType.footnote)
         }
         Section("Your account") {
           TextField("Username", text: $username).textContentType(.username)

@@ -81,3 +81,23 @@ public enum OfflineFailure: Error, LocalizedError, Sendable {
     }
   }
 }
+
+/// Plain-language request states, the same words as the web; the server keeps
+/// its technical names.
+public enum RequestStatus {
+  public static func label(_ status: String) -> String {
+    switch status {
+    case "waiting_for_sources": "Waiting for a source"
+    case "searching": "Looking for a copy"
+    case "downloading": "Downloading to the server"
+    case "validating": "Checking the file"
+    case "importing": "Adding to the library"
+    case "completed", "downloaded": "In your library"
+    case "cancelled": "Cancelled"
+    case "failed": "Couldn't get this song"
+    case "running", "queued": "Working on it"
+    case "done": "Done"
+    default: status.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+  }
+}

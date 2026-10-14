@@ -25,7 +25,7 @@ struct ArtistAcquisitionView: View {
       }
       if let state {
         Section("Server request") {
-          Text(state.status.replacingOccurrences(of: "_", with: " "))
+          Text(RequestStatus.label(state.status))
           Text(
             "\(state.done.count) of \(state.total) releases reviewed · \(state.created) requests created"
           )

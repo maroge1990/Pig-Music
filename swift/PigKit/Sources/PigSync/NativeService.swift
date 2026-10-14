@@ -70,7 +70,7 @@ public actor NativeService: LibrarySource {
     case .ok(let value): return try LibraryCodec.convert(value.body.json)
     case .unauthorized: throw NativeFailure.authentication
     default:
-      throw NativeFailure.unavailable("Can't reach your account. Check Tailscale and try again.")
+      throw NativeFailure.unavailable("Can't reach your server. Check your connection and try again.")
     }
   }
   /// Nil from a server older than this endpoint.

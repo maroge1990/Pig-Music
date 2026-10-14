@@ -185,7 +185,7 @@ struct RequestsView: View {
               }
             }.disabled(loading || !model.canMutate)
           }
-          Text(item.status.replacingOccurrences(of: "_", with: " ")).font(PigType.caption)
+          Text(RequestStatus.label(item.status)).font(PigType.caption)
           if let progress = item.requestProgress {
             ProgressView(value: min(1, max(0, progress)))
           }

@@ -182,6 +182,20 @@ struct PlaylistView: View {
           Spacer()
         }.buttonStyle(.plain)
         if let message { Text(message).font(PigType.footnote) }
+        // Edits saved offline show here, and a rejected one says so where it was made.
+        if let failed = model.pendingEdits.first(where: {
+          $0.mutation.playlistId == playlist.id && $0.state != "queued"
+        }) {
+          VStack(alignment: .leading, spacing: 4) {
+            Text(failed.message ?? "An edit to this playlist could not be applied.")
+              .font(PigType.footnote).foregroundStyle(Color("PigDanger"))
+            NavigationLink("Review edit") { PendingEditsView(model: model) }
+              .font(PigType.footnote.weight(.semibold))
+          }
+        } else if model.pendingEdits.contains(where: { $0.mutation.playlistId == playlist.id }) {
+          Label("Edits waiting to sync", systemImage: "clock.arrow.circlepath")
+            .font(PigType.footnote).foregroundStyle(.secondary)
+        }
       }.listRowSeparator(.hidden)
       Section {
         ForEach(Array((playlist.entries ?? []).enumerated()), id: \.element.entryId) {
