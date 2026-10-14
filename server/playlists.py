@@ -55,8 +55,12 @@ class Playlists:
         for position, track in enumerate(playlist["tracks"]):
             result = index.match(track)
             match = result.track
-            household_match = (
-                self.store.index.match(track) if self.user_id and not match else None
+            # A household file this person has not added: playable from the
+            # server without being in their library.
+            household = (
+                self.store.index.match(track).track
+                if self.user_id and not match
+                else None
             )
             entries.append(
                 {
@@ -67,11 +71,8 @@ class Playlists:
                     "match_kind": result.kind,
                     "saved_id": match["id"] if match else None,
                     "saved_track": match,
-                    "household_available": bool(
-                        self.user_id
-                        and not match
-                        and self.store.index.match(track).track
-                    ),
+                    "household_available": bool(household),
+                    "household_track": household,
                 }
             )
         sync = self.store.read_document("plex-playlist:" + playlist_id)

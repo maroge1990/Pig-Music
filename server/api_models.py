@@ -105,6 +105,9 @@ class PlaylistEntry(TrackDTO):
     saved_id: str | None = None
     household_available: bool = False
     saved_track: TrackDTO | None = None
+    # The household file for a song not in this person's library, so it plays
+    # from the server rather than a remote source.
+    household_track: TrackDTO | None = None
 
 
 class PlaylistPlexDTO(BaseModel):

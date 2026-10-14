@@ -69,6 +69,8 @@ public struct PlaylistEntry: Codable, Sendable, Identifiable, Hashable {
   public var householdAvailable: Bool?
   public var savedId: String?
   public var savedTrack: Track?
+  /// The household file when the song is on the server but not in this library.
+  public var householdTrack: Track?
   public var musicbrainzReleaseId: String?
   public var musicbrainzRecordingId: String?
 }
@@ -158,7 +160,9 @@ public enum LibraryNamespace {
 }
 
 extension PlaylistEntry {
-  public var playbackTrack: Track { savedTrack ?? entryTrack }
+  /// Your file, else the household file (played from the server without adding
+  /// it), else the playlist's own description for a remote source.
+  public var playbackTrack: Track { savedTrack ?? householdTrack ?? entryTrack }
   /// The song as the playlist stored it, with its recording and release identity,
   /// for edits such as unfavouriting that match the stored entry.
   public var entryTrack: Track {
@@ -170,8 +174,7 @@ extension PlaylistEntry {
     track.discNumber = discNumber
     track.musicbrainzReleaseId = musicbrainzReleaseId
     track.musicbrainzRecordingId = musicbrainzRecordingId
-    track.serverState =
-      householdAvailable == true && savedId != nil ? "household_available" : "not_in_library"
+    track.serverState = "not_in_library"
     return track
   }
 }

@@ -31,6 +31,7 @@ type Entry = Track & {
   position: number;
   saved_track?: Track | null;
   household_available?: boolean;
+  household_track?: Track | null;
 };
 type Playlist = {
   id: string;
@@ -358,7 +359,9 @@ export function PersonalLibrary({
       if (openRoute.current !== "playlist:" + id) return;
       setDetail({
         title: data.name,
-        tracks: data.entries.map((t) => t.saved_track || t),
+        tracks: data.entries.map(
+          (t) => t.saved_track || t.household_track || t,
+        ),
         playlist: data,
       });
     } catch (e) {
@@ -778,7 +781,9 @@ export function PersonalLibrary({
           {tab === "favourites" &&
             (favouriteList?.entries.length ? (
               songs(
-                favouriteList.entries.map((e) => e.saved_track || e),
+                favouriteList.entries.map(
+                  (e) => e.saved_track || e.household_track || e,
+                ),
                 favouriteList,
               )
             ) : (

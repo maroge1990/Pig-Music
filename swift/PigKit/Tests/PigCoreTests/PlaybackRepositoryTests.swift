@@ -41,6 +41,29 @@ struct PlaybackRepositoryTests {
     #expect(try Data(contentsOf: input) == Data(repeating: 7, count: 12))
   }
 
+  @Test func householdAndRemoteSourcesAreNotCheckedAgainstPersonalLibrary() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let input = root.appendingPathComponent("input.wav")
+    try Data(repeating: 7, count: 12).write(to: input)
+    let repository = PlaybackSourceRepository(
+      preparer: try AudioSourcePreparer(root: root, maximumFileBytes: 20, maximumTotalBytes: 1000))
+    let states: [String: String?] = [
+      "mine": "in_library", "legacy": nil, "household": "household_available",
+      "requested": "requested", "failed": "failed", "remote": "not_in_library",
+    ]
+    for (id, state) in states {
+      var track = Track(id: id, title: id, artist: "Fixture")
+      track.serverState = state
+      // Released sources stay cached, and cached sources are what a refresh checks.
+      await repository.release(try await repository.acquireLocal(track, file: input))
+      let personal = state == nil || state == "in_library"
+      #expect(await repository.savedRevisions().keys.contains(id) == personal)
+    }
+    await repository.reset()
+  }
+
   @Test func changedRevisionCreatesDistinctSourceAndLocalStagingIsBounded() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

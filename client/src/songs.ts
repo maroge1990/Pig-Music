@@ -61,11 +61,20 @@ export function fromTrack(t: Track, cover?: string | null, key = t.id): Song {
 }
 
 export function playlistSongs(
-  entries: (Track & { entry_id: string; saved_track?: Track | null })[],
+  entries: (Track & {
+    entry_id: string;
+    saved_track?: Track | null;
+    household_track?: Track | null;
+  })[],
   cover?: string | null,
 ): Song[] {
   return entries.map((entry) => {
-    const song = fromTrack(entry.saved_track || entry, cover, entry.entry_id);
+    // Your file, else the household file, which plays without being added.
+    const song = fromTrack(
+      entry.saved_track || entry.household_track || entry,
+      cover,
+      entry.entry_id,
+    );
     return entry.saved_track || song.state === "server"
       ? song
       : { ...song, state: "missing", saved: undefined };

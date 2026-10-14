@@ -185,6 +185,12 @@ def test_playlist_lifecycle_ownership_and_stale_edits(tmp_path, monkeypatch):
             ).json()
         assert own["entries"][0]["household_available"] is True
         assert own["entries"][0]["saved_track"] is None
+        # The household file travels with the entry, so it plays from the server.
+        household_track = own["entries"][0]["household_track"]
+        assert household_track["server_state"] == "household_available"
+        assert household_track["title"] == "One"
+        assert "path" not in household_track
+        assert own["entries"][1]["household_track"] is None
         revision = own["revision"]
         edited = client.patch(
             path, json={"revision": revision, "name": "Renamed", "order": [1, 0]}

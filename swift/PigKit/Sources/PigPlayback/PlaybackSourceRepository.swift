@@ -116,9 +116,12 @@ public actor PlaybackSourceRepository {
     entry.references = max(0, entry.references - 1)
     entries[key] = entry
   }
+  /// Revisions of cached sources from this person's own library, which a refresh
+  /// checks against their library. Household files and remote streams are not in
+  /// it, so personal membership says nothing about whether they were removed.
   public func savedRevisions() -> [String: String?] {
     var result: [String: String?] = [:]
-    for key in entries.keys where key.state != "not_in_library" {
+    for key in entries.keys where key.state == nil || key.state == "in_library" {
       result.updateValue(key.revision, forKey: key.id)
     }
     return result

@@ -2363,6 +2363,10 @@
             "title": "Household Available",
             "type": "boolean"
           },
+          "household_track": {
+            "$ref": "#/components/schemas/TrackDTO",
+            "nullable": true
+          },
           "id": {
             "default": "",
             "title": "Id",

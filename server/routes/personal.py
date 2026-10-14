@@ -150,6 +150,14 @@ def playlist_dto(value):
                 "saved_track": (
                     track_dto(t["saved_track"]) if t.get("saved_track") else None
                 ),
+                "household_track": (
+                    {
+                        **track_dto(t["household_track"]),
+                        "server_state": "household_available",
+                    }
+                    if t.get("household_track")
+                    else None
+                ),
             }
             for t in value["entries"]
         ],
