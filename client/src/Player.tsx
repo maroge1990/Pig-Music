@@ -15,6 +15,12 @@ import {
 import type { Track } from "./types";
 import { PersonalSongActions } from "./PersonalSongActions";
 import { useFixedHeight } from "./useFixedHeight";
+import {
+  flushListens,
+  forgetListens,
+  LISTEN_SECONDS,
+  recordListen,
+} from "./listens";
 import { Cover } from "./Cover";
 import { fromTrack, goToAlbum, goToArtist, songBody, type Song } from "./songs";
 
@@ -55,20 +61,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     played_at: number;
     seconds: number;
     last: number;
+    recorded?: boolean;
   } | null>(null);
+  /** The play ended. Its listen, if any, was already recorded at 30 seconds. */
   function reportPlay() {
-    const event = playEvent.current;
     playEvent.current = null;
-    if (event && event.seconds >= 1) {
-      const { last: _last, ...body } = event;
-      void apiFetch("/api/v1/play-events", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          events: [{ ...body, seconds: Math.floor(body.seconds) }],
-        }),
-      }).catch(() => {});
-    }
   }
   const [song, setSong] = useState<Playing | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -94,21 +91,55 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       setBusy(false);
       if ("mediaSession" in navigator) navigator.mediaSession.metadata = null;
     };
-    window.addEventListener("music-auth-required", stop);
-    window.addEventListener("music-signed-out", stop);
+    const signedOut = () => {
+      stop();
+      forgetListens();
+    };
+    // Whoever signs in next must never send this account's unsent listens.
+    window.addEventListener("music-auth-required", signedOut);
+    window.addEventListener("music-signed-out", signedOut);
+    // Listens saved while offline or before the tab closed.
+    void flushListens();
+    const online = () => void flushListens();
+    window.addEventListener("online", online);
     return () => {
-      window.removeEventListener("music-auth-required", stop);
-      window.removeEventListener("music-signed-out", stop);
+      window.removeEventListener("music-auth-required", signedOut);
+      window.removeEventListener("music-signed-out", signedOut);
+      window.removeEventListener("online", online);
     };
   }, []);
 
+  const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     document.documentElement.classList.toggle("now-playing-open", expanded);
     if (!expanded) return;
-    const close = (e: KeyboardEvent) =>
-      e.key === "Escape" && setExpanded(false);
-    window.addEventListener("keydown", close);
-    return () => window.removeEventListener("keydown", close);
+    // A modal keeps keyboard focus inside it and hands it back on close.
+    const trigger = document.activeElement as HTMLElement | null;
+    const keydown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") return setExpanded(false);
+      if (e.key !== "Tab" || !panel.current) return;
+      const focusable = Array.from(
+        panel.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => el.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const inside = panel.current.contains(document.activeElement);
+      if (e.shiftKey && (document.activeElement === first || !inside)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !inside)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", keydown);
+    return () => {
+      window.removeEventListener("keydown", keydown);
+      if (trigger?.isConnected) trigger.focus();
+    };
   }, [expanded]);
   const collapse = () => setExpanded(false);
 
@@ -389,6 +420,17 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
               if (playing && elapsed > 0 && elapsed < 3)
                 event.seconds += elapsed;
               event.last = current;
+              // Like iPhone: one listen per play, once 30 seconds were heard,
+              // kept in the browser until the server confirms it.
+              if (!event.recorded && event.seconds >= LISTEN_SECONDS) {
+                event.recorded = true;
+                recordListen({
+                  event_id: event.event_id,
+                  track_id: event.track_id,
+                  played_at: event.played_at,
+                  seconds: LISTEN_SECONDS,
+                });
+              }
             }
             setPosition(current);
           }}
@@ -455,6 +497,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         )}
         {song && expanded && (
           <section
+            ref={panel}
             className="now-playing"
             role="dialog"
             aria-modal="true"

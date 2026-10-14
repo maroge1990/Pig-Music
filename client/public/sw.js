@@ -1,13 +1,17 @@
 /* Pig Music offline cache: artwork and slow catalogue pages only.
  *
  * Artwork is cache-first: an image address never changes meaning (revisions
- * and sizes are in the query). Catalogue and Home data is served from cache at
- * once and refreshed in the background for next time. Nothing personal from
- * the library, playback or account endpoints is stored. Everything is cleared
- * when the person signs out. Storage stays under BUDGET, oldest entries first.
+ * and sizes are in the query). Shared catalogue lists are served from cache at
+ * once and refreshed in the background for next time. Pages that carry this
+ * person's saved/requested state or recommendations always ask the server
+ * first and fall back to the cache only offline, so a change made elsewhere is
+ * never hidden behind an old copy. Nothing from the library, playback or
+ * account endpoints is stored. Everything is cleared when the person signs
+ * out. Storage stays under BUDGET, oldest entries first.
  */
 const IMAGES = "pig-images-v1";
-const DATA = "pig-data-v1";
+// v2: personal pages from v1 were served stale; start them afresh.
+const DATA = "pig-data-v2";
 const BUDGET = 500 * 1024 * 1024;
 const LEDGER = "/__pig-cache-ledger";
 
@@ -19,10 +23,14 @@ const artwork = [
   /^\/api\/catalogue\/artists\/[^/]+\/(artwork|background|logo)$/,
   /^\/api\/artists\/[^/]+\/(background|logo)$/,
 ];
+/** Shared catalogue lists: the same for everyone. */
 const pages = [
-  /^\/api\/v1\/home\/(popular|recommended)$/,
   /^\/api\/v1\/catalogue\/artists$/,
   /^\/api\/v1\/catalogue\/artists\/[^/]+\/(popularity|releases)$/,
+];
+/** Include this person's library state or recommendations. */
+const personal = [
+  /^\/api\/v1\/home\/(popular|recommended)$/,
   /^\/api\/v1\/catalogue\/groups\/[^/]+\/editions$/,
   /^\/api\/v1\/catalogue\/releases\/[^/]+$/,
 ];
@@ -52,6 +60,8 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(cacheFirst(request));
   else if (pages.some((p) => p.test(url.pathname)))
     event.respondWith(staleWhileRevalidate(request, event));
+  else if (personal.some((p) => p.test(url.pathname)))
+    event.respondWith(networkFirst(request));
 });
 
 self.addEventListener("message", (event) => {
@@ -97,6 +107,24 @@ async function staleWhileRevalidate(request, event) {
   return fresh;
 }
 
+/** The server's answer, or the last one when offline. */
+async function networkFirst(request) {
+  const cache = await caches.open(DATA);
+  try {
+    const response = await fetch(request);
+    if (
+      response.ok &&
+      (response.headers.get("content-type") || "").includes("json")
+    )
+      await store(cache, request, response.clone());
+    return response;
+  } catch (error) {
+    const hit = await cache.match(request, { ignoreVary: true });
+    if (hit) return hit;
+    throw error;
+  }
+}
+
 /** Fetch a list of addresses into the cache, a few at a time, quietly. */
 async function warm(urls) {
   const queue = urls.filter((u) => typeof u === "string").slice(0, 400);
@@ -108,7 +136,10 @@ async function warm(urls) {
       try {
         if (artwork.some((p) => p.test(url.pathname)))
           await cacheFirst(request);
-        else if (pages.some((p) => p.test(url.pathname))) {
+        else if (
+          pages.some((p) => p.test(url.pathname)) ||
+          personal.some((p) => p.test(url.pathname))
+        ) {
           const cache = await caches.open(DATA);
           if (!(await cache.match(request, { ignoreVary: true })))
             await staleWhileRevalidate(request, { waitUntil() {} });

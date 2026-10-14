@@ -102,6 +102,34 @@ export function AppShell() {
   }, []);
 
   useEffect(() => {
+    // Appearance belongs to the account, as on iPhone: the browser copy only
+    // gives the first paint the right theme before the account answers.
+    if (!user) return;
+    let active = true;
+    void api<{ appearance?: string }>("/v1/preferences")
+      .then(({ appearance = "system" }) => {
+        if (!active) return;
+        try {
+          localStorage.setItem("pig-music-appearance", appearance);
+        } catch {
+          /* storage unavailable: the theme still applies for this visit */
+        }
+        document.documentElement.dataset.theme =
+          appearance === "light" || appearance === "dark"
+            ? appearance
+            : matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+      })
+      .catch(() => {
+        /* Keep the browser's last known theme. */
+      });
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
     document.title = user
       ? `${sections.find((s) => s.id === route.section)?.label || "Home"} · Pig Music`
       : "Pig Music";
