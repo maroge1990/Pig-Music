@@ -202,10 +202,10 @@ import SwiftUI
   }
   /// Playlists sent to the Watch follow later changes: new songs are added,
   /// removed songs are released, and a deleted playlist leaves the Watch.
+  /// Runs only from `reconcile`, after a successful sync, so an empty list means
+  /// the person has no playlists left and the last one's songs are released.
   private func followPlaylists() async {
-    guard let downloads, let model, let store = model.store, !model.playlists.isEmpty else {
-      return
-    }
+    guard let downloads, let model, let store = model.store else { return }
     var sentPlaylists: [String: (name: String?, ids: Set<String>)] = [:]
     for record in downloads.records {
       for origin in record.effectiveOrigins {

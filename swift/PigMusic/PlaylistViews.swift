@@ -197,7 +197,8 @@ struct PlaylistView: View {
           order.move(fromOffsets: from, toOffset: to)
           Task { await edit(order: order) }
         }
-        .moveDisabled(locked)
+        // Favourites keep the order they were favourited in; the server has no reorder for them.
+        .moveDisabled(locked || playlist.favourites == true)
       }
       Section("Settings") {
         if let plex = playlist.plex {
@@ -220,7 +221,7 @@ struct PlaylistView: View {
       }
     }.pigCanvas().navigationTitle(playlist.name)
       .toolbar {
-        EditButton()
+        if playlist.favourites != true { EditButton() }
         Button("Refresh", systemImage: "arrow.clockwise") { Task { await load() } }.disabled(
           loading)
       }
@@ -270,9 +271,17 @@ struct PlaylistView: View {
     defer { loading = false }
     let id = playlist.id
     let revision = playlist.revision
+    // Favourites are removed by unfavouriting that exact song; the server rejects
+    // a positional removal, which would block the edits queued behind it.
+    let entries = playlist.entries ?? []
+    let mutation =
+      if playlist.favourites == true, entries.indices.contains(index) {
+        OfflineMutation(action: "favourite", track: entries[index].entryTrack, favourite: false)
+      } else {
+        OfflineMutation(action: "remove", playlistId: id, revision: revision, position: index)
+      }
     do {
-      let confirmed = try await model.saveEdit(
-        OfflineMutation(action: "remove", playlistId: id, revision: revision, position: index))
+      let confirmed = try await model.saveEdit(mutation)
       message = confirmed ? nil : "Removal saved on this phone; waiting to sync."
       if confirmed { reloadAfterEdit = true }
     } catch { message = error.localizedDescription + " Refresh before reapplying your edit." }

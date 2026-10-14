@@ -209,18 +209,23 @@ struct ArtistHero: View {
       let offset = proxy.frame(in: .scrollView).minY
       let progress = min(1, max(0, -offset / (Self.height * 0.8)))
       ZStack(alignment: .bottomLeading) {
+        // The fade is a mask on the photograph itself, so it drifts with the
+        // photograph and the picture melts into the canvas instead of sliding
+        // out from under a gradient that scrolls at a different speed.
         backdrop
           .frame(width: proxy.size.width, height: Self.height + max(0, offset))
           .clipped()
+          .mask {
+            LinearGradient(
+              stops: [
+                .init(color: .black, location: 0.4),
+                .init(color: .black.opacity(0.3), location: 0.72),
+                .init(color: .clear, location: 1),
+              ], startPoint: .top, endPoint: .bottom)
+          }
           .opacity(1 - progress * 0.9)
           .blur(radius: reduceMotion ? 0 : progress * 12)
           .offset(y: offset > 0 ? -offset : (reduceMotion ? 0 : -offset * 0.45))
-          .overlay(alignment: .bottom) {
-            LinearGradient(
-              colors: [.clear, PigBrand.canvas(scheme).opacity(0.7), PigBrand.canvas(scheme)],
-              startPoint: .top, endPoint: .bottom
-            ).frame(height: Self.height * 0.55)
-          }
         HStack(alignment: .bottom, spacing: 14) {
           Artwork(model: model, source: .artist(artistId), title: name, width: 512, circle: true)
             .frame(width: 92, height: 92)

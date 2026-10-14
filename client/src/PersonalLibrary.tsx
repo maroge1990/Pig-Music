@@ -141,6 +141,8 @@ export function PersonalLibrary({
   } | null>(null);
   const [downloading, setDownloading] = useState(false);
   const openId = useRef("");
+  /** The detail page the route shows; a late response for another page is dropped. */
+  const openRoute = useRef("");
   const [playlists, setPlaylists] = useState<PlaylistSummary[]>([]);
   const [favouriteList, setFavouriteList] = useState<Playlist | null>(null);
   const [notice, setNotice] = useState("");
@@ -188,6 +190,7 @@ export function PersonalLibrary({
   const [kind, id] = route.parts;
   const routeKey = `${route.section}/${route.parts.join("/")}?${route.params}`;
   useEffect(() => {
+    openRoute.current = !searching && id ? `${kind}:${id}` : "";
     if (searching && kind === "artist" && id) {
       setCatalogue({
         id,
@@ -336,6 +339,7 @@ export function PersonalLibrary({
       const data = await api<
         Artist & { albums: Album[]; compilation_tracks?: Track[] }
       >("/v1/artists/" + artist.id);
+      if (openRoute.current !== "artist:" + artist.id) return;
       setDetail({
         title: data.name,
         artist: data,
@@ -344,19 +348,22 @@ export function PersonalLibrary({
         tracks: data.compilation_tracks,
       });
     } catch (e) {
-      setError((e as Error).message);
+      if (openRoute.current === "artist:" + artist.id)
+        setError((e as Error).message);
     }
   }
   async function openPlaylist(id: string) {
     try {
       const data = await api<Playlist>("/v1/playlists/" + id);
+      if (openRoute.current !== "playlist:" + id) return;
       setDetail({
         title: data.name,
         tracks: data.entries.map((t) => t.saved_track || t),
         playlist: data,
       });
     } catch (e) {
-      setError((e as Error).message);
+      if (openRoute.current === "playlist:" + id)
+        setError((e as Error).message);
     }
   }
   async function preview(ids: string[]) {

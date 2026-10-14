@@ -158,8 +158,10 @@ public enum LibraryNamespace {
 }
 
 extension PlaylistEntry {
-  public var playbackTrack: Track {
-    if let savedTrack { return savedTrack }
+  public var playbackTrack: Track { savedTrack ?? entryTrack }
+  /// The song as the playlist stored it, with its recording and release identity,
+  /// for edits such as unfavouriting that match the stored entry.
+  public var entryTrack: Track {
     var track = Track(
       id: savedId ?? entryId, title: title, artist: artist, album: album, duration: duration)
     track.albumArtist = albumArtist

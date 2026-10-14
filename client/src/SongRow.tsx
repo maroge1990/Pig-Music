@@ -279,7 +279,7 @@ function SongMenu({
               })
             }
             add={(id) =>
-              api(`/v1/playlists/${id}/songs`, {
+              api(`/v1/playlists/${id}/songs?allow_repeat=true`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(body),

@@ -2,24 +2,20 @@ import { PlaylistPicker } from "./PlaylistPicker";
 import { useEffect, useState } from "react";
 import { Heart } from "lucide-react";
 import { api } from "./api";
-import type { Track } from "./types";
+import { songBody, type Song } from "./songs";
+/** Favourite and playlist actions for the playing song. The payload keeps the
+ * recording and release identity, so one edition never stands in for another. */
 export function PersonalSongActions({
-  track,
+  song,
   hidePlaylist = false,
 }: {
-  track: Track;
+  song: Song;
   hidePlaylist?: boolean;
 }) {
   const [favourite, setFavourite] = useState(false);
   const playlists: { id: string; name: string }[] = [];
   const [error, setError] = useState("");
-  const body = {
-    title: track.title,
-    artist: track.artist,
-    album: track.album,
-    album_artist: track.album_artist,
-    duration: track.duration,
-  };
+  const body = songBody(song);
   const key = JSON.stringify(body);
   useEffect(() => {
     void api<{ favourited: boolean }>("/v1/favourites", {
@@ -35,8 +31,8 @@ export function PersonalSongActions({
       <button
         aria-label={
           favourite
-            ? `Remove ${track.title} from favourites`
-            : `Favourite ${track.title}`
+            ? `Remove ${song.title} from favourites`
+            : `Favourite ${song.title}`
         }
         onClick={() =>
           void api<{ favourited: boolean }>("/v1/favourites", {
@@ -55,7 +51,7 @@ export function PersonalSongActions({
       </button>
       {!hidePlaylist && (
         <PlaylistPicker
-          title={track.title}
+          title={song.title}
           load={async () =>
             (
               await api<{ playlists: typeof playlists }>("/v1/playlists")
@@ -69,7 +65,7 @@ export function PersonalSongActions({
             })
           }
           add={(id) =>
-            api(`/v1/playlists/${id}/songs`, {
+            api(`/v1/playlists/${id}/songs?allow_repeat=true`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(body),

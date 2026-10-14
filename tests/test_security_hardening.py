@@ -47,6 +47,14 @@ def test_headers_errors_and_secret_validation(tmp_path, monkeypatch):
         )
         assert response.status_code == 413
         assert response.json()["code"] == "request_too_large"
+        # Other JSON spellings and content types are bounded too.
+        for content_type in ["application/vnd.api+json", "text/plain"]:
+            response = client.post(
+                "/api/v1/requests",
+                content=b"x" * (1024 * 1024 + 1),
+                headers={"Content-Type": content_type},
+            )
+            assert response.status_code == 413
     with TestClient(app, base_url="http://localhost") as client:
         assert "strict-transport-security" not in client.get("/api/health").headers
 

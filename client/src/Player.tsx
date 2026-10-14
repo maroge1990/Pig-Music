@@ -550,18 +550,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
               </button>
             </div>
             <div className="np-actions">
-              <PersonalSongActions
-                track={{
-                  id: song.saved_id || song.key,
-                  title: song.title,
-                  artist: song.artist,
-                  album: song.album || "",
-                  album_artist: song.album_artist || song.artist,
-                  duration: song.duration || 0,
-                  disc_number: 1,
-                  track_number: 0,
-                }}
-              />
+              <PersonalSongActions song={song} />
               <button
                 aria-label={muted ? "Unmute" : "Mute"}
                 onClick={() => {

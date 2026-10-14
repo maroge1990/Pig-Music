@@ -187,28 +187,30 @@ import PigPlayback
         }
       })
     let commands = MPRemoteCommandCenter.shared()
-    commands.playCommand.addTarget { [weak self] _ in
+    // @Sendable keeps each handler off the main actor: the system may call it
+    // from another queue, and an isolated handler would assert before its Task.
+    commands.playCommand.addTarget { @Sendable [weak self] _ in
       Task { @MainActor in self?.resume() }
       return .success
     }
-    commands.pauseCommand.addTarget { [weak self] _ in
+    commands.pauseCommand.addTarget { @Sendable [weak self] _ in
       Task { @MainActor in self?.pause() }
       return .success
     }
     // Headphone and AirPods presses arrive as a single toggle command.
-    commands.togglePlayPauseCommand.addTarget { [weak self] _ in
+    commands.togglePlayPauseCommand.addTarget { @Sendable [weak self] _ in
       Task { @MainActor in self?.toggle() }
       return .success
     }
-    commands.nextTrackCommand.addTarget { [weak self] _ in
+    commands.nextTrackCommand.addTarget { @Sendable [weak self] _ in
       Task { @MainActor in self?.next() }
       return .success
     }
-    commands.previousTrackCommand.addTarget { [weak self] _ in
+    commands.previousTrackCommand.addTarget { @Sendable [weak self] _ in
       Task { @MainActor in self?.previous() }
       return .success
     }
-    commands.changePlaybackPositionCommand.addTarget { [weak self] event in
+    commands.changePlaybackPositionCommand.addTarget { @Sendable [weak self] event in
       guard let event = event as? MPChangePlaybackPositionCommandEvent else {
         return .commandFailed
       }

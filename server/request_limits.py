@@ -1,6 +1,18 @@
-"""Bound JSON request bodies before parsing, including chunked uploads."""
+"""Bound request bodies before parsing, including chunked uploads.
+
+Every body is bounded whatever its content type: FastAPI also parses
+`application/*+json`, so checking only `application/json` left a bypass.
+Import uploads stream their own larger bound instead.
+"""
 
 from starlette.responses import JSONResponse
+
+# Routes that read the stream themselves with a 20 MB bound.
+STREAMED_UPLOADS = {
+    "/api/v1/imports/apple",
+    "/api/v1/imports/apple/preview",
+    "/api/migration/import",
+}
 
 
 class JsonBodyLimit:
@@ -8,14 +20,10 @@ class JsonBodyLimit:
         self.app, self.limit = app, limit
 
     async def __call__(self, scope, receive, send):
-        if scope.get("path") in {"/api/v1/imports/apple", "/api/migration/import"}:
-            return await self.app(scope, receive, send)
-        headers = dict(scope.get("headers", []))
-        content_type = headers.get(b"content-type", b"").split(b";")[0].strip().lower()
         if (
             scope["type"] != "http"
+            or scope.get("path") in STREAMED_UPLOADS
             or scope.get("method") not in {"POST", "PUT", "PATCH", "DELETE"}
-            or content_type not in {b"application/json", b""}
         ):
             return await self.app(scope, receive, send)
         chunks, size = [], 0
@@ -27,7 +35,7 @@ class JsonBodyLimit:
             if size > self.limit:
                 return await JSONResponse(
                     {
-                        "detail": "JSON request is larger than 1 MB",
+                        "detail": "Request is larger than 1 MB",
                         "code": "request_too_large",
                     },
                     status_code=413,

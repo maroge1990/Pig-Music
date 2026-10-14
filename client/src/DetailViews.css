@@ -29,20 +29,15 @@
   opacity: var(--artist-opacity);
   filter: blur(var(--artist-blur));
   transform: translateY(var(--artist-shift)) scale(1.03);
-  z-index: -2;
-}
-.artist-scene.has-background::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
+  /* The fade travels with the photograph, so it melts into the canvas at the
+     same rate it drifts instead of sliding out from under a fixed gradient. */
+  mask-image: linear-gradient(
     to bottom,
-    transparent 25%,
-    color-mix(in srgb, var(--canvas) 55%, transparent) 55%,
-    var(--canvas) 87%
+    #000 25%,
+    rgb(0 0 0 / 45%) 55%,
+    transparent 87%
   );
-  z-index: -1;
-  pointer-events: none;
+  z-index: -2;
 }
 .has-background .artist-hero {
   position: relative;

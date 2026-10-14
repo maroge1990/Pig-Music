@@ -174,6 +174,8 @@ import PigPlayback
         output: output, sampleRate: 44100, blockFrames: 2048, lookaheadSeconds: 3)
       self.engine = engine
       engine.onUpdate = { [weak self] snapshot in
+        // A finished or failed queue no longer wants playback, so the next tap is Play.
+        if snapshot.state == .ended || snapshot.state == .failed { self?.intent.pause() }
         self?.measureListen(snapshot)
         self?.playback = snapshot
         self?.updateNowPlaying()
@@ -220,20 +222,22 @@ import PigPlayback
               self?.message = "Audio restarted. Tap Play to resume."
             }
           })
-      MPRemoteCommandCenter.shared().playCommand.addTarget { [weak self] _ in
+      // @Sendable keeps each handler off the main actor: the system may call it
+      // from another queue, and an isolated handler would assert before its Task.
+      MPRemoteCommandCenter.shared().playCommand.addTarget { @Sendable [weak self] _ in
         Task { @MainActor in self?.activateAndResume() }
         return .success
       }
-      MPRemoteCommandCenter.shared().pauseCommand.addTarget { [weak self] _ in
+      MPRemoteCommandCenter.shared().pauseCommand.addTarget { @Sendable [weak self] _ in
         Task { @MainActor in self?.pause() }
         return .success
       }
       // Headphone presses and the system Now Playing controls.
-      MPRemoteCommandCenter.shared().togglePlayPauseCommand.addTarget { [weak self] _ in
+      MPRemoteCommandCenter.shared().togglePlayPauseCommand.addTarget { @Sendable [weak self] _ in
         Task { @MainActor in self?.toggle() }
         return .success
       }
-      MPRemoteCommandCenter.shared().changePlaybackPositionCommand.addTarget { [weak self] event in
+      MPRemoteCommandCenter.shared().changePlaybackPositionCommand.addTarget { @Sendable [weak self] event in
         guard let event = event as? MPChangePlaybackPositionCommandEvent else {
           return .commandFailed
         }
@@ -241,11 +245,11 @@ import PigPlayback
         Task { @MainActor in self?.seek(position) }
         return .success
       }
-      MPRemoteCommandCenter.shared().nextTrackCommand.addTarget { [weak self] _ in
+      MPRemoteCommandCenter.shared().nextTrackCommand.addTarget { @Sendable [weak self] _ in
         Task { @MainActor in self?.next() }
         return .success
       }
-      MPRemoteCommandCenter.shared().previousTrackCommand.addTarget { [weak self] _ in
+      MPRemoteCommandCenter.shared().previousTrackCommand.addTarget { @Sendable [weak self] _ in
         Task { @MainActor in self?.engine?.previous() }
         return .success
       }
@@ -421,6 +425,13 @@ import PigPlayback
     }
   }
   func activateAndResume() {
+    // The engine cannot resume a finished or failed queue: start it again, from
+    // the top when it finished, or at the song that failed.
+    if let state = engine?.snapshot.state, state == .ended || state == .failed, !queue.isEmpty {
+      let index = state == .ended ? 0 : min(playback.index, queue.count - 1)
+      Task { await play(queue.map { $0.track.id }, at: index) }
+      return
+    }
     intent.play()
     let stamp = playbackGeneration
     Task {
