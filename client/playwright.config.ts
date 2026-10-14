@@ -9,8 +9,10 @@ export default defineConfig({
   reporter: process.env.CI ? "github" : "list",
   // The service worker would answer some API calls itself, out of the mock's reach.
   use: { baseURL: "http://127.0.0.1:4179", serviceWorkers: "block" },
+  // An explicit IPv4 host: on Linux "localhost" can bind to ::1 only, and the
+  // readiness check below would never connect.
   webServer: {
-    command: "npx vite preview --port 4179 --strictPort",
+    command: "npx vite preview --host 127.0.0.1 --port 4179 --strictPort",
     url: "http://127.0.0.1:4179",
     reuseExistingServer: !process.env.CI,
   },
