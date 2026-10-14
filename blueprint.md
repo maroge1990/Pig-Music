@@ -34,7 +34,7 @@ Pig Music is a private household music-library manager with one container, one i
   - the native contract and AAC device copies;
   - the 12 October artwork and layout fixes;
   - the 14 October native fixes and features (N14A–D, W02, HH; see the roadmap);
-  - the 15 October audit fixes (AUD1–5; see the roadmap).
+  - the 15–16 October audit fixes (AUD1–10; see the roadmap).
 
   Schema migrations 7–9 are additive. Back up appdata before releasing, because rolling the image back does not reverse a migration.
 - **Native:** iPhone/iPad and an embedded independent Watch app, version **0.2.0 (3)**, Pig family brand 1.7.0. Everyday browsing, personal actions, offline edits, background downloads, gapless/crossfade and Watch offline playback are implemented and simulator-verified. Physical-device acceptance is open. Signing uses a free Personal Team.
@@ -60,7 +60,7 @@ Order is deliberate. Add entries with a stable ID and a gate. Reorder here; don'
 | 12 | HH | Household songs play for every member without adding them first | Delivered | Streaming only; device copies still need membership. Security test covers it |
 | 13 | U01-4 / R17 | All client calls on `/api/v1`, owner APIs as `/api/v1/admin`; then retire legacy routes | Planned | Test rejecting unversioned client paths; needed before any native Admin |
 | 14 | R18 | Admin uses the shell's `/api/v1/events` stream | Planned | One visibility-aware fallback poll |
-| 15 | R19 | Playwright smoke tests (album cover, ambiguous artist, Home order, Admin status) at 1366/375 px, both themes | Planned | Runs in CI |
+| 15 | R19 | Playwright smoke tests at 1366/375 px, both themes, against a mocked API | Delivered (first set) | Home, album, Account, no sideways scroll, artist fade, Now Playing focus, repeat; runs in CI. Still to add: album cover, ambiguous artist, Home order, Admin status |
 | 16 | R12–R15 | Library vs catalogue artist pages, request-centred Downloads, type-ahead Search, identifiable device sessions | Planned | Assessment priority 3 |
 | 17 | RET | Prune old backups/containers listed by `deploy_release.py --retention 2` | Owner decision | The tool never deletes; keep `pre-first-run-20261007-v1` and legacy manager material |
 | 18 | P03 | Mac app; standalone Watch sign-in; CarPlay; cross-device queue handoff; advanced import matching | Future | After V01 |
@@ -71,6 +71,12 @@ Order is deliberate. Add entries with a stable ID and a gate. Reorder here; don'
 | 23 | AUD3 | Watch delivery: AAC copies download in a background session while the phone is locked; activation/paired/installed shown separately (no premature "not installed"); playlist subscriptions saved on their own (empty playlists follow); "Ready for your run" on Watch and phone; transfer stages; Send to Apple Watch reports its result | Delivered, unverified | Device: lock the phone mid-send, reinstall the Watch app, send an empty playlist then add songs |
 | 24 | AUD4 | Household songs in playlists carry `household_track` and play from the server; refresh no longer stops household or remote playback | Delivered | Server and PigKit tests; OpenAPI regenerated |
 | 25 | AUD5 | Freshness and robustness: source-engine crash no longer stops the server (restart with backoff); one 10,000-song playlist limit; streamed file hashes; web personal pages network-first, account-synced appearance, durable 30-second listens, Now Playing focus containment; native live request progress, Home refresh with TTL, open album/playlist pages follow syncs, independent offline edits keep flowing, partly owned albums show the full tracklist | Delivered, unverified | Backend 382, web 38, PigKit 71+13 tests. Browser and device checks of each journey |
+| 26 | AUD6 | iPhone playback limits (N2): downloaded songs play in place with no size limit; automatic streaming fallback for large, unreadable or slow-starting songs; cache-first remote replays; web repeat, editable Up next and resume after reload | Delivered, unverified | PigKit test covers in-place leases. Device: a >128 MB FLAC download, a slow connection |
+| 27 | AUD7 | Diagnostics: private lifecycle log on iPhone and Watch, unexpected-end detection, MetricKit crash reports, Account › Diagnostics export with the Watch's log, `/api/v1/server` version; callback isolation guard test | Delivered, unverified | Export after the next crash or stuck transfer |
+| 28 | AUD8 | Watch controls and battery: system Now Playing (Crown volume, output picker), fewer updates (none while the screen is off), per-playlist exclusions | Delivered, unverified | Battery run in [testing](docs/testing.md#native-device-acceptance) |
+| 29 | AUD9 | Plain wording (no Tailscale at sign-in), shared request-state words, edit status on playlist pages | Delivered | |
+| 30 | AUD10 | Watch rules in PigCompanion with unit tests; Watch archive failure tests; browser smoke tests (R19) | Delivered | Splitting AppModel/WatchPhoneController further continues gradually |
+| 31 | WIND | Watch app independence setting (`WKRunsIndependentlyOfCompanionApp` is true, but music comes only from the phone) | Owner decision | Keep (Watch app can be installed on its own) or set false (companion only); no code depends on it |
 
 Polish backlog: a single Apple XML import entry point; artist names on album tiles; splash only on loading surfaces; retire the plain LAN port `192.168.1.235:8765` once the tunnel is live; turn off Cloudflare Web Analytics for the hostname.
 

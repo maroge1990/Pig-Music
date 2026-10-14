@@ -23,7 +23,7 @@ The preview config `pig-music-dev` attaches to port 8765. A fresh install shows 
 
 ## Test, cheapest first
 
-1. **Every change (~1 min):** `.venv/bin/python -m pytest tests -q -p no:cacheprovider` and `(cd client && npm test)`.
+1. **Every change (~1 min):** `.venv/bin/python -m pytest tests -q -p no:cacheprovider` and `(cd client && npm test)`. Web UI changes: `(cd client && npm run build && npm run test:e2e)` (Playwright against a mocked API; first run `npx playwright install chromium`).
 2. **Before commit/push (~1 min more):**
    ```sh
    .venv/bin/python -m black --check server tests scripts --workers 1
