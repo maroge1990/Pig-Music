@@ -97,10 +97,9 @@ final class NativeSyncContractTests: XCTestCase {
     XCTAssertEqual(results.householdTracks.count, 1)
     let shared = try XCTUnwrap(results.householdTracks.first)
     XCTAssertEqual(shared.serverState, "household_available")
-    do {
-      _ = try await service.resolve(shared)
-      XCTFail("Household playback should require an explicit membership action")
-    } catch NativeFailure.unavailable {}
+    // Household songs stream without being added; playing never adds them.
+    let householdURL = try await service.resolve(shared)
+    XCTAssertTrue(householdURL.path.hasPrefix("/api/playback/files/"))
     try await coordinator.refresh()
     let beforeAdd = try await store.count(.tracks)
     XCTAssertEqual(beforeAdd, 2)
