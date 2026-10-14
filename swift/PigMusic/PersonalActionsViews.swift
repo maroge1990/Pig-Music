@@ -204,6 +204,8 @@ struct RequestsView: View {
         Button("Clear finished") { Task { await clear() } }.disabled(loading || !model.canMutate)
       }
       .task { await load(reset: true) }
+      // Live: the server's request queue changed.
+      .onChange(of: model.requestsRevision) { Task { await load(reset: true) } }
   }
   private func load(reset: Bool) async {
     guard !loading else { return }

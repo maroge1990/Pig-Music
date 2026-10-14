@@ -226,6 +226,8 @@ struct PlaylistView: View {
           loading)
       }
       .task { await load() }
+      // A sync changed the library: show the playlist as the server now has it.
+      .onChange(of: model.libraryRevision) { Task { await load() } }
       .onChange(of: reloadAfterEdit) { _, reload in
         guard reload else { return }
         reloadAfterEdit = false

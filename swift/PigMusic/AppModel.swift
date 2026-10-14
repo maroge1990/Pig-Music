@@ -131,6 +131,11 @@ import UIKit
               return
             }
             if event == "revision" { await refresh() }
+            // A request moved on the server: open request lists reload.
+            if event == "queue" {
+              requestsRevision += 1
+              await refreshServerRequests()
+            }
           }
         } catch NativeFailure.authentication {
           revoked(generation: stamp)
@@ -335,8 +340,10 @@ import UIKit
         return
       }
       watch?.confirmAccount()
+      let before = try? await store?.revision()
       try await sync.refresh()
       guard generation == stamp else { return }
+      if (try? await store?.revision()) != before { homeLibraryChanged() }
       try await loadCache()
       let revisions = await player.cachedRevisions()
       guard generation == stamp else { return }
@@ -420,11 +427,27 @@ import UIKit
     self.artistCount = artistCount
     artistCovers = [:]
     artworkRefresh += 1
+    libraryRevision += 1
   }
+  /// Bumped after each reload from the local library, so open album and playlist
+  /// pages show what the last sync brought instead of the snapshot they opened with.
+  var libraryRevision = 0
+  /// When each Home section last came from the server this launch. Cached
+  /// sections have none, so they show at once and refresh behind the scenes.
+  @ObservationIgnored private var homeLoadedAt: [HomeSection: Date] = [:]
+  @ObservationIgnored private var homePreparingRetries = 0
+  private static let homeFreshness: TimeInterval = 30 * 60
+  /// Library changes can change recommendations; the next Home visit refreshes them.
+  func homeLibraryChanged() { homeLoadedAt[.recommended] = nil }
   func refreshHome(force: Bool = false) async {
     guard let service else { return }
-    let sections = HomeSection.allCases.filter {
-      !homeLoading.contains($0) && (force || (homeContent[$0] == nil && homeErrors[$0] == nil))
+    let sections = HomeSection.allCases.filter { section in
+      guard !homeLoading.contains(section) else { return false }
+      if force { return true }
+      if homeContent[section] == nil { return homeErrors[section] == nil }
+      guard let loaded = homeLoadedAt[section] else { return true }
+      return Date().timeIntervalSince(loaded) > Self.homeFreshness
+        || homeContent[section]?.feed?.state == .preparing
     }
     guard !sections.isEmpty else { return }
     let stamp = generation
@@ -451,15 +474,30 @@ import UIKit
         switch result {
         case .success(let content):
           homeContent[section] = content
+          homeLoadedAt[section] = Date()
           try? await store?.cache(content, key: "home:" + section.rawValue)
         case .failure(.authentication):
           group.cancelAll()
           revoked(generation: stamp)
-        case .failure(let error): homeErrors[section] = error.localizedDescription
+        case .failure(let error):
+          // Cached content stays visible; only an empty section shows the error.
+          if homeContent[section] == nil { homeErrors[section] = error.localizedDescription }
         }
       }
     }
-    if generation == stamp { homeLoading.subtract(sections) }
+    guard generation == stamp else { return }
+    homeLoading.subtract(sections)
+    // Like the web: a chart still being prepared is asked for again, a few times.
+    if HomeSection.allCases.contains(where: { homeContent[$0]?.feed?.state == .preparing }),
+      homePreparingRetries < 6
+    {
+      homePreparingRetries += 1
+      try? await Task.sleep(for: .seconds(5 * homePreparingRetries))
+      guard generation == stamp, !Task.isCancelled else { return }
+      await refreshHome()
+    } else {
+      homePreparingRetries = 0
+    }
   }
 
   func readCatalogue<T: Sendable>(
@@ -520,38 +558,53 @@ import UIKit
     defer { flushingEdits = false }
     var applied = false
     do {
-      while let first = try await store.pendingMutations().first, first.state == "queued" {
+      // Edits to one playlist (or one song's favourite) stay in order: once one
+      // conflicts or is rejected, later edits to the same thing wait for review.
+      // Edits to anything else still go through. A network failure stops all.
+      var blocked: Set<String> = []
+      sending: for item in try await store.pendingMutations() {
         guard generation == stamp else { return applied }
+        let scope = Self.editScope(item.mutation)
+        guard item.state == "queued", !blocked.contains(scope) else {
+          blocked.insert(scope)
+          continue
+        }
         do {
-          let receipt = try await service.applyMutation(first.mutation)
-          guard receipt.applied, receipt.operationId == first.id, generation == stamp else {
+          let receipt = try await service.applyMutation(item.mutation)
+          guard receipt.applied, receipt.operationId == item.id, generation == stamp else {
             return applied
           }
-          try await store.acknowledgeMutation(first.id)
+          try await store.acknowledgeMutation(item.id)
           applied = true
         } catch NativeFailure.authentication {
           revoked(generation: stamp)
           return applied
         } catch NativeFailure.changed {
-          var changed = first
+          var changed = item
           changed.state = "conflict"
           changed.message =
             "This playlist changed on the server. Discard this edit or review the current playlist before reapplying it."
           try await store.updateMutation(changed)
-          break
+          blocked.insert(scope)
         } catch is MutationRejection {
-          var rejected = first
+          var rejected = item
           rejected.state = "rejected"
           rejected.message = "The server could not apply this edit. Review its song or playlist."
           try await store.updateMutation(rejected)
-          break
+          blocked.insert(scope)
         } catch {
-          break
+          break sending
         }
       }
       if generation == stamp { pendingEdits = try await store.pendingMutations() }
     } catch { if generation == stamp { message = error.localizedDescription } }
     return applied
+  }
+  /// What an edit changes, for keeping dependent edits in order.
+  private static func editScope(_ mutation: OfflineMutation) -> String {
+    if let playlist = mutation.playlistId { return "playlist:" + playlist }
+    if let track = mutation.track { return mutation.action + ":" + track.id }
+    return mutation.action + ":" + (mutation.name ?? "")
   }
   func discardEdit(_ id: String) async {
     guard !flushingEdits, let store else { return }
@@ -733,6 +786,8 @@ import UIKit
   var pendingDownloadCount: Int {
     serverActiveRequests + phoneActiveDownloads + watchActiveDownloads
   }
+  /// Bumped when the server reports request progress, so open views reload.
+  var requestsRevision = 0
   func refreshServerRequests() async {
     guard let page = try? await readCatalogue({ try await $0.requests(limit: 1) }) else { return }
     serverActiveRequests = page.active
@@ -915,6 +970,7 @@ import UIKit
     artistCovers = [:]
     catalogueMemory = [:]
     homeContent = [:]
+    homeLoadedAt = [:]
     homeErrors = [:]
     homeLoading = []
     songs = []

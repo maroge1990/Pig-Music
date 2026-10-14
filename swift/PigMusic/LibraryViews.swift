@@ -207,8 +207,46 @@ struct AlbumView: View {
   @Bindable var model: AppModel
   let album: Album
   @State private var tracks: [Track] = []
+  /// The release's full tracklist from the catalogue, so a partly owned album
+  /// shows its other songs in order, as on the web. Nil offline or unmatched.
+  @State private var release: CatalogueRelease?
+  @State private var requesting = false
+  @State private var requestMessage: String?
   @State private var artist: Artist?
   @State private var showingArtist = false
+  /// Owned songs, with the release's other songs (household, requested or
+  /// missing) in release order.
+  private var rows: [Track] {
+    guard let release, !release.songs.isEmpty else { return tracks }
+    var owned = tracks
+    var merged: [Track] = []
+    for song in release.songs {
+      if let index = owned.firstIndex(where: { Self.same($0, song.track) }) {
+        merged.append(owned.remove(at: index))
+      } else {
+        var track = song.track
+        track.serverState =
+          switch song.availability {
+          case "in_library", "household_available", "requested": song.availability
+          default: "not_in_library"
+          }
+        merged.append(track)
+      }
+    }
+    // Owned songs the release does not list (another edition's bonus tracks).
+    return merged + owned
+  }
+  private var missing: [Track] {
+    rows.filter { $0.serverState == "not_in_library" }
+  }
+  private static func same(_ owned: Track, _ listed: Track) -> Bool {
+    if let left = owned.musicbrainzRecordingId, let right = listed.musicbrainzRecordingId {
+      return left == right
+    }
+    return (owned.discNumber ?? 1) == (listed.discNumber ?? 1)
+      && owned.trackNumber == listed.trackNumber
+      && owned.title.localizedCaseInsensitiveCompare(listed.title) == .orderedSame
+  }
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 14) {
@@ -224,11 +262,28 @@ struct AlbumView: View {
           Spacer()
         }
         LazyVStack(spacing: 0) {
-          ForEach(Array(tracks.enumerated()), id: \.element.id) { index, song in
+          let rows = rows
+          ForEach(Array(rows.enumerated()), id: \.offset) { index, song in
             SongRow(model: model, track: song, number: song.trackNumber ?? index + 1) {
-              model.play(tracks, at: index)
+              model.play(rows, at: index)
             }
             Divider()
+          }
+        }
+        if !missing.isEmpty {
+          VStack(alignment: .leading, spacing: 6) {
+            Button {
+              Task { await requestMissing() }
+            } label: {
+              Label(
+                "Request \(missing.count) missing song\(missing.count == 1 ? "" : "s")",
+                systemImage: "arrow.down.circle")
+            }
+            .buttonStyle(ChipStyle(selected: false))
+            .disabled(requesting || !model.canMutate)
+            if let requestMessage {
+              Text(requestMessage).font(PigType.footnote).foregroundStyle(.secondary)
+            }
           }
         }
         DetailSettings {
@@ -240,10 +295,32 @@ struct AlbumView: View {
     .navigationDestination(isPresented: $showingArtist) {
       if let artist { SavedArtistView(model: model, artist: artist) }
     }
-    .task(id: album.id) {
+    .task(id: "\(album.id)#\(model.libraryRevision)") {
       tracks = await model.albumTracks(album)
       artist = await model.savedArtist(id: album.artistId, name: album.artist)
+      await loadRelease()
     }
+  }
+  private func loadRelease() async {
+    guard
+      let releaseId = album.musicbrainzReleaseId
+        ?? tracks.lazy.compactMap(\.musicbrainzReleaseId).first
+    else { return }
+    // Offline, the last answer is used; without one the page shows what you own.
+    release = try? await model.cachedCatalogue(key: "release:" + releaseId) {
+      try await $0.catalogueRelease(releaseId: releaseId)
+    }
+  }
+  private func requestMissing() async {
+    guard !requesting else { return }
+    requesting = true
+    defer { requesting = false }
+    do {
+      let result = try await model.performPersonal { try await $0.requestMusic(missing) }
+      requestMessage = "Requested \(result.created) song\(result.created == 1 ? "" : "s")."
+      release = nil
+      await loadRelease()
+    } catch is CancellationError {} catch { requestMessage = error.localizedDescription }
   }
   private var albumSubtitle: String {
     let count = tracks.isEmpty ? album.trackCount : tracks.count
