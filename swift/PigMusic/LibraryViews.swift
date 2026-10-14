@@ -260,6 +260,7 @@ struct DownloadMenu: View {
   let tracks: [Track]
   /// A playlist's downloads are grouped under it on the device.
   var origin: DownloadOrigin = .direct
+  @State private var watchResult: String?
   var body: some View {
     Menu {
       Button("Download originals", systemImage: "arrow.down.circle") {
@@ -270,13 +271,22 @@ struct DownloadMenu: View {
       }
       if model.watch?.supported == true {
         Button("Send to Apple Watch", systemImage: "applewatch") {
-          Task { await model.watch?.enqueue(tracks, origin: origin) }
+          Task { watchResult = await model.watch?.enqueue(tracks, origin: origin) }
         }
       }
     } label: {
       RoundIconLabel(systemImage: "arrow.down")
     }
-    .disabled(tracks.isEmpty).accessibilityLabel("Download")
+    // An empty playlist can still be sent: the Watch follows it as songs are added.
+    .disabled(tracks.isEmpty && origin.playlistId == nil).accessibilityLabel("Download")
+    .alert(
+      "Apple Watch",
+      isPresented: Binding(get: { watchResult != nil }, set: { if !$0 { watchResult = nil } })
+    ) {
+      Button("OK") { watchResult = nil }
+    } message: {
+      Text(watchResult ?? "")
+    }
   }
 }
 

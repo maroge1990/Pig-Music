@@ -15,6 +15,9 @@ import PigDomain
     }
   }
   public var allowsCellular = false
+  /// Called after a background transfer changes a record, including while the app is
+  /// in the background, so an owner can pass finished files on (as to Apple Watch).
+  @ObservationIgnored public var onChange: (@MainActor () async -> Void)?
   public var usesBackgroundTransfers: Bool {
     #if os(iOS)
       return background != nil
@@ -34,6 +37,7 @@ import PigDomain
       transport.onUpdate = { [weak self] _, failure, message in
         guard let self else { return }
         await reload()
+        await onChange?()
         if let failure {
           onFailure(failure)
         } else if let message {

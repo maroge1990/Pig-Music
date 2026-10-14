@@ -13,6 +13,14 @@ import PigPlayback
   var link: CompanionLink?
   var message: String?
   var queue: [PlaybackOccurrence] = []
+  /// When the phone last delivered this Watch's library.
+  var lastSynced = UserDefaults.standard.object(forKey: "watch.synced") as? Date {
+    didSet { UserDefaults.standard.set(lastSynced, forKey: "watch.synced") }
+  }
+  /// Songs on the Watch and verified, which play with no phone or network.
+  var readySongs: [CompanionSong] {
+    manifest.songs.filter { receipt?.ready[$0.id] == $0.checksum }
+  }
   var playback = QueuePlaybackSnapshot()
   var repeatMode: PlaybackRepeat =
     PlaybackRepeat(rawValue: UserDefaults.standard.string(forKey: "watch.repeat") ?? "off") ?? .off
@@ -310,6 +318,7 @@ import PigPlayback
           if !unchanged { await stop() }
           try await archive.apply(manifest)
         }
+        lastSynced = Date()
       } else if envelope.kind == "audio", let ticket = envelope.file {
         // Audio can be delivered before its manifest. Keep it until that manifest arrives.
         let snapshot = await archive.snapshot()

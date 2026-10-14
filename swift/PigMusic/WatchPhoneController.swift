@@ -12,6 +12,11 @@ import SwiftUI
   var receipt: CompanionReceipt?
   var message: String?
   var context: CompanionContext
+  /// When the Watch last confirmed the current library.
+  var confirmedAt: Date?
+  /// Playlists sent to the Watch, by id with their last known name. Saved on their
+  /// own so an emptied or newly sent empty playlist keeps following its changes.
+  private(set) var subscriptions: [String: String] = [:]
   @ObservationIgnored private weak var model: AppModel?
   @ObservationIgnored private let defaults: UserDefaults
   @ObservationIgnored private var namespace: String?
@@ -19,6 +24,7 @@ import SwiftUI
   @ObservationIgnored private var poll: Task<Void, Never>?
   @ObservationIgnored private var published: CompanionManifest?
   @ObservationIgnored private var manifestURL: URL?
+  @ObservationIgnored private var subscriptionsURL: URL?
   @ObservationIgnored private var generation = 0
   @ObservationIgnored private var peerRevision: Int64 = 0
   @ObservationIgnored private var publishing = false
@@ -56,6 +62,7 @@ import SwiftUI
             confirmed.context == context
           {
             receipt = confirmed
+            confirmedAt = Date()
             downloads?.budgetBytes = max(2 * 1024 * 1024 * 1024, confirmed.budgetBytes)
             await publish()
           }
@@ -80,18 +87,33 @@ import SwiftUI
   func configure(directory: URL, namespace: String) async throws {
     generation += 1
     poll?.cancel()
-    await downloads?.pause()
+    // Not pause(): that saves a user pause the background session would keep.
+    await downloads?.suspendPreparation()
     self.namespace = namespace
     verified = false
     published = nil
     receipt = nil
-    let archive = try DownloadArchive(directory: directory.appendingPathComponent("WatchAAC"))
+    // AAC copies download through a background session, so preparing music for
+    // the Watch continues while the phone is locked.
+    let identifier = BackgroundTransferHub.watchIdentifierPrefix + namespace
+    let archive =
+      try BackgroundTransferHub.archive(for: identifier)
+      ?? DownloadArchive(directory: directory.appendingPathComponent("WatchAAC"))
     guard let service = model?.service else { return }
     downloads = DownloadController(archive: archive, source: service) { [weak self] error in
       self?.message = error.localizedDescription
     }
     downloads?.budgetBytes = max(2 * 1024 * 1024 * 1024, receipt?.budgetBytes ?? 0)
+    try downloads?.enableBackground(
+      identifier: identifier,
+      directory: directory.appendingPathComponent("WatchBackgroundTransfers"))
+    // A copy finished in the background goes on to the Watch straight away.
+    downloads?.onChange = { [weak self] in await self?.publish() }
     await downloads?.reload()
+    subscriptionsURL = directory.appendingPathComponent("watch-playlists.json")
+    subscriptions =
+      subscriptionsURL.flatMap { try? Data(contentsOf: $0) }
+      .flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
     manifestURL = directory.appendingPathComponent("watch-manifest.json")
     let previousManifest = directory.appendingPathComponent(
       "watch-manifest-\(context.revision).json")
@@ -113,6 +135,7 @@ import SwiftUI
     poll = Task { [weak self] in
       while !Task.isCancelled {
         guard let self, generation == stamp else { return }
+        link?.refreshState()
         let paired = link?.available == true
         if paired {
           await downloads?.reload()
@@ -125,8 +148,15 @@ import SwiftUI
   func resume() {
     link?.refreshState()
     // Watch AAC preparation restarts only after the library was reconciled.
-    if verified { downloads?.resume(automatic: true) }
+    if verified { downloads?.resumePreparation() }
     startPolling()
+  }
+  /// Retry: reconnect to the Watch when activation failed, then resend everything.
+  func retry() async {
+    message = nil
+    link?.reconnect()
+    if verified { downloads?.resume() }
+    await publish(force: true)
   }
   func confirmAccount() {
     if context.account != namespace || context.revision < peerRevision {
@@ -155,14 +185,24 @@ import SwiftUI
     await publish()
   }
   var supported: Bool { link?.supported == true }
-  func enqueue(_ tracks: [Track], origin: DownloadOrigin = .direct) async {
+  /// Returns what happened, for the screen where Send to Apple Watch was tapped.
+  @discardableResult func enqueue(_ tracks: [Track], origin: DownloadOrigin = .direct) async
+    -> String?
+  {
     guard supported else {
       message = "Watch downloads are managed by its paired iPhone."
-      return
+      return message
     }
     guard verified, let downloads else {
       message = "Connect and refresh your phone library first."
-      return
+      return message
+    }
+    if let id = origin.playlistId {
+      subscribe(id, name: origin.playlistName)
+      if tracks.isEmpty {
+        await publish()
+        return "\(origin.playlistName ?? "This playlist") will follow on your Watch: songs you add are sent automatically."
+      }
     }
     guard
       downloads.records.count
@@ -170,7 +210,7 @@ import SwiftUI
         <= 1000
     else {
       message = "Choose up to 1,000 songs for your Watch library."
-      return
+      return message
     }
     let stamp = generation
     do {
@@ -178,18 +218,28 @@ import SwiftUI
       for id in Set(tracks.map(\.id)) {
         if let track = try await model?.store?.track(id: id) { personal.append(track) }
       }
-      guard generation == stamp else { return }
+      guard generation == stamp else { return nil }
       guard !personal.isEmpty else {
         message = "Add these songs to your library before downloading them to Watch."
-        return
+        return message
       }
       try await downloads.enqueue(personal, quality: "aac", origin: origin)
+      var result =
+        "Sending \(personal.count) song\(personal.count == 1 ? "" : "s") to Apple Watch. Follow progress in Downloads › Apple Watch."
       if personal.count < Set(tracks.map(\.id)).count {
         message =
           "Only songs in your library can be sent to Watch. Add or request the remaining songs first."
+        result += " " + (message ?? "")
+      }
+      if link?.activated == true, link?.installed == false {
+        result += " Pig Music isn't on your Watch yet: install it from the Watch app on this iPhone."
       }
       await publish()
-    } catch { message = error.localizedDescription }
+      return result
+    } catch {
+      message = error.localizedDescription
+      return message
+    }
   }
   func remove(_ id: String) async {
     await downloads?.remove(id: id)
@@ -198,7 +248,34 @@ import SwiftUI
   /// Removes an album's or playlist's claim; songs another one needs stay.
   func release(_ ids: [String], origin: DownloadOrigin) async {
     await downloads?.release(ids: ids, origin: origin)
+    // Removing a whole playlist from the Watch stops following it.
+    if let id = origin.playlistId,
+      !(downloads?.records ?? []).contains(where: {
+        $0.effectiveOrigins.contains { $0.playlistId == id }
+      })
+    {
+      unsubscribe(id)
+    }
     await publish()
+  }
+  private func subscribe(_ id: String, name: String?) {
+    guard subscriptions[id] != name ?? "" else { return }
+    subscriptions[id] = name ?? ""
+    saveSubscriptions()
+  }
+  private func unsubscribe(_ id: String) {
+    guard subscriptions.removeValue(forKey: id) != nil else { return }
+    saveSubscriptions()
+  }
+  private func saveSubscriptions() {
+    guard let subscriptionsURL, let data = try? JSONEncoder().encode(subscriptions) else { return }
+    try? data.write(to: subscriptionsURL, options: .atomic)
+  }
+  /// Every playlist on the Watch: saved subscriptions, plus any inferred from songs
+  /// sent before subscriptions were saved.
+  private var followedPlaylists: Set<String> {
+    Set(subscriptions.keys).union(
+      (downloads?.records ?? []).flatMap { $0.effectiveOrigins.compactMap(\.playlistId) })
   }
   /// Playlists sent to the Watch follow later changes: new songs are added,
   /// removed songs are released, and a deleted playlist leaves the Watch.
@@ -207,6 +284,7 @@ import SwiftUI
   private func followPlaylists() async {
     guard let downloads, let model, let store = model.store else { return }
     var sentPlaylists: [String: (name: String?, ids: Set<String>)] = [:]
+    for (id, name) in subscriptions { sentPlaylists[id] = (name, []) }
     for record in downloads.records {
       for origin in record.effectiveOrigins {
         guard let id = origin.playlistId else { continue }
@@ -215,11 +293,15 @@ import SwiftUI
     }
     for (id, sent) in sentPlaylists {
       guard let playlist = model.playlists.first(where: { $0.id == id }) else {
-        await downloads.release(
-          ids: Array(sent.ids), origin: DownloadOrigin(playlistId: id, playlistName: sent.name))
+        if !sent.ids.isEmpty {
+          await downloads.release(
+            ids: Array(sent.ids), origin: DownloadOrigin(playlistId: id, playlistName: sent.name))
+        }
+        unsubscribe(id)
         continue
       }
       guard let entries = playlist.entries else { continue }
+      subscribe(id, name: playlist.name)
       let origin = DownloadOrigin(playlistId: id, playlistName: playlist.name)
       let wanted = Set(entries.compactMap { $0.savedId ?? $0.savedTrack?.id })
       let gone = sent.ids.subtracting(wanted)
@@ -235,10 +317,12 @@ import SwiftUI
       if !tracks.isEmpty { try? await downloads.enqueue(tracks, quality: "aac", origin: origin) }
     }
   }
-  func pause() async {
+  /// The app left the foreground: stop polling and server-side preparation, but
+  /// leave the system's background downloads and Watch transfers running.
+  func suspend() async {
     poll?.cancel()
     poll = nil
-    await downloads?.pause()
+    await downloads?.suspendPreparation()
   }
   func disconnect() {
     generation += 1
@@ -249,7 +333,10 @@ import SwiftUI
     verified = false
     namespace = nil
     receipt = nil
+    confirmedAt = nil
     published = nil
+    subscriptions = [:]
+    subscriptionsURL = nil
     sent = [:]
     link?.cancelTransfers()
     advance(account: nil)
@@ -283,9 +370,8 @@ import SwiftUI
     songs.sort { $0.id < $1.id }
     let ids = Set(songs.map(\.id))
     var remainingOccurrences = 10000
-    // Only playlists sent to the Watch appear there.
-    let sentPlaylists = Set(
-      downloads.records.flatMap { $0.effectiveOrigins.compactMap(\.playlistId) })
+    // Only playlists sent to the Watch appear there, including empty ones.
+    let sentPlaylists = followedPlaylists
     let collections = (model?.playlists ?? []).filter { sentPlaylists.contains($0.id) }.prefix(200)
       .map { playlist in
       let selected = (playlist.entries ?? []).compactMap { $0.savedId ?? $0.savedTrack?.id }.filter
@@ -444,6 +530,8 @@ struct WatchDownloadsView: View {
         if records.isEmpty {
           Text("Nothing sent yet. Use Send to Apple Watch on an album, artist, playlist or song.")
             .foregroundStyle(.secondary)
+        } else {
+          Section { readiness(records: records, delivered: delivered, watch: watch) }
         }
         if !transfers.isEmpty {
           Section("Transfers") {
@@ -453,14 +541,13 @@ struct WatchDownloadsView: View {
                   model: model, source: record.track.artworkSource, title: record.track.title)
                 VStack(alignment: .leading, spacing: 2) {
                   Text(record.track.title).lineLimit(1)
-                  Text(record.track.artist).font(PigType.caption).foregroundStyle(.secondary)
-                    .lineLimit(1)
+                  Text("\(status(record, watch: watch)) · \(record.track.artist)")
+                    .font(PigType.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 mark(record, watch: watch).frame(width: 28, height: 28)
               }
               .accessibilityElement(children: .combine)
-              .accessibilityValue(status(record, watch: watch))
               .swipeActions {
                 if !onWatch(record, watch: watch) {
                   Button("Cancel", role: .destructive) { Task { await watch.remove(record.id) } }
@@ -499,21 +586,18 @@ struct WatchDownloadsView: View {
           }
         }
         Section("Status") {
-          Text(
-            watch.link?.available != true
-              ? "Install Pig Music on your paired Watch"
-              : watch.link?.reachable == true ? "Watch reachable" : "Transfers wait for the Watch")
+          Text(connection(watch))
           if let receipt = watch.receipt {
             Text(
               "\(receipt.ready.count) songs on Watch · \(ByteCountFormatter.string(fromByteCount: receipt.usedBytes, countStyle: .file))"
             )
           }
-          Button("Retry Watch transfers") { Task { await watch.publish(force: true) } }
+          Button("Retry Watch transfers") { Task { await watch.retry() } }
           if let error = watch.message ?? watch.link?.error {
             Text(error).foregroundStyle(Color("PigDanger"))
           }
           Text(
-            "Playlists sent to the Watch update when they change. AAC copies also use storage on this iPhone while on the Watch. Transfers are scheduled by the system."
+            "Playlists sent to the Watch update when they change. Copies keep downloading to this iPhone while it is locked; the system decides when to pass them to the Watch. AAC copies also use storage on this iPhone."
           ).font(PigType.footnote)
         }
       }
@@ -544,6 +628,58 @@ struct WatchDownloadsView: View {
       Text("Songs also in another album or playlist on the Watch stay there.")
     }
   }
+  /// Only songs the Watch confirmed count as ready; queued or prepared on the
+  /// phone is never presented as on the Watch.
+  @ViewBuilder private func readiness(
+    records: [DownloadRecord], delivered: [DownloadRecord], watch: WatchPhoneController
+  ) -> some View {
+    let failed = records.filter { $0.state == "failed" && !onWatch($0, watch: watch) }.count
+    let waiting = records.count - delivered.count - failed
+    let seconds = delivered.reduce(0) { $0 + ($1.track.duration ?? 0) }
+    let bytes = delivered.reduce(Int64(0)) { $0 + $1.total }
+    VStack(alignment: .leading, spacing: 6) {
+      Label(
+        waiting == 0 && failed == 0 ? "Ready for your run" : "Almost ready",
+        systemImage: waiting == 0 && failed == 0 ? "checkmark.circle.fill" : "hourglass"
+      ).font(.headline)
+      Text(
+        "\(delivered.count) song\(delivered.count == 1 ? "" : "s") on Watch · \(Self.listening(seconds)) · \(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))"
+      ).font(PigType.subhead)
+      if waiting > 0 {
+        Text("\(waiting) still on the way. Keep your iPhone near the Watch.")
+          .font(PigType.footnote).foregroundStyle(.secondary)
+      }
+      if failed > 0 {
+        Text("\(failed) failed. Tap the retry mark next to each song.")
+          .font(PigType.footnote).foregroundStyle(Color("PigDanger"))
+      }
+      if let confirmed = watch.confirmedAt {
+        Text("Watch confirmed \(confirmed.formatted(.relative(presentation: .named)))")
+          .font(PigType.footnote).foregroundStyle(.secondary)
+      }
+    }
+    .accessibilityElement(children: .combine)
+  }
+  static func listening(_ seconds: Double) -> String {
+    let minutes = Int(seconds / 60)
+    return minutes >= 60 ? "\(minutes / 60) h \(minutes % 60) min" : "\(minutes) min"
+  }
+  /// What is known about the Watch, without guessing "not installed" while the
+  /// connection is still being checked.
+  private func connection(_ watch: WatchPhoneController) -> String {
+    guard watch.supported, let link = watch.link else {
+      return "This iPhone can't connect to Apple Watch."
+    }
+    if !link.activated {
+      return link.error.map { "Couldn't connect to Apple Watch: \($0)" }
+        ?? "Checking the Watch connection…"
+    }
+    if !link.paired { return "No Apple Watch is paired with this iPhone." }
+    if !link.installed {
+      return "Pig Music isn't on your Watch yet. Install it from the Watch app on this iPhone, then open it once."
+    }
+    return link.reachable ? "Watch connected" : "Watch not nearby · transfers continue when it is"
+  }
   private func onWatch(_ record: DownloadRecord, watch: WatchPhoneController) -> Bool {
     record.checksum != nil && watch.receipt?.ready[record.id] == record.checksum
   }
@@ -569,7 +705,8 @@ struct WatchDownloadsView: View {
     return switch record.state {
     case "ready": "Waiting for Watch"
     case "failed": "Failed"
-    default: "Preparing"
+    case "downloading": "Downloading to iPhone"
+    default: "Preparing on server"
     }
   }
 }

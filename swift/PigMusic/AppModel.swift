@@ -106,7 +106,7 @@ import UIKit
     liveTask = nil
     if !active {
       await downloads?.suspendPreparation()
-      await watch?.pause()
+      await watch?.suspend()
       return
     }
     downloads?.resumePreparation()

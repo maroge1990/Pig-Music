@@ -7,7 +7,13 @@ import WatchConnectivity
 @MainActor @Observable final class CompanionLink: NSObject, WCSessionDelegate {
   private nonisolated let deliveries = DeliveryCounter()
   var reachable = false
+  /// Paired and installed (iPhone), or activated (Watch): music can be delivered.
   var available = false
+  /// The parts of `available`, so the phone never guesses "not installed"
+  /// before the session has finished activating.
+  var activated = false
+  var paired = false
+  var installed = false
   var error: String?
   @ObservationIgnored var onContext: (@MainActor (CompanionContext) async -> Void)?
   @ObservationIgnored var onFile: (@MainActor (URL, Data) async -> Void)?
@@ -29,10 +35,22 @@ import WatchConnectivity
   /// delegate callback reaching it, so re-read them when the app returns.
   func refreshState() {
     guard let session, session.activationState == .activated else { return }
+    activated = true
     reachable = session.isReachable
     #if os(iOS)
-      available = session.isPaired && session.isWatchAppInstalled
+      paired = session.isPaired
+      installed = session.isWatchAppInstalled
+      available = paired && installed
     #endif
+  }
+  /// Retry: activate again when activation failed or never completed, then re-read state.
+  func reconnect() {
+    guard let session else { return }
+    if session.activationState != .activated {
+      error = nil
+      session.activate()
+    }
+    refreshState()
   }
   func publish(_ context: CompanionContext) throws {
     guard let session, session.activationState == .activated else { return }
@@ -118,10 +136,15 @@ import WatchConnectivity
   ) {
     let text = error?.localizedDescription
     let reachable = session.isReachable
+    let activated = activationState == .activated
     #if os(iOS)
-      let available = session.isPaired && session.isWatchAppInstalled
+      let paired = activated && session.isPaired
+      let installed = activated && session.isWatchAppInstalled
+      let available = paired && installed
     #else
-      let available = activationState == .activated
+      let paired = activated
+      let installed = activated
+      let available = activated
     #endif
     let context = session.receivedApplicationContext["context"] as? Data
     let receipt = session.receivedApplicationContext["receipt"] as? Data
@@ -129,6 +152,9 @@ import WatchConnectivity
     Task { @MainActor in
       defer { self.deliveries.end() }
       self.reachable = reachable
+      self.activated = activated
+      self.paired = paired
+      self.installed = installed
       self.available = available
       self.error = text
       if let context, let value = try? JSONDecoder().decode(CompanionContext.self, from: context) {
@@ -237,15 +263,19 @@ import WatchConnectivity
       Task { @MainActor in
         defer { self.deliveries.end() }
         self.available = false
+        self.activated = false
       }
     }
     nonisolated func sessionDidDeactivate(_ session: WCSession) { session.activate() }
     nonisolated func sessionWatchStateDidChange(_ session: WCSession) {
-      let available = session.isPaired && session.isWatchAppInstalled
+      let paired = session.isPaired
+      let installed = session.isWatchAppInstalled
       deliveries.begin()
       Task { @MainActor in
         defer { self.deliveries.end() }
-        self.available = available
+        self.paired = paired
+        self.installed = installed
+        self.available = paired && installed
         await self.onActivated?()
       }
     }

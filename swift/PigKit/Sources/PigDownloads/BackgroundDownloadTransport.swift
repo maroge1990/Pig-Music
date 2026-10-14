@@ -17,6 +17,8 @@
     var mime: String?
   }
   @MainActor public enum BackgroundTransferHub {
+    /// Followed by the account namespace, like the phone's download identifier.
+    public static let watchIdentifierPrefix = "au.com.pig.music.watchaac."
     private static var managers: [String: BackgroundDownloadTransport] = [:]
     private static var completions: [String: () -> Void] = [:]
     public static func archive(for identifier: String) -> DownloadArchive? {
@@ -35,12 +37,21 @@
     public static func handleEvents(identifier: String, completion: @escaping () -> Void) {
       completions[identifier] = completion
       guard managers[identifier] == nil else { return }
-      let prefix = "au.com.pig.music.downloads."
-      guard identifier.hasPrefix(prefix) else {
+      // Phone downloads, and AAC copies being prepared for Apple Watch.
+      let layouts = [
+        (
+          prefix: "au.com.pig.music.downloads.", archive: "Downloads",
+          transfers: "BackgroundTransfers"
+        ),
+        (
+          prefix: watchIdentifierPrefix, archive: "WatchAAC", transfers: "WatchBackgroundTransfers"
+        ),
+      ]
+      guard let layout = layouts.first(where: { identifier.hasPrefix($0.prefix) }) else {
         finish(identifier)
         return
       }
-      let namespace = String(identifier.dropFirst(prefix.count))
+      let namespace = String(identifier.dropFirst(layout.prefix.count))
       guard namespace.count == 64, namespace.allSatisfy({ "0123456789abcdef".contains($0) }) else {
         finish(identifier)
         return
@@ -49,9 +60,9 @@
         let base = try FileManager.default.url(
           for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
         ).appendingPathComponent("PigMusic").appendingPathComponent(namespace)
-        let archive = try DownloadArchive(directory: base.appendingPathComponent("Downloads"))
+        let archive = try DownloadArchive(directory: base.appendingPathComponent(layout.archive))
         _ = try transport(
-          identifier: identifier, directory: base.appendingPathComponent("BackgroundTransfers"),
+          identifier: identifier, directory: base.appendingPathComponent(layout.transfers),
           archive: archive)
       } catch { finish(identifier) }
     }

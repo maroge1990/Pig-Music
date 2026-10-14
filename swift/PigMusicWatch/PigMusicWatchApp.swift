@@ -23,6 +23,34 @@ import SwiftUI
     .backgroundTask(.watchConnectivity) { await model.finishBackgroundDelivery() }
   }
 }
+/// Before a run: how much music will play with no phone or network.
+private struct WatchReadiness: View {
+  let model: WatchModel
+  var body: some View {
+    let ready = model.readySongs
+    let total = model.manifest.songs.count
+    let minutes = Int(ready.reduce(0) { $0 + ($1.track.duration ?? 0) } / 60)
+    let complete = ready.count == total && model.receipt?.manifestApplied == true
+    VStack(alignment: .leading, spacing: 2) {
+      Label(
+        complete ? "Ready for your run" : "Almost ready",
+        systemImage: complete ? "checkmark.circle.fill" : "hourglass"
+      ).font(.headline)
+      Text(complete ? "\(total) songs" : "\(ready.count) of \(total) songs on Watch")
+        .font(.footnote)
+      Text(minutes >= 60 ? "\(minutes / 60) h \(minutes % 60) min" : "\(minutes) min")
+        .font(.footnote).foregroundStyle(.secondary)
+      if !complete {
+        Text("Keep iPhone nearby").font(.footnote).foregroundStyle(.secondary)
+      } else if let synced = model.lastSynced {
+        Text("Synced \(synced.formatted(.relative(presentation: .named)))")
+          .font(.footnote).foregroundStyle(.secondary)
+      }
+    }
+    .accessibilityElement(children: .combine)
+  }
+}
+
 /// Like Apple Music and Spotify on the Watch: what is playing first, then the
 /// library by playlist, artist and album, with phone tools and storage last.
 private struct WatchLibraryView: View {
@@ -31,6 +59,7 @@ private struct WatchLibraryView: View {
     NavigationStack {
       List {
         WatchNowPlayingRow(model: model)
+        if !model.manifest.songs.isEmpty { WatchReadiness(model: model) }
         if model.manifest.songs.isEmpty {
           VStack(alignment: .leading, spacing: 6) {
             Image("PigLockup").resizable().scaledToFit().frame(height: 32)
