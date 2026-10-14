@@ -90,6 +90,11 @@ import PigPlayback
   @ObservationIgnored private var notifications: [AnyCancellable] = []
   @ObservationIgnored private var playbackGeneration = 0
   @ObservationIgnored private var intent = PlaybackIntent()
+  @ObservationIgnored private var routeRecovery: Task<Void, Never>?
+  @ObservationIgnored private var pendingRestore: Checkpoint?
+  @ObservationIgnored private var restoredCheckpoint = false
+  @ObservationIgnored private var lastCheckpoint: TimeInterval = 0
+  @ObservationIgnored private var checkpointIndex = -1
   @ObservationIgnored private var listenOccurrence: UUID?
   @ObservationIgnored private var listenSeconds: Double = 0
   @ObservationIgnored private var listenReported = false
@@ -167,19 +172,7 @@ import PigPlayback
           if let message = reply.message { self?.message = message }
         }
       }
-      let output = EngineQueueOutput()
-      self.output = output
-      output.volume = Float(volume)
-      let engine = try RealtimeQueueSession(
-        output: output, sampleRate: 44100, blockFrames: 2048, lookaheadSeconds: 3)
-      self.engine = engine
-      engine.onUpdate = { [weak self] snapshot in
-        // A finished or failed queue no longer wants playback, so the next tap is Play.
-        if snapshot.state == .ended || snapshot.state == .failed { self?.intent.pause() }
-        self?.measureListen(snapshot)
-        self?.playback = snapshot
-        self?.updateNowPlaying()
-      }
+      try makeEngine()
       notifications.append(
         NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).receive(
           on: DispatchQueue.main
@@ -211,16 +204,18 @@ import PigPlayback
             (notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt)
             == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue
           Task { @MainActor in
-            if removed { self?.pause() } else { self?.engine?.recoverOutput() }
+            if removed { self?.pause() }
+            self?.recoverRoute()
           }
         })
       notifications.append(
+        NotificationCenter.default.publisher(for: .AVAudioEngineConfigurationChange).receive(
+          on: DispatchQueue.main
+        ).sink { [weak self] _ in Task { @MainActor in self?.recoverRoute() } })
+      notifications.append(
         NotificationCenter.default.publisher(for: AVAudioSession.mediaServicesWereResetNotification)
           .receive(on: DispatchQueue.main).sink { [weak self] _ in
-            Task { @MainActor in
-              self?.pause()
-              self?.message = "Audio restarted. Tap Play to resume."
-            }
+            Task { @MainActor in await self?.rebuildAudio() }
           })
       // @Sendable keeps each handler off the main actor: the system may call it
       // from another queue, and an isolated handler would assert before its Task.
@@ -250,7 +245,7 @@ import PigPlayback
         return .success
       }
       MPRemoteCommandCenter.shared().previousTrackCommand.addTarget { @Sendable [weak self] _ in
-        Task { @MainActor in self?.engine?.previous() }
+        Task { @MainActor in self?.previous() }
         return .success
       }
     } catch { message = error.localizedDescription }
@@ -259,6 +254,7 @@ import PigPlayback
     guard let archive else { return }
     manifest = await archive.snapshot()
     receipt = await archive.receipt()
+    restoreCheckpoint()
     await flushListens()
     await flushRequests()
   }
@@ -278,7 +274,8 @@ import PigPlayback
       guard context.version == 1, context.revision >= old.revision,
         context.revision != old.revision || context == old
       else { return }
-      if old != context { await stop() }
+      // Only an account change revokes music; a routine revision keeps playing.
+      if old.account != context.account { await stop() }
       try await archive.apply(context)
       await reload()
       await acknowledge()
@@ -304,7 +301,13 @@ import PigPlayback
         let previous = await archive.snapshot()
         let applied = await archive.receipt().manifestApplied
         if previous != manifest || !applied {
-          await stop()
+          // Keep playing when every queued song is unchanged in the new library.
+          let kept = Dictionary(
+            manifest.songs.map { ($0.id, $0.checksum) }, uniquingKeysWith: { first, _ in first })
+          let unchanged = queue.allSatisfy { item in
+            previous.songs.contains { $0.id == item.track.id && kept[$0.id] == $0.checksum }
+          }
+          if !unchanged { await stop() }
           try await archive.apply(manifest)
         }
       } else if envelope.kind == "audio", let ticket = envelope.file {
@@ -379,16 +382,20 @@ import PigPlayback
   func stop() async {
     playbackGeneration += 1
     intent.pause()
+    pendingRestore = nil
     await engine?.stopAndWait()
     queue = []
+    checkpointIndex = -1
+    checkpoint(nil)
     updateNowPlaying()
   }
-  func play(_ ids: [String], at index: Int = 0) async {
+  func play(_ ids: [String], at index: Int = 0, seconds: Double = 0) async {
     guard let archive, let engine else { return }
     await stop()
     let stamp = playbackGeneration
     var items: [PlaybackOccurrence] = []
     var start = 0
+    var startSeconds: Double = 0
     for (position, id) in ids.enumerated() {
       if let song = manifest.songs.first(where: { $0.id == id }),
         await archive.localFile(id: id) != nil
@@ -396,6 +403,7 @@ import PigPlayback
         // Songs still waiting for transfer are skipped: start at the chosen
         // song, or the nearest earlier one that is on the Watch.
         if position <= index { start = items.count }
+        if position == index { startSeconds = seconds }
         items.append(PlaybackOccurrence(track: song.track))
       }
     }
@@ -406,7 +414,8 @@ import PigPlayback
       queue = items
       intent.play()
       engine.replace(
-        items, startingAt: start, crossfade: crossfade, repeatMode: repeatMode,
+        items, startingAt: start, startSeconds: startSeconds,
+        crossfade: crossfade, repeatMode: repeatMode,
         acquire: { item in
           guard let file = await archive.localFile(id: item.track.id),
             let size = try file.resourceValues(forKeys: [.fileSizeKey]).fileSize
@@ -425,6 +434,12 @@ import PigPlayback
     }
   }
   func activateAndResume() {
+    // A restored or rebuilt queue is prepared on the first Play, at its saved position.
+    if let restore = pendingRestore {
+      pendingRestore = nil
+      Task { await play(restore.ids, at: restore.index, seconds: restore.elapsed) }
+      return
+    }
     // The engine cannot resume a finished or failed queue: start it again, from
     // the top when it finished, or at the song that failed.
     if let state = engine?.snapshot.state, state == .ended || state == .failed, !queue.isEmpty {
@@ -438,7 +453,8 @@ import PigPlayback
       do {
         try await activateAudio()
         guard playbackGeneration == stamp, intent.canPlay else { return }
-        engine?.recoverOutput()
+        // Rebuilding a running engine is an audible skip; only recover a stopped one.
+        if output?.requiresRecovery == true { engine?.recoverOutput() }
         engine?.resume()
       } catch { message = error.localizedDescription }
     }
@@ -446,9 +462,127 @@ import PigPlayback
   func pause() {
     intent.pause()
     engine?.pause()
+    checkpoint(playback)
+  }
+  // MARK: Audio lifecycle
+
+  private func makeEngine() throws {
+    let output = EngineQueueOutput()
+    output.volume = Float(volume)
+    let engine = try RealtimeQueueSession(
+      output: output, sampleRate: 44100, blockFrames: 2048, lookaheadSeconds: 3)
+    engine.onUpdate = { [weak self, weak engine] snapshot in
+      guard let self, let engine, self.engine === engine else { return }
+      // A finished or failed queue no longer wants playback, so the next tap is Play.
+      if snapshot.state == .ended || snapshot.state == .failed { self.intent.pause() }
+      self.measureListen(snapshot)
+      self.playback = snapshot
+      self.updateNowPlaying()
+      self.checkpointIfDue(snapshot)
+    }
+    self.output = output
+    self.engine = engine
+  }
+  /// Like the phone: route and configuration notifications are debounced, and the
+  /// output is rebuilt only when the engine actually stopped.
+  private func recoverRoute() {
+    routeRecovery?.cancel()
+    let stamp = playbackGeneration
+    routeRecovery = Task {
+      do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+      guard playbackGeneration == stamp, !intent.interrupted,
+        output?.requiresRecovery == true
+      else { return }
+      do {
+        if intent.canPlay { try await activateAudio() }
+        engine?.recoverOutput()
+      } catch { message = error.localizedDescription }
+    }
+  }
+  /// After a media-services reset the old engine objects are invalid: build new
+  /// ones and keep the queue and position, ready for the next Play.
+  private func rebuildAudio() async {
+    let saved = currentCheckpoint(playback)
+    playbackGeneration += 1
+    intent.pause()
+    routeRecovery?.cancel()
+    await engine?.stopAndWait()
+    engine = nil
+    output = nil
+    do { try makeEngine() } catch {
+      message = error.localizedDescription
+      return
+    }
+    if let saved { stage(saved) }
+    message = "Audio restarted. Tap Play to resume."
+  }
+
+  // MARK: Queue checkpoint
+
+  /// The queue and position, restored paused after relaunch or an audio reset.
+  struct Checkpoint: Codable, Equatable {
+    var account: String
+    var ids: [String]
+    var index: Int
+    var elapsed: Double
+  }
+  private static let checkpointKey = "watch.checkpoint"
+  private func currentCheckpoint(_ snapshot: QueuePlaybackSnapshot) -> Checkpoint? {
+    guard let account = manifest.context.account, queue.indices.contains(snapshot.index) else {
+      return nil
+    }
+    return Checkpoint(
+      account: account, ids: queue.map(\.track.id), index: snapshot.index,
+      elapsed: snapshot.elapsed)
+  }
+  private func checkpoint(_ snapshot: QueuePlaybackSnapshot?) {
+    lastCheckpoint = ProcessInfo.processInfo.systemUptime
+    guard let snapshot, let saved = currentCheckpoint(snapshot),
+      let data = try? JSONEncoder().encode(saved)
+    else {
+      UserDefaults.standard.removeObject(forKey: Self.checkpointKey)
+      return
+    }
+    UserDefaults.standard.set(data, forKey: Self.checkpointKey)
+  }
+  /// Saved when the song changes and every few seconds while playing.
+  private func checkpointIfDue(_ snapshot: QueuePlaybackSnapshot) {
+    guard queue.indices.contains(snapshot.index), pendingRestore == nil else { return }
+    let changed = snapshot.index != checkpointIndex
+    let due = ProcessInfo.processInfo.systemUptime - lastCheckpoint >= 5
+    guard changed || (due && snapshot.state == .playing) else { return }
+    checkpointIndex = snapshot.index
+    checkpoint(snapshot)
+  }
+  /// Shows a saved queue paused without preparing audio until Play.
+  private func stage(_ saved: Checkpoint) {
+    let songs = saved.ids.compactMap { id in manifest.songs.first(where: { $0.id == id }) }
+    guard songs.count == saved.ids.count, saved.ids.indices.contains(saved.index) else { return }
+    queue = songs.map { PlaybackOccurrence(track: $0.track) }
+    playback = QueuePlaybackSnapshot(
+      state: .paused, index: saved.index, elapsed: saved.elapsed,
+      duration: songs[saved.index].track.duration ?? 0)
+    pendingRestore = saved
+    updateNowPlaying()
+  }
+  private func restoreCheckpoint() {
+    guard !restoredCheckpoint, let account = manifest.context.account else { return }
+    restoredCheckpoint = true
+    guard queue.isEmpty,
+      let data = UserDefaults.standard.data(forKey: Self.checkpointKey),
+      let saved = try? JSONDecoder().decode(Checkpoint.self, from: data),
+      saved.account == account
+    else { return }
+    stage(saved)
   }
   func toggle() { intent.wantsPlayback ? pause() : activateAndResume() }
   func next() {
+    if let restore = pendingRestore {
+      pendingRestore = nil
+      guard restore.index + 1 < restore.ids.count else { return }
+      Task { await play(restore.ids, at: restore.index + 1) }
+      return
+    }
     if playback.index + 1 < queue.count {
       engine?.next()
     } else if repeatMode == .all, !queue.isEmpty {
@@ -457,7 +591,15 @@ import PigPlayback
       pause()
     }
   }
-  func previous() { engine?.previous() }
+  func previous() {
+    if let restore = pendingRestore {
+      pendingRestore = nil
+      let index = restore.elapsed > 3 ? restore.index : max(0, restore.index - 1)
+      Task { await play(restore.ids, at: index) }
+      return
+    }
+    engine?.previous()
+  }
   func seek(_ seconds: Double) { engine?.seek(seconds) }
   private func updateNowPlaying() {
     guard queue.indices.contains(playback.index) else {

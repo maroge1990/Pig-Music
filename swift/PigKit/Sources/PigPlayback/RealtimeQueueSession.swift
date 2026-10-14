@@ -155,9 +155,11 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
     lookaheadFrames = max(blockFrames * 3, Int((lookaheadSeconds ?? 0) * sampleRate))
   }
 
+  /// `startSeconds` resumes the first song part-way, as when restoring a checkpoint.
   public func replace(
-    _ items: [PlaybackOccurrence], startingAt: Int = 0, autoplay: Bool = true,
-    crossfade: Bool = false, fadeSeconds: Double = 3, repeatMode: PlaybackRepeat = .off,
+    _ items: [PlaybackOccurrence], startingAt: Int = 0, startSeconds: Double = 0,
+    autoplay: Bool = true, crossfade: Bool = false, fadeSeconds: Double = 3,
+    repeatMode: PlaybackRepeat = .off,
     acquire: @escaping QueuePCMStream.Acquire, release: @escaping QueuePCMStream.Release
   ) {
     self.items = items
@@ -170,7 +172,10 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
       stop()
       return
     }
-    restart(index: min(max(0, startingAt), items.count - 1), seconds: 0, autoplay: autoplay)
+    let index = min(max(0, startingAt), items.count - 1)
+    let duration = items[index].track.duration ?? 0
+    let seconds = startSeconds.isFinite ? max(0, startSeconds) : 0
+    restart(index: index, seconds: duration > 0 ? min(seconds, duration) : seconds, autoplay: autoplay)
   }
 
   /// Connects signed-server/provider resolution to temporary source leases.

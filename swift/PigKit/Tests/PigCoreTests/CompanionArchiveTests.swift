@@ -54,8 +54,11 @@ struct CompanionArchiveTests {
     try await archive.accept(
       file, ticket: CompanionFile(context: first, songId: item.id, checksum: item.checksum))
     try await archive.apply(next)
-    #expect(await archive.localFile(id: item.id) == nil)
+    // The committed library keeps playing until the new revision's manifest arrives.
+    #expect(await archive.localFile(id: item.id) != nil)
+    #expect(await archive.receipt().manifestApplied == false)
     try await archive.apply(CompanionManifest(context: next, songs: []))
+    #expect(await archive.localFile(id: item.id) == nil)
     try bytes.write(to: file)
     await #expect(throws: (any Error).self) {
       try await archive.accept(
@@ -69,6 +72,34 @@ struct CompanionArchiveTests {
         file, ticket: CompanionFile(context: first, songId: item.id, checksum: item.checksum))
     }
     await #expect(throws: (any Error).self) { try await archive.apply(first) }
+  }
+  @Test func committedLibraryStaysPlayableThroughAnInterruptedSync() async throws {
+    let root = try folder()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let music = root.appendingPathComponent("Music")
+    let archive = try CompanionArchive(directory: music)
+    let first = CompanionContext(revision: 1, account: "one")
+    let bytes = Data("audio".utf8)
+    let item = song("track", bytes: bytes)
+    try await archive.apply(first)
+    try await archive.apply(CompanionManifest(context: first, songs: [item]))
+    let file = root.appendingPathComponent("incoming")
+    try bytes.write(to: file)
+    try await archive.accept(
+      file, ticket: CompanionFile(context: first, songId: item.id, checksum: item.checksum))
+    // A new revision's context arrives, then the phone disconnects and the Watch relaunches.
+    try await archive.apply(CompanionContext(revision: 2, account: "one"))
+    let relaunched = try CompanionArchive(directory: music)
+    #expect(await relaunched.snapshot().songs.map(\.id) == [item.id])
+    #expect(await relaunched.localFile(id: item.id) != nil)
+    #expect(await relaunched.receipt().ready[item.id] == item.checksum)
+    #expect(await relaunched.receipt().manifestApplied == false)
+    // Another account revokes the library immediately, before any manifest.
+    try await relaunched.apply(CompanionContext(revision: 3, account: "two"))
+    #expect(await relaunched.localFile(id: item.id) == nil)
+    #expect(await relaunched.snapshot().songs.isEmpty)
+    let revoked = try CompanionArchive(directory: music)
+    #expect(await revoked.localFile(id: item.id) == nil)
   }
   @Test func retainedSongsAcceptEarlierTransfersButRevocationClearsFiles() async throws {
     let root = try folder()

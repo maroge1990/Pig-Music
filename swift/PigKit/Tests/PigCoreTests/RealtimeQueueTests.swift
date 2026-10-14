@@ -300,6 +300,26 @@ private func queueRoot() throws -> URL {
     await session.stopAndWait()
     #expect(await sources.active.isEmpty)
   }
+  @Test @MainActor func restoredQueueStartsPausedAtItsSavedPosition() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(
+      files: [
+        "a": try queueFixture(root, id: "a", value: 0.2, frames: 96000),
+        "b": try queueFixture(root, id: "b", value: 0.4, frames: 96000),
+      ])
+    let output = SilentQueueOutput()
+    let session = try RealtimeQueueSession(output: output)
+    let second = PlaybackOccurrence(track: Track(id: "b", title: "b", artist: "Fixture", duration: 2))
+    session.replace(
+      [queueTrack("a"), second], startingAt: 1, startSeconds: 1.25, autoplay: false,
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    try await waitQueue { session.snapshot.state == .paused && session.snapshot.elapsed >= 1.25 }
+    #expect(session.snapshot.index == 1)
+    #expect(output.starts == 0)
+    await session.stopAndWait()
+    #expect(await sources.active.isEmpty)
+  }
   @Test @MainActor func liveLookaheadStartsSmallThenBuildsCushion() async throws {
     let root = try queueRoot()
     defer { try? FileManager.default.removeItem(at: root) }

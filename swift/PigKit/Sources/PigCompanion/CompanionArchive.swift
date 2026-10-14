@@ -3,6 +3,11 @@ import Foundation
 import PigDomain
 
 /// A bounded, credential-free Watch archive. Removal is driven by a confirmed phone context.
+///
+/// The last applied manifest is the committed, playable library. A new revision for
+/// the same account is staged: its context arrives first, and the committed songs
+/// stay playable until the matching manifest replaces them. A different or signed-out
+/// account revokes the library at once.
 public actor CompanionArchive {
   private let directory: URL
   private var manifest: CompanionManifest
@@ -32,12 +37,17 @@ public actor CompanionArchive {
         from: Data(contentsOf: directory.appendingPathComponent("context.json"))))
       ?? CompanionContext(revision: 0, account: nil)
     context = loadedContext
-    manifest =
+    let loadedManifest =
       (try? decoder.decode(
         CompanionManifest.self,
         from: Data(contentsOf: directory.appendingPathComponent("manifest.json"))))
       ?? CompanionManifest(context: loadedContext, songs: [])
-    if manifest.context != context { manifest = CompanionManifest(context: context, songs: []) }
+    // A committed library from the same account stays playable while a newer
+    // revision is on its way; anything else is revoked.
+    let sameAccount =
+      loadedContext.account != nil && loadedManifest.context.account == loadedContext.account
+      && loadedManifest.context.revision <= loadedContext.revision
+    manifest = sameAccount ? loadedManifest : CompanionManifest(context: loadedContext, songs: [])
     for file in try FileManager.default.contentsOfDirectory(
       at: directory, includingPropertiesForKeys: nil) where file.pathExtension == "partial"
     {
@@ -105,8 +115,10 @@ public actor CompanionArchive {
     try JSONEncoder().encode(next).write(
       to: directory.appendingPathComponent("context.json"), options: .atomic)
     context = next
-    appliedRevision = nil
+    // Same account: the committed manifest keeps playing until its successor arrives.
     if changedAccount || next.account == nil {
+      appliedRevision = nil
+      try? FileManager.default.removeItem(at: directory.appendingPathComponent("applied.json"))
       try? FileManager.default.removeItem(at: directory.appendingPathComponent("listens.json"))
       try? FileManager.default.removeItem(at: directory.appendingPathComponent("requests.json"))
       removed = []
@@ -170,8 +182,11 @@ public actor CompanionArchive {
       try FileManager.default.removeItem(at: file)
     }
   }
+  /// A playable file from the committed library, including while a newer revision
+  /// for the same account is staged.
   public func localFile(id: String) -> URL? {
-    guard appliedRevision == context.revision, !removed.contains(id), manifest.context == context,
+    guard let account = context.account, manifest.context.account == account,
+      appliedRevision == manifest.context.revision, !removed.contains(id),
       let song = manifest.songs.first(where: { $0.id == id }),
       Self.validChecksum(song.checksum),
       let size = try? url(song.checksum).resourceValues(forKeys: [.fileSizeKey]).fileSize,
