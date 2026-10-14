@@ -27,6 +27,7 @@ export const album = {
   artist: artist.name,
   artist_id: artist.id,
   track_count: 2,
+  cover_url: "/api/v1/artwork/cover-1",
   tracks: [track("t1", "Von dutch", 1), track("t2", "360", 2)],
 };
 const photo = `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e8e8e8"/><stop offset="1" stop-color="#888"/></linearGradient></defs><rect width="1024" height="1024" fill="url(#g)"/></svg>`;
@@ -36,13 +37,20 @@ export type Mock = { appearance?: string; unknown: string[] };
 /** Routes every /api call. Unknown calls answer 404 and are listed for the test. */
 export async function mockApi(
   page: Page,
-  options: { appearance?: string } = {},
+  options: {
+    appearance?: string;
+    role?: "owner" | "member";
+    /** Answers for specific paths (after /api), checked before the defaults. */
+    answers?: Record<string, (route: Route) => Promise<void>>;
+  } = {},
 ) {
-  const mock: Mock = { ...options, unknown: [] };
+  const mock: Mock = { appearance: options.appearance, unknown: [] };
   const json = (route: Route, body: unknown) => route.fulfill({ json: body });
   await page.route("**/api/**", (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname.replace(/^\/api/, "");
+    const answer = options.answers?.[path];
+    if (answer) return answer(route);
     if (path === "/v1/setup/owner")
       return json(route, { setup_required: false });
     if (path === "/v1/me")
@@ -50,7 +58,7 @@ export async function mockApi(
         id: "u1",
         username: "pat",
         display_name: "Pat",
-        role: "member",
+        role: options.role ?? "member",
       });
     if (path === "/v1/preferences")
       return json(route, {
@@ -94,6 +102,8 @@ export async function mockApi(
         compilation_tracks: [],
       });
     if (path === "/v1/albums/album-1") return json(route, album);
+    if (path === "/v1/artwork/cover-1")
+      return route.fulfill({ contentType: "image/svg+xml", body: photo });
     if (
       /^\/(catalogue\/)?artists\/[^/]+\/(background|logo)$/.test(path) &&
       path.endsWith("background")
