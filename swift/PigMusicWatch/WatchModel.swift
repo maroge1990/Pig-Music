@@ -13,6 +13,12 @@ import PigPlayback
   var link: CompanionLink?
   var message: String?
   var queue: [PlaybackOccurrence] = []
+  /// False while the Watch screen is off or the app is in the background.
+  @ObservationIgnored var sceneActive = true {
+    didSet { if sceneActive, !oldValue { playback = latest } }
+  }
+  /// Every engine report, including the ones not published to the screen.
+  @ObservationIgnored private var latest = QueuePlaybackSnapshot()
   /// When the phone last delivered this Watch's library.
   var lastSynced = UserDefaults.standard.object(forKey: "watch.synced") as? Date {
     didSet { UserDefaults.standard.set(lastSynced, forKey: "watch.synced") }
@@ -510,7 +516,7 @@ import PigPlayback
   func pause() {
     intent.pause()
     engine?.pause()
-    checkpoint(playback)
+    checkpoint(latest)
   }
   // MARK: Audio lifecycle
 
@@ -530,8 +536,19 @@ import PigPlayback
       // A finished or failed queue no longer wants playback, so the next tap is Play.
       if snapshot.state == .ended || snapshot.state == .failed { self.intent.pause() }
       self.measureListen(snapshot)
-      self.playback = snapshot
-      self.updateNowPlaying()
+      self.latest = snapshot
+      // The engine reports ten times a second. The system interpolates Now
+      // Playing time, and the screen shows whole seconds, so only real changes
+      // are published, and elapsed-only ticks are skipped while the screen is off.
+      let changed =
+        snapshot.state != self.playback.state || snapshot.index != self.playback.index
+        || snapshot.occurrenceID != self.playback.occurrenceID
+        || snapshot.duration != self.playback.duration || snapshot.error != self.playback.error
+        || snapshot.wantsPlayback != self.playback.wantsPlayback
+      let jumped = abs(snapshot.elapsed - self.playback.elapsed) > 2
+      let tick = Int(snapshot.elapsed) != Int(self.playback.elapsed)
+      if changed || jumped || (tick && self.sceneActive) { self.playback = snapshot }
+      if changed || jumped { self.updateNowPlaying() }
       self.checkpointIfDue(snapshot)
     }
     self.output = output
@@ -561,7 +578,7 @@ import PigPlayback
   /// ones and keep the queue and position, ready for the next Play.
   private func rebuildAudio() async {
     DiagnosticsLog.shared.record("audio", "media services reset; rebuilding audio")
-    let saved = currentCheckpoint(playback)
+    let saved = currentCheckpoint(latest)
     playbackGeneration += 1
     intent.pause()
     routeRecovery?.cancel()

@@ -19,6 +19,10 @@ import SwiftUI
   /// Playlists sent to the Watch, by id with their last known name. Saved on their
   /// own so an emptied or newly sent empty playlist keeps following its changes.
   private(set) var subscriptions: [String: String] = [:]
+  /// Songs taken off the Watch from a followed playlist, so following its
+  /// changes does not send them back. Cleared when the song leaves the
+  /// playlist or the playlist is sent again.
+  private var exclusions: [String: Set<String>] = [:]
   @ObservationIgnored private weak var model: AppModel?
   @ObservationIgnored private let defaults: UserDefaults
   @ObservationIgnored private var namespace: String?
@@ -126,6 +130,9 @@ import SwiftUI
     subscriptions =
       subscriptionsURL.flatMap { try? Data(contentsOf: $0) }
       .flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+    exclusions =
+      exclusionsURL.flatMap { try? Data(contentsOf: $0) }
+      .flatMap { try? JSONDecoder().decode([String: Set<String>].self, from: $0) } ?? [:]
     manifestURL = directory.appendingPathComponent("watch-manifest.json")
     let previousManifest = directory.appendingPathComponent(
       "watch-manifest-\(context.revision).json")
@@ -211,6 +218,7 @@ import SwiftUI
     }
     if let id = origin.playlistId {
       subscribe(id, name: origin.playlistName)
+      exclude([], from: id, sending: Set(tracks.map(\.id)))
       if tracks.isEmpty {
         await publish()
         return "\(origin.playlistName ?? "This playlist") will follow on your Watch: songs you add are sent automatically."
@@ -254,19 +262,28 @@ import SwiftUI
     }
   }
   func remove(_ id: String) async {
+    // Removed from the Watch: followed playlists must not send it back.
+    for playlist in downloads?.records.first(where: { $0.id == id })?.effectiveOrigins
+      .compactMap(\.playlistId) ?? []
+    {
+      exclude([id], from: playlist)
+    }
     await downloads?.remove(id: id)
     await publish()
   }
   /// Removes an album's or playlist's claim; songs another one needs stay.
   func release(_ ids: [String], origin: DownloadOrigin) async {
     await downloads?.release(ids: ids, origin: origin)
-    // Removing a whole playlist from the Watch stops following it.
-    if let id = origin.playlistId,
-      !(downloads?.records ?? []).contains(where: {
+    // Removing a whole playlist from the Watch stops following it; removing
+    // some of its songs keeps following it without them.
+    if let id = origin.playlistId {
+      if (downloads?.records ?? []).contains(where: {
         $0.effectiveOrigins.contains { $0.playlistId == id }
-      })
-    {
-      unsubscribe(id)
+      }) {
+        exclude(Set(ids), from: id)
+      } else {
+        unsubscribe(id)
+      }
     }
     await publish()
   }
@@ -276,8 +293,24 @@ import SwiftUI
     saveSubscriptions()
   }
   private func unsubscribe(_ id: String) {
+    if exclusions.removeValue(forKey: id) != nil { saveExclusions() }
     guard subscriptions.removeValue(forKey: id) != nil else { return }
     saveSubscriptions()
+  }
+  /// Adds songs to a playlist's exclusions, and clears any being sent again.
+  private func exclude(_ ids: Set<String>, from playlist: String, sending: Set<String> = []) {
+    let excluded = exclusions[playlist, default: []].union(ids).subtracting(sending)
+    guard excluded != exclusions[playlist, default: []] else { return }
+    exclusions[playlist] = excluded.isEmpty ? nil : excluded
+    saveExclusions()
+  }
+  private var exclusionsURL: URL? {
+    subscriptionsURL?.deletingLastPathComponent().appendingPathComponent(
+      "watch-playlist-exclusions.json")
+  }
+  private func saveExclusions() {
+    guard let exclusionsURL, let data = try? JSONEncoder().encode(exclusions) else { return }
+    try? data.write(to: exclusionsURL, options: .atomic)
   }
   private func saveSubscriptions() {
     guard let subscriptionsURL, let data = try? JSONEncoder().encode(subscriptions) else { return }
@@ -315,7 +348,14 @@ import SwiftUI
       guard let entries = playlist.entries else { continue }
       subscribe(id, name: playlist.name)
       let origin = DownloadOrigin(playlistId: id, playlistName: playlist.name)
-      let wanted = Set(entries.compactMap { $0.savedId ?? $0.savedTrack?.id })
+      let listed = Set(entries.compactMap { $0.savedId ?? $0.savedTrack?.id })
+      // Exclusions end once a song leaves the playlist.
+      let excluded = exclusions[id, default: []].intersection(listed)
+      if excluded != exclusions[id, default: []] {
+        exclusions[id] = excluded.isEmpty ? nil : excluded
+        saveExclusions()
+      }
+      let wanted = listed.subtracting(excluded)
       let gone = sent.ids.subtracting(wanted)
       if !gone.isEmpty { await downloads.release(ids: Array(gone), origin: origin) }
       // New songs, or every song when the playlist was renamed.
@@ -348,6 +388,7 @@ import SwiftUI
     confirmedAt = nil
     published = nil
     subscriptions = [:]
+    exclusions = [:]
     subscriptionsURL = nil
     sent = [:]
     link?.cancelTransfers()

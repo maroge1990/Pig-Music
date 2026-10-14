@@ -67,6 +67,8 @@ Simulator builds and PCM captures don't prove device behaviour. For each finding
    - remove and redownload;
    - turn the phone off and play through headphones (gapless, crossfade, repeat, seeks);
    - reconnect and verify listening history, access reconciliation and user switching.
-5. **Server:** match server state and provider acquisition on an isolated Unraid library copy, with a backup.
+5. **Watch battery on a run:** charge to 100%, send at least two hours of music, turn the phone off and Watch Wi-Fi/cellular off, start a workout with Bluetooth headphones and play for 60 minutes with the screen asleep. Record the start and end battery and the audio format. Compare with the same run using Apple Music downloads. Anything above about 10% per hour needs profiling with Instruments (Energy Log) before it is called acceptable.
+6. **Diagnostics after a failure:** on iPhone, Account › Diagnostics › Ask the Watch for its log, then Export diagnostics. The file holds both devices' lifecycle logs and any crash reports, with no tokens or links.
+7. **Server:** match server state and provider acquisition on an isolated Unraid library copy, with a backup.
 
 Debug builds accept `--demo` and `--seamless-demo` for a synthetic library; remove them for real acceptance.

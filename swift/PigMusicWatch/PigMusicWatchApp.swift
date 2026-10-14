@@ -3,6 +3,7 @@ import PigCompanion
 import PigDomain
 import PigPlayback
 import SwiftUI
+import WatchKit
 
 @main struct PigMusicWatchApp: App {
   @State private var model = WatchModel()
@@ -17,6 +18,7 @@ import SwiftUI
           starting = false
         }
         .onChange(of: scenePhase) { _, phase in
+          model.sceneActive = phase == .active
           if phase == .active { DiagnosticsLog.shared.foreground() }
           if phase == .background { DiagnosticsLog.shared.background() }
           if phase == .active { Task { await model.reload() } }
@@ -299,7 +301,19 @@ private struct WatchSongs: View {
     }.pigBrandedCanvas().navigationTitle(title)
   }
 }
+/// The system Now Playing first: large and glanceable, with Digital Crown
+/// volume and the audio output picker (AirPods, Bluetooth). It drives Pig Music
+/// through the remote commands. Seeking, repeat and errors are one swipe away.
 private struct WatchNowPlaying: View {
+  @Bindable var model: WatchModel
+  var body: some View {
+    TabView {
+      NowPlayingView().navigationTitle("Now playing")
+      WatchPlaybackDetails(model: model)
+    }.tabViewStyle(.verticalPage)
+  }
+}
+private struct WatchPlaybackDetails: View {
   @Bindable var model: WatchModel
   var body: some View {
     List {
@@ -332,12 +346,17 @@ private struct WatchNowPlaying: View {
           get: { min(model.playback.duration, model.playback.elapsed) }, set: { model.seek($0) }),
         in: 0...max(1, model.playback.duration)
       ).accessibilityLabel("Playback position")
-      Slider(value: $model.volume, in: 0...1).accessibilityLabel("Volume")
+      Picker("Repeat", selection: $model.repeatMode) {
+        Text("Off").tag(PlaybackRepeat.off)
+        Text("All").tag(PlaybackRepeat.all)
+        Text("One").tag(PlaybackRepeat.one)
+      }
+      Slider(value: $model.volume, in: 0...1).accessibilityLabel("Pig Music level")
       if let error = model.playback.error ?? model.message {
         Text(error).font(.footnote)
         Button("Retry playback") { Task { await model.retry() } }
       }
-    }.pigBrandedCanvas().navigationTitle("Now playing")
+    }.pigBrandedCanvas().navigationTitle("Controls")
   }
   private func clock(_ seconds: Double) -> String {
     guard seconds.isFinite, seconds > 0 else { return "0:00" }
