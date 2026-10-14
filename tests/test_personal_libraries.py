@@ -483,3 +483,16 @@ def test_playlist_size_limit_is_shared_by_web_and_favourites(tmp_path, monkeypat
             json={"track": {"title": "C", "artist": "X"}, "favourite": True},
         )
         assert response.status_code == 400
+
+
+def test_server_info_is_for_signed_in_apps(tmp_path, monkeypatch):
+    app, owner, member, token, track = household(tmp_path, monkeypatch)
+    monkeypatch.setenv("PIG_MUSIC_REVISION", "0123456789abcdef0123")
+    with TestClient(app, base_url="https://private.ts.net") as client:
+        assert client.get("/api/v1/server").status_code == 401
+        info = client.get(
+            "/api/v1/server", headers={"Authorization": "Bearer " + token}
+        ).json()
+        assert info["revision"] == "0123456789ab"
+        assert info["api_level"] >= 2
+        assert "household_playlist_tracks" in info["capabilities"]

@@ -73,6 +73,14 @@ public actor NativeService: LibrarySource {
       throw NativeFailure.unavailable("Can't reach your account. Check Tailscale and try again.")
     }
   }
+  /// Nil from a server older than this endpoint.
+  public func serverInfo() async throws -> ServerInfo? {
+    switch try await client.server_info_api_v1_server_get(.init()) {
+    case .ok(let value): return try LibraryCodec.convert(value.body.json)
+    case .unauthorized: throw NativeFailure.authentication
+    default: return nil
+    }
+  }
   public func signOut() async throws {
     let result = try await client.logout_api_v1_auth_logout_post(.init())
     switch result {

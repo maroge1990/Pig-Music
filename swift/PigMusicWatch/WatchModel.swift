@@ -152,7 +152,25 @@ import PigPlayback
       if let data = try? JSONEncoder().encode(command) { link?.message(data) }
     }
   }
+  /// Sends the Watch's lifecycle log to the phone, for its diagnostics export.
+  func sendDiagnostics() {
+    let info = Bundle.main.infoDictionary
+    let version =
+      "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
+    let payload = CompanionDiagnostics(
+      version: version,
+      text: DiagnosticsLog.shared.text(maximumBytes: CompanionDiagnostics.maximumTextBytes),
+      endedUnexpectedly: DiagnosticsLog.shared.previousRunEndedUnexpectedly)
+    if let data = try? JSONEncoder().encode(payload) { link?.message(data) }
+  }
+  @ObservationIgnored private var sentCrashNotice = false
   init() {
+    let info = Bundle.main.infoDictionary
+    DiagnosticsLog.shared.launched(
+      "Watch",
+      version:
+        "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
+    )
     do {
       let base = try FileManager.default.url(
         for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true
@@ -167,11 +185,20 @@ import PigPlayback
       link?.onContext = { [weak self] context in await self?.contextReceived(context) }
       link?.onFile = { [weak self] file, data in await self?.fileReceived(file, data: data) }
       link?.onActivated = { [weak self] in
+        // After an unexpected end, the phone gets the log without being asked.
+        if let self, DiagnosticsLog.shared.previousRunEndedUnexpectedly, !self.sentCrashNotice {
+          self.sentCrashNotice = true
+          self.sendDiagnostics()
+        }
         await self?.reload()
         await self?.acknowledge()
         await self?.flushListens()
       }
       link?.onMessage = { [weak self] data in
+        if let request = CompanionDiagnostics.decode(data), request.text == nil {
+          self?.sendDiagnostics()
+          return
+        }
         if let reply = try? JSONDecoder().decode(CompanionReply.self, from: data) {
           if let id = reply.listenId, let archive = self?.archive {
             try? await archive.acknowledgeListen(id, account: reply.account)
@@ -192,6 +219,8 @@ import PigPlayback
           let resume = AVAudioSession.InterruptionOptions(
             rawValue: notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
           ).contains(.shouldResume)
+          DiagnosticsLog.shared.record(
+            "audio", began ? "interruption began" : "interruption ended, resume=\(resume)")
           Task { @MainActor in
             guard let self else { return }
             if began {
@@ -282,6 +311,10 @@ import PigPlayback
       guard context.version == 1, context.revision >= old.revision,
         context.revision != old.revision || context == old
       else { return }
+      DiagnosticsLog.shared.record(
+        "sync",
+        "context revision \(context.revision)"
+          + (old.account != context.account ? " for another account" : ""))
       // Only an account change revokes music; a routine revision keeps playing.
       if old.account != context.account { await stop() }
       try await archive.apply(context)
@@ -317,6 +350,10 @@ import PigPlayback
           }
           if !unchanged { await stop() }
           try await archive.apply(manifest)
+          DiagnosticsLog.shared.record(
+            "sync",
+            "manifest revision \(manifest.context.revision) applied: \(manifest.songs.count) songs"
+              + (unchanged ? "" : "; playback stopped for a changed song"))
         }
         lastSynced = Date()
       } else if envelope.kind == "audio", let ticket = envelope.file {
@@ -337,6 +374,8 @@ import PigPlayback
       await acknowledge()
       if envelope.kind == "manifest" { await link?.recoverInbox() }
     } catch CompanionFailure.stale { deleteInbox(file) } catch {
+      DiagnosticsLog.shared.record(
+        "sync", "\(envelope.kind) rejected: \(error.localizedDescription)")
       message = error.localizedDescription
       deleteInbox(file)
       await acknowledge()
@@ -482,6 +521,12 @@ import PigPlayback
       output: output, sampleRate: 44100, blockFrames: 2048, lookaheadSeconds: 3)
     engine.onUpdate = { [weak self, weak engine] snapshot in
       guard let self, let engine, self.engine === engine else { return }
+      if snapshot.state != self.playback.state || snapshot.index != self.playback.index {
+        DiagnosticsLog.shared.record(
+          "playback",
+          "engine \(snapshot.state) song \(snapshot.index + 1)/\(self.queue.count)"
+            + (snapshot.error.map { " error=\($0)" } ?? ""))
+      }
       // A finished or failed queue no longer wants playback, so the next tap is Play.
       if snapshot.state == .ended || snapshot.state == .failed { self.intent.pause() }
       self.measureListen(snapshot)
@@ -495,6 +540,10 @@ import PigPlayback
   /// Like the phone: route and configuration notifications are debounced, and the
   /// output is rebuilt only when the engine actually stopped.
   private func recoverRoute() {
+    DiagnosticsLog.shared.record(
+      "audio",
+      "route change: \(AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portType.rawValue).joined(separator: ","))"
+    )
     routeRecovery?.cancel()
     let stamp = playbackGeneration
     routeRecovery = Task {
@@ -511,6 +560,7 @@ import PigPlayback
   /// After a media-services reset the old engine objects are invalid: build new
   /// ones and keep the queue and position, ready for the next Play.
   private func rebuildAudio() async {
+    DiagnosticsLog.shared.record("audio", "media services reset; rebuilding audio")
     let saved = currentCheckpoint(playback)
     playbackGeneration += 1
     intent.pause()

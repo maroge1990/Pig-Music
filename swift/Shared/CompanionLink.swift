@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import PigCompanion
+import PigDomain
 import WatchConnectivity
 
 /// WatchConnectivity owns delivery scheduling. File ownership is taken synchronously in its delegate.
@@ -157,6 +158,10 @@ import WatchConnectivity
       self.installed = installed
       self.available = available
       self.error = text
+      DiagnosticsLog.shared.record(
+        "link",
+        "activation \(activationState.rawValue) paired=\(paired) installed=\(installed) reachable=\(reachable)"
+          + (text.map { " error=\($0)" } ?? ""))
       if let context, let value = try? JSONDecoder().decode(CompanionContext.self, from: context) {
         await self.onContext?(value)
       }
@@ -171,6 +176,7 @@ import WatchConnectivity
     Task { @MainActor in
       defer { self.deliveries.end() }
       self.reachable = reachable
+      DiagnosticsLog.shared.record("link", "reachable=\(reachable)")
       if reachable { await self.onActivated?() }
     }
   }
@@ -217,6 +223,7 @@ import WatchConnectivity
     } catch {
       try? FileManager.default.removeItem(at: destination)
       let message = error.localizedDescription
+      DiagnosticsLog.shared.record("link", "file not kept: \(message)")
       deliveries.begin()
       Task { @MainActor in
         defer { self.deliveries.end() }
@@ -251,6 +258,8 @@ import WatchConnectivity
     _ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: (any Error)?
   ) {
     let text = error?.localizedDescription
+    DiagnosticsLog.shared.record(
+      "link", "file transfer finished" + (text.map { " with error: \($0)" } ?? ""))
     deliveries.begin()
     Task { @MainActor in
       defer { self.deliveries.end() }
@@ -264,6 +273,7 @@ import WatchConnectivity
         defer { self.deliveries.end() }
         self.available = false
         self.activated = false
+        DiagnosticsLog.shared.record("link", "session inactive")
       }
     }
     nonisolated func sessionDidDeactivate(_ session: WCSession) { session.activate() }
@@ -276,6 +286,7 @@ import WatchConnectivity
         self.paired = paired
         self.installed = installed
         self.available = paired && installed
+        DiagnosticsLog.shared.record("link", "watch state paired=\(paired) installed=\(installed)")
         await self.onActivated?()
       }
     }

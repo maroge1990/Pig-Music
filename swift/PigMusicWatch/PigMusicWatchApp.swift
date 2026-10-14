@@ -17,6 +17,8 @@ import SwiftUI
           starting = false
         }
         .onChange(of: scenePhase) { _, phase in
+          if phase == .active { DiagnosticsLog.shared.foreground() }
+          if phase == .background { DiagnosticsLog.shared.background() }
           if phase == .active { Task { await model.reload() } }
         }
     }
@@ -145,6 +147,7 @@ private struct WatchLibraryView: View {
                 ForEach([1, 2, 4, 8], id: \.self) { Text("\($0) GB").tag($0) }
               }
               Button("Sync with phone") { Task { await model.send("sync") } }
+              Button("Send diagnostics to iPhone") { model.sendDiagnostics() }
               Picker("Repeat", selection: $model.repeatMode) {
                 Text("Off").tag(PlaybackRepeat.off)
                 Text("All").tag(PlaybackRepeat.all)

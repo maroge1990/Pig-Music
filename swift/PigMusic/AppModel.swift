@@ -396,6 +396,8 @@ import UIKit
       await flushHistory()
       await refreshServerRequests()
       guard generation == stamp else { return }
+      DiagnosticsLog.shared.record(
+        "sync", "refreshed library" + (invalid ? "; cached playback invalidated" : ""))
       message =
         invalid ? "Playback stopped because the server changed or removed cached music." : nil
     } catch NativeFailure.authentication {
@@ -403,6 +405,7 @@ import UIKit
       revoked(generation: stamp)
     } catch {
       guard generation == stamp else { return }
+      DiagnosticsLog.shared.record("sync", "refresh failed: \(error.localizedDescription)")
       message = "Showing your cached library. " + error.localizedDescription
     }
   }
@@ -988,6 +991,7 @@ import UIKit
   }
   private func revoked(generation stamp: Int) {
     guard generation == stamp else { return }
+    DiagnosticsLog.shared.record("account", "session revoked or expired")
     detach()
     message = "This device session was revoked or expired. Please sign in again."
   }

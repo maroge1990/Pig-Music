@@ -487,3 +487,11 @@ class LookupMatchDTO(BaseModel):
 
 class LookupResultDTO(BaseModel):
     matches: list[LookupMatchDTO]
+
+
+class ServerInfoDTO(BaseModel):
+    version: str
+    revision: str
+    # Raised when apps gain a server feature they should check for.
+    api_level: int
+    capabilities: list[str]

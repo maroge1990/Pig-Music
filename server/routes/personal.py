@@ -1,6 +1,7 @@
 """Versioned personal-library API, with no household/private path disclosure."""
 
 import asyncio
+import os
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response, Query
@@ -33,8 +34,18 @@ from ..api_models import (
     RetriedDTO,
     CancelledRequestDTO,
     LookupResultDTO,
+    ServerInfoDTO,
 )
 from ..playlists import Playlists, PlaylistConflict, PlaylistFull
+
+# Apps compare these to explain which features need a server update.
+SERVER_API_LEVEL = 2
+SERVER_CAPABILITIES = [
+    "household_playlist_tracks",
+    "queue_events",
+    "playlist_limit",
+    "server_info",
+]
 from ..user_library import track_dto, SearchChanged
 from ..personal_removal import PersonalRemoval, RemovalChanged
 from ..household_policy import HouseholdPolicy
@@ -623,6 +634,16 @@ def personal_router(store, artist_jobs, recovery):
             )
         except LookupError:
             raise HTTPException(404, "Library item not found")
+
+    @router.get("/server", response_model=ServerInfoDTO)
+    async def server_info():
+        """Which server build this is, so apps can explain a needed update."""
+        return {
+            "version": os.environ.get("PIG_MUSIC_VERSION", "dev"),
+            "revision": os.environ.get("PIG_MUSIC_REVISION", "unknown")[:12],
+            "api_level": SERVER_API_LEVEL,
+            "capabilities": SERVER_CAPABILITIES,
+        }
 
     @router.get("/preferences", response_model=Preferences)
     async def preferences(request: Request):

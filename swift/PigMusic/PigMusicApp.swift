@@ -1,4 +1,6 @@
+import MetricKit
 import PigBrand
+import PigDomain
 import PigDownloads
 import SwiftUI
 import UIKit
@@ -27,6 +29,8 @@ import UIKit
           }
         }
         .onChange(of: phase, initial: true) { _, value in
+          if value == .active { DiagnosticsLog.shared.foreground() }
+          if value == .background { DiagnosticsLog.shared.background() }
           Task { await model.sceneActive(value == .active) }
         }
     }
@@ -285,9 +289,55 @@ extension View {
 
 @MainActor final class PigMusicAppDelegate: NSObject, UIApplicationDelegate {
   func application(
+    _ application: UIApplication,
+    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+  ) -> Bool {
+    DiagnosticsLog.shared.launched("iPhone", version: AppVersion.text)
+    // The system delivers crash reports from earlier runs on a later launch.
+    MXMetricManager.shared.add(CrashReports.shared)
+    return true
+  }
+  func application(
     _ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
     completionHandler: @escaping () -> Void
   ) {
     BackgroundTransferHub.handleEvents(identifier: identifier, completion: completionHandler)
+  }
+}
+
+enum AppVersion {
+  static var text: String {
+    let info = Bundle.main.infoDictionary
+    let version = info?["CFBundleShortVersionString"] as? String ?? "?"
+    let build = info?["CFBundleVersion"] as? String ?? "?"
+    return "\(version) (\(build))"
+  }
+}
+
+/// Crash reports the system delivers through MetricKit, kept on this iPhone
+/// (newest five) for the diagnostics export. They hold call stacks, not data.
+final class CrashReports: NSObject, MXMetricManagerSubscriber, @unchecked Sendable {
+  static let shared = CrashReports()
+  private let directory = FileManager.default.urls(
+    for: .applicationSupportDirectory, in: .userDomainMask
+  ).first!.appendingPathComponent("Diagnostics/Crashes")
+
+  func didReceive(_ payloads: [MXDiagnosticPayload]) {
+    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    for payload in payloads where !(payload.crashDiagnostics ?? []).isEmpty {
+      let name = "crash-\(Int(payload.timeStampEnd.timeIntervalSince1970)).json"
+      try? payload.jsonRepresentation().write(to: directory.appendingPathComponent(name))
+      DiagnosticsLog.shared.record(
+        "crash", "crash report received for a run ending \(payload.timeStampEnd)")
+    }
+    let files = reports()
+    for old in files.dropLast(5) { try? FileManager.default.removeItem(at: old) }
+  }
+  /// Oldest first.
+  func reports() -> [URL] {
+    ((try? FileManager.default.contentsOfDirectory(
+      at: directory, includingPropertiesForKeys: nil)) ?? [])
+      .filter { $0.pathExtension == "json" }
+      .sorted { $0.lastPathComponent < $1.lastPathComponent }
   }
 }

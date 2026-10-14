@@ -327,6 +327,14 @@ import PigPlayback
   }
   private func accept(_ snapshot: QueuePlaybackSnapshot) {
     guard usingEngine else { return }
+    if snapshot.state != loggedState || snapshot.index != loggedIndex {
+      loggedState = snapshot.state
+      loggedIndex = snapshot.index
+      DiagnosticsLog.shared.record(
+        "playback",
+        "engine \(snapshot.state) song \(snapshot.index + 1)/\(queue.items.count)"
+          + (snapshot.error.map { " error=\($0)" } ?? ""))
+    }
     queue.select(index: snapshot.index)
     if let id = snapshot.occurrenceID { queue.renewOccurrence(at: snapshot.index, id: id) }
     elapsed = snapshot.elapsed
@@ -415,7 +423,11 @@ import PigPlayback
       }
     }
   }
+  @ObservationIgnored private var loggedState: QueuePlaybackState?
+  @ObservationIgnored private var loggedIndex = -1
   private func interruption(began: Bool, shouldResume: Bool) {
+    DiagnosticsLog.shared.record(
+      "audio", began ? "interruption began" : "interruption ended, resume=\(shouldResume)")
     if began {
       intent.beginInterruption()
       suspend()
@@ -436,6 +448,10 @@ import PigPlayback
     }
   }
   private func recoverRoute() {
+    DiagnosticsLog.shared.record(
+      "audio",
+      "route change: \(AVAudioSession.sharedInstance().currentRoute.outputs.map(\.portType.rawValue).joined(separator: ","))"
+    )
     guard usingEngine, !intent.interrupted, let state = engine?.snapshot.state,
       state == .playing || state == .paused || state == .buffering
     else { return }

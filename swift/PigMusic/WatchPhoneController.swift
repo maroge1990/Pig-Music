@@ -14,6 +14,8 @@ import SwiftUI
   var context: CompanionContext
   /// When the Watch last confirmed the current library.
   var confirmedAt: Date?
+  /// The Watch's last lifecycle log, for the diagnostics export.
+  var watchDiagnostics: CompanionDiagnostics? = WatchPhoneController.loadWatchDiagnostics()
   /// Playlists sent to the Watch, by id with their last known name. Saved on their
   /// own so an emptied or newly sent empty playlist keeps following its changes.
   private(set) var subscriptions: [String: String] = [:]
@@ -42,6 +44,10 @@ import SwiftUI
       link = try CompanionLink(inbox: base.appendingPathComponent("Inbox"))
       link?.onActivated = { [weak self] in await self?.publish(force: true) }
       link?.onMessage = { [weak self] data in
+        if let diagnostics = CompanionDiagnostics.decode(data), diagnostics.text != nil {
+          self?.received(diagnostics)
+          return
+        }
         if let acknowledgement = try? JSONDecoder().decode(
           CompanionAcknowledgement.self, from: data),
           acknowledgement.context.version == 1,
@@ -61,6 +67,12 @@ import SwiftUI
             let confirmed = try? acknowledgement.receipt(for: manifest),
             confirmed.context == context
           {
+            if receipt?.ready.count != confirmed.ready.count || receipt?.context != confirmed.context {
+              DiagnosticsLog.shared.record(
+                "watch",
+                "Watch confirmed revision \(confirmed.context.revision): \(confirmed.ready.count) songs ready, manifest applied=\(confirmed.manifestApplied)"
+              )
+            }
             receipt = confirmed
             confirmedAt = Date()
             downloads?.budgetBytes = max(2 * 1024 * 1024 * 1024, confirmed.budgetBytes)
@@ -398,6 +410,9 @@ import SwiftUI
       link?.cancelTransfers()
       sent = [:]
       advance(account: namespace)
+      DiagnosticsLog.shared.record(
+        "watch",
+        "publishing revision \(context.revision): \(songs.count) songs, \(collections.count) playlists")
       next.context = context
       manifestURL = baseManifestURL.deletingLastPathComponent().appendingPathComponent(
         "watch-manifest-\(context.revision).json")
@@ -464,6 +479,29 @@ import SwiftUI
         link?.transfer(file, metadata: data)
         sent[data] = Date()
       }
+    }
+  }
+  /// Asks the Watch for its lifecycle log; it answers when it can.
+  func requestWatchDiagnostics() {
+    if let data = try? JSONEncoder().encode(CompanionDiagnostics()) { link?.message(data) }
+  }
+  private static var diagnosticsFile: URL? {
+    FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+      .appendingPathComponent("Diagnostics/watch.json")
+  }
+  private static func loadWatchDiagnostics() -> CompanionDiagnostics? {
+    diagnosticsFile.flatMap { try? Data(contentsOf: $0) }.flatMap {
+      try? JSONDecoder().decode(CompanionDiagnostics.self, from: $0)
+    }
+  }
+  private func received(_ diagnostics: CompanionDiagnostics) {
+    watchDiagnostics = diagnostics
+    DiagnosticsLog.shared.record(
+      "watch",
+      "Watch log received (\(diagnostics.version ?? "unknown version"))"
+        + (diagnostics.endedUnexpectedly ? "; its previous run ended unexpectedly" : ""))
+    if let file = Self.diagnosticsFile, let data = try? JSONEncoder().encode(diagnostics) {
+      try? data.write(to: file, options: .atomic)
     }
   }
   private func handle(_ command: CompanionCommand) async -> CompanionReply {

@@ -1,5 +1,6 @@
 import PigBrand
 import PigDomain
+import UIKit
 import SwiftUI
 
 struct PreferencesView: View {
@@ -293,5 +294,112 @@ struct RemovalView: View {
       preview = nil
       message = "Music restored."
     } catch { message = error.localizedDescription }
+  }
+}
+
+/// Versions, the Watch connection, and an export of both devices' lifecycle
+/// logs and any crash reports, for diagnosing crashes and stuck transfers.
+struct DiagnosticsView: View {
+  let model: AppModel
+  @State private var server: ServerInfo?
+  @State private var serverChecked = false
+  @State private var serverError: String?
+  @State private var export: URL?
+  var body: some View {
+    Form {
+      Section("This iPhone") {
+        LabeledContent("Pig Music", value: AppVersion.text)
+        LabeledContent("Crash reports", value: CrashReports.shared.reports().count.formatted())
+        if DiagnosticsLog.shared.previousRunEndedUnexpectedly {
+          Text("The last run on this iPhone ended unexpectedly.")
+            .font(PigType.footnote).foregroundStyle(Color("PigDanger"))
+        }
+      }
+      Section("Server") {
+        if let server {
+          LabeledContent("Version", value: server.version)
+          LabeledContent("Build", value: server.revision)
+          if server.apiLevel < ServerInfo.expectedLevel {
+            Text(Self.serverUpdate).font(PigType.footnote).foregroundStyle(Color("PigDanger"))
+          }
+        } else if serverChecked {
+          Text(serverError ?? Self.serverUpdate).font(PigType.footnote)
+            .foregroundStyle(.secondary)
+        } else {
+          ProgressView()
+        }
+      }
+      if let watch = model.watch, watch.supported {
+        Section("Apple Watch") {
+          LabeledContent("Connection", value: watch.link?.activated == true ? "Active" : "Not active")
+          LabeledContent("Paired", value: watch.link?.paired == true ? "Yes" : "No")
+          LabeledContent("Pig Music installed", value: watch.link?.installed == true ? "Yes" : "No")
+          LabeledContent("Nearby", value: watch.link?.reachable == true ? "Yes" : "No")
+          if let confirmed = watch.confirmedAt {
+            LabeledContent(
+              "Last confirmed", value: confirmed.formatted(.relative(presentation: .named)))
+          }
+          if let diagnostics = watch.watchDiagnostics {
+            LabeledContent("Watch app", value: diagnostics.version ?? "Unknown")
+            LabeledContent(
+              "Watch log", value: diagnostics.sentAt.formatted(.relative(presentation: .named)))
+            if diagnostics.endedUnexpectedly {
+              Text("The Watch reported that its previous run ended unexpectedly.")
+                .font(PigType.footnote).foregroundStyle(Color("PigDanger"))
+            }
+          }
+          Button("Ask the Watch for its log") { watch.requestWatchDiagnostics() }
+            .disabled(watch.link?.activated != true)
+        }
+      }
+      Section {
+        if let export {
+          ShareLink(item: export) { Label("Export diagnostics", systemImage: "square.and.arrow.up") }
+        }
+      } footer: {
+        Text(
+          "The export holds app events, connection states and crash call stacks from this iPhone and the Watch. It contains no passwords, sign-in tokens or music links."
+        )
+      }
+    }
+    .pigCanvas().navigationTitle("Diagnostics")
+    .task {
+      export = makeExport()
+      do {
+        server = try await model.readCatalogue { try await $0.serverInfo() }
+      } catch { serverError = error.localizedDescription }
+      serverChecked = true
+      export = makeExport()
+    }
+    .onChange(of: model.watch?.watchDiagnostics?.sentAt) { export = makeExport() }
+  }
+  static let serverUpdate =
+    "This server is older than the app. Household songs in playlists and live request progress need a server update."
+  private func makeExport() -> URL? {
+    var parts = [
+      "Pig Music diagnostics · \(Date().formatted(.iso8601))",
+      "iPhone app \(AppVersion.text) · iOS \(UIDevice.current.systemVersion)",
+      server.map { "Server \($0.version) (\($0.revision)), API level \($0.apiLevel)" }
+        ?? "Server: \(serverChecked ? "older than this app or unreachable" : "not checked")",
+      "", "== iPhone log ==", DiagnosticsLog.shared.text(),
+    ]
+    if let watch = model.watch?.watchDiagnostics {
+      parts += [
+        "", "== Watch log (\(watch.version ?? "unknown"), sent \(watch.sentAt.formatted(.iso8601))) ==",
+        watch.text ?? "",
+      ]
+    }
+    for report in CrashReports.shared.reports() {
+      parts += [
+        "", "== \(report.lastPathComponent) ==",
+        (try? String(contentsOf: report, encoding: .utf8)) ?? "",
+      ]
+    }
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "PigMusic-diagnostics.txt")
+    do {
+      try parts.joined(separator: "\n").write(to: file, atomically: true, encoding: .utf8)
+      return file
+    } catch { return nil }
   }
 }

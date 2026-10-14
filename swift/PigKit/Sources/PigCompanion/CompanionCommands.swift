@@ -44,3 +44,30 @@ public struct CompanionReply: Codable, Sendable {
     self.account = account
   }
 }
+
+/// The Watch's lifecycle log, sent to the phone so one export covers both.
+/// The phone sends one without `text` to ask for it.
+public struct CompanionDiagnostics: Codable, Sendable {
+  public var kind = "diagnostics"
+  public var version: String?
+  public var text: String?
+  public var endedUnexpectedly = false
+  public var sentAt: Date
+  public init(
+    version: String? = nil, text: String? = nil, endedUnexpectedly: Bool = false,
+    sentAt: Date = Date()
+  ) {
+    self.version = version
+    self.text = text
+    self.endedUnexpectedly = endedUnexpectedly
+    self.sentAt = sentAt
+  }
+  /// Decodes only a diagnostics payload, never another message kind.
+  public static func decode(_ data: Data) -> CompanionDiagnostics? {
+    guard let value = try? JSONDecoder().decode(Self.self, from: data), value.kind == "diagnostics"
+    else { return nil }
+    return value
+  }
+  /// WatchConnectivity user info is limited; the newest entries are sent.
+  public static let maximumTextBytes = 48 * 1024
+}

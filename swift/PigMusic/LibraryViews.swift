@@ -393,6 +393,7 @@ struct AccountView: View {
         NavigationLink("Pending edits (\(model.pendingEdits.count))") {
           PendingEditsView(model: model)
         }
+        NavigationLink("Diagnostics") { DiagnosticsView(model: model) }
       }
       Section("Library") {
         LabeledContent("Songs on the server", value: model.songCount.formatted())

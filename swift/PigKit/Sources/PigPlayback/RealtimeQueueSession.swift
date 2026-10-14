@@ -86,8 +86,10 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
     let frames = Int64(block.frameCount)
     scheduledFrames += frames
     let stamp = generation
+    // Called on the audio render thread: @Sendable keeps it off the main actor
+    // whatever the SDK infers, and the Task hops back.
     node.scheduleBuffer(try block.audioBuffer(), completionCallbackType: .dataPlayedBack) {
-      [weak self] _ in
+      @Sendable [weak self] _ in
       Task { @MainActor in
         guard let self, self.generation == stamp else { return }
         self.completedFrames += frames
