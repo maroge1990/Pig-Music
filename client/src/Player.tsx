@@ -558,7 +558,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           }}
           onDurationChange={() => {
             const n = audio.current?.duration;
-            if (n && Number.isFinite(n)) setDuration(n);
+            // A VBR MP3 without a length header can report about double its
+            // real length; the song's known length wins unless the two agree.
+            const known = song?.duration || 0;
+            if (!n || !Number.isFinite(n)) return;
+            setDuration(
+              !known || Math.abs(n - known) <= Math.max(5, known * 0.05)
+                ? n
+                : known,
+            );
           }}
           onEnded={() => {
             reportPlay();

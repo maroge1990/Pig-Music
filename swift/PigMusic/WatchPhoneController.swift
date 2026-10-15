@@ -34,7 +34,11 @@ import SwiftUI
   @ObservationIgnored private var generation = 0
   @ObservationIgnored private var peerRevision: Int64 = 0
   @ObservationIgnored private var publishing = false
-  @ObservationIgnored private var sent: [Data: Date] = [:]
+  /// When each manifest ("manifest:<revision>") or song ("audio:<id>:<checksum>")
+  /// was last handed to WatchConnectivity, so nothing is queued twice.
+  @ObservationIgnored private var sent: [String: Date] = [:]
+  @ObservationIgnored private var lastAdvance = Date.distantPast
+  @ObservationIgnored private var deferredPublish: Task<Void, Never>?
   init(model: AppModel, defaults: UserDefaults) {
     self.model = model
     self.defaults = defaults
@@ -426,7 +430,7 @@ import SwiftUI
     var remainingOccurrences = 10000
     // Only playlists sent to the Watch appear there, including empty ones.
     let sentPlaylists = followedPlaylists
-    let collections = (model?.playlists ?? []).filter { sentPlaylists.contains($0.id) }.prefix(200)
+    var collections = (model?.playlists ?? []).filter { sentPlaylists.contains($0.id) }.prefix(200)
       .map { playlist in
       let selected = (playlist.entries ?? []).compactMap { $0.savedId ?? $0.savedTrack?.id }.filter
       { ids.contains($0) }
@@ -436,28 +440,50 @@ import SwiftUI
         id: playlist.id, name: playlist.name, songIds: songIds,
         favourites: playlist.favourites == true)
     }
-    // A batch produces one manifest once AAC preparation finishes; removals still publish immediately.
-    if downloads.running, let published, published.context.account == namespace,
-      published.songs.allSatisfy({ old in songs.contains(old) }),
-      published.collections == collections
-    {
-      return
+    let batchActive =
+      downloads.running || downloads.records.contains { ["queued", "downloading"].contains($0.state) }
+    let sameAccount = context.account == namespace && published?.context.account == namespace
+    let growthOnly =
+      sameAccount
+      && (published?.songs.allSatisfy { old in songs.contains(old) } ?? false)
+    // While a batch is still preparing, the Watch gets a new library version
+    // at most every 45 seconds instead of one per finished song: each version
+    // must be acknowledged before more audio is sent. Removals go at once.
+    if batchActive, growthOnly, !force, Date().timeIntervalSince(lastAdvance) < 45 {
+      deferPublish(after: 45 - Date().timeIntervalSince(lastAdvance))
+      songs = published?.songs ?? []
+      collections = published?.collections ?? []
     }
-    var manifestURL = baseManifestURL.deletingLastPathComponent().appendingPathComponent(
-      "watch-manifest-\(context.revision).json")
+    let folder = baseManifestURL.deletingLastPathComponent()
+    var manifestURL = folder.appendingPathComponent("watch-manifest-\(context.revision).json")
     var next = CompanionManifest(context: context, songs: songs, collections: collections)
     if context.account != namespace || published?.songs != songs
       || published?.collections != collections
     {
-      link?.cancelTransfers()
-      sent = [:]
+      if sameAccount {
+        // Same account: songs already on their way stay valid for the new
+        // version (the Watch accepts earlier tickets for songs it still
+        // lists). Only superseded manifests and songs that left are cancelled.
+        let keep = Set(songs.map { "\($0.id):\($0.checksum)" })
+        link?.cancelTransfers { data in
+          guard let envelope = try? JSONDecoder().decode(CompanionEnvelope.self, from: data)
+          else { return false }
+          if envelope.kind == "manifest" { return true }
+          guard let file = envelope.file else { return false }
+          return !keep.contains("\(file.songId):\(file.checksum)")
+        }
+        sent = sent.filter { key, _ in !key.hasPrefix("manifest:") }
+      } else {
+        link?.cancelTransfers()
+        sent = [:]
+      }
       advance(account: namespace)
+      lastAdvance = Date()
       DiagnosticsLog.shared.record(
         "watch",
         "publishing revision \(context.revision): \(songs.count) songs, \(collections.count) playlists")
       next.context = context
-      manifestURL = baseManifestURL.deletingLastPathComponent().appendingPathComponent(
-        "watch-manifest-\(context.revision).json")
+      manifestURL = folder.appendingPathComponent("watch-manifest-\(context.revision).json")
       receipt = nil
       published = next
       do {
@@ -478,33 +504,39 @@ import SwiftUI
       message = error.localizedDescription
       return
     }
+    let outstanding = (link?.outstanding ?? []).compactMap {
+      try? JSONDecoder().decode(CompanionEnvelope.self, from: $0)
+    }
+    func due(_ key: String) -> Bool {
+      sent[key].map { Date().timeIntervalSince($0) > 600 } ?? true
+    }
     if force || receipt?.context != context || receipt?.manifestApplied != true {
       let metadata = CompanionEnvelope(kind: "manifest", context: context)
-      if let data = try? JSONEncoder().encode(metadata),
-        sent[data].map({ Date().timeIntervalSince($0) > 600 }) ?? true,
-        !(link?.outstanding.contains(data) ?? false)
+      let key = "manifest:\(context.revision)"
+      if let data = try? JSONEncoder().encode(metadata), due(key),
+        !outstanding.contains(where: { $0.kind == "manifest" && $0.context == context })
       {
         link?.transfer(manifestURL, metadata: data)
-        sent[data] = Date()
+        sent[key] = Date()
       }
     }
-    let retained = Set(
-      (link?.outstanding ?? []).compactMap {
-        (try? JSONDecoder().decode(CompanionEnvelope.self, from: $0))?.context.revision
-      })
+    // Manifest files stay a few versions longer than their transfers, so a
+    // transfer the system is still finishing never loses its file.
+    let retained = Set(outstanding.map(\.context.revision))
     for file
       in (try? FileManager.default.contentsOfDirectory(
-        at: baseManifestURL.deletingLastPathComponent(), includingPropertiesForKeys: nil)) ?? []
+        at: folder, includingPropertiesForKeys: nil)) ?? []
     where file.lastPathComponent.hasPrefix("watch-manifest-") && file != manifestURL {
       let revision = Int64(
         file.deletingPathExtension().lastPathComponent.replacingOccurrences(
           of: "watch-manifest-", with: ""))
-      if let revision, !retained.contains(revision) {
+      if let revision, !retained.contains(revision), revision < context.revision - 3 {
         try? FileManager.default.removeItem(at: file)
       }
     }
     // Do not send audio until the Watch has applied this manifest and acknowledged its budget.
     guard let receipt, receipt.context == context, receipt.manifestApplied else { return }
+    let inFlight = Set(outstanding.compactMap { $0.file.map { "\($0.songId):\($0.checksum)" } })
     var remaining = receipt.budgetBytes - receipt.usedBytes
     for song in songs where receipt.ready[song.id] != song.checksum {
       guard song.bytes <= remaining else {
@@ -512,15 +544,26 @@ import SwiftUI
         continue
       }
       remaining -= song.bytes
+      let identity = "\(song.id):\(song.checksum)"
+      guard !inFlight.contains(identity), due("audio:" + identity), let file = files[song.id]
+      else { continue }
       let ticket = CompanionFile(context: context, songId: song.id, checksum: song.checksum)
       let envelope = CompanionEnvelope(kind: "audio", context: context, file: ticket)
-      if let file = files[song.id], let data = try? JSONEncoder().encode(envelope),
-        sent[data].map({ Date().timeIntervalSince($0) > 600 }) ?? true,
-        !(link?.outstanding.contains(data) ?? false)
-      {
+      if let data = try? JSONEncoder().encode(envelope) {
         link?.transfer(file, metadata: data)
-        sent[data] = Date()
+        sent["audio:" + identity] = Date()
       }
+    }
+  }
+  /// Publishes again once the batch interval has passed.
+  private func deferPublish(after seconds: TimeInterval) {
+    guard deferredPublish == nil else { return }
+    let stamp = generation
+    deferredPublish = Task { [weak self] in
+      try? await Task.sleep(for: .seconds(max(1, seconds)))
+      guard let self, generation == stamp else { return }
+      deferredPublish = nil
+      await publish()
     }
   }
   /// Asks the Watch for its lifecycle log; it answers when it can.

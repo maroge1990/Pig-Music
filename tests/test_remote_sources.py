@@ -109,7 +109,9 @@ def test_remote_falls_back_in_order_to_a_relayed_lossy_source(tmp_path, monkeypa
     assert found["source"] == "freemp3cloud"
     assert sorted(searched) == ["freemp3cloud", "youtube", "zvu4no"]
     path, media_type = resolver.relay(found["relay"], "member")
-    assert media_type == "audio/mpeg" and path.read_bytes() == fixture.read_bytes()
+    # The same audio, with at most a length header added (never re-encoded).
+    assert media_type == "audio/mpeg"
+    assert abs(path.stat().st_size - fixture.stat().st_size) < 4096
     # A relay belongs to the person who asked for it.
     assert resolver.relay(found["relay"], "someone-else") is None
     # The fetched file is reused for the same recording.
@@ -204,3 +206,44 @@ def test_a_relayed_copy_plays_before_any_provider_is_asked(tmp_path):
     found = asyncio.run(resolver.locate(None, target))
     assert found == {"path": path, "source": "zvu4no"}
     assert asked == []
+
+
+def test_relayed_mp3_gets_a_length_header_without_reencoding(tmp_path):
+    import shutil
+    import subprocess
+
+    from server.remote import add_length_header
+
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        pytest.skip("ffmpeg not installed")
+    path = tmp_path / "song.mp3"
+    made = subprocess.run(
+        [
+            ffmpeg,
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=3",
+            "-c:a",
+            "libmp3lame",
+            "-q:a",
+            "4",
+            "-write_xing",
+            "0",
+            "-y",
+            str(path),
+        ],
+        capture_output=True,
+    )
+    if made.returncode:
+        pytest.skip("ffmpeg has no MP3 encoder")
+    before = path.read_bytes()
+    assert b"Xing" not in before[:4096] and b"Info" not in before[:4096]
+    add_length_header(path)
+    after = path.read_bytes()
+    assert b"Xing" in after[:4096] or b"Info" in after[:4096]
+    # Audio frames are copied, not re-encoded: the size barely changes.
+    assert abs(len(after) - len(before)) < 4096

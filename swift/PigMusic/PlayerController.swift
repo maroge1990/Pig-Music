@@ -457,8 +457,15 @@ import PigPlayback
         guard let self else { return }
         let time = player.currentTime().seconds
         elapsed = time.isFinite ? time : 0
+        // A VBR MP3 without a length header makes AVPlayer guess, often
+        // double. The song's known length wins unless the two agree.
         let end = player.currentItem?.duration.seconds ?? 0
-        if end.isFinite && end > 0 { duration = end }
+        let known = queue.current?.track.duration ?? 0
+        if end.isFinite, end > 0, known <= 0 || abs(end - known) <= max(5, known * 0.05) {
+          duration = end
+        } else if known > 0 {
+          duration = known
+        }
         playing = player.timeControlStatus == .playing
         preparing = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
         if let failed = player.currentItem?.error {

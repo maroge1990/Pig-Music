@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import secrets
+import shutil
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -12,6 +13,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from .library import normalise
+from .providers.process import run_checked
 from .downloader import FREEMP3CLOUD_RETRY_PAUSE, matches
 from .vendor.jiosaavn import search_jiosaavn
 
@@ -232,6 +234,8 @@ class RemoteAudio:
             expected = float(track.get("duration") or 0)
             if not probe or (expected and abs(probe["duration"] - expected) > 5):
                 raise ValueError("The remote file was not the expected recording.")
+            if extension == ".mp3":
+                add_length_header(path)
             path.replace(final)
         except Exception:
             path.unlink(missing_ok=True)
@@ -316,3 +320,42 @@ class RemoteAudio:
                 self.cache.clear()
             self.cache[key] = (time.monotonic() + 90, url)
             return url
+
+
+def add_length_header(path):
+    """Rewrite a relayed MP3 with an Xing/Info length header, copying the audio
+    as it is (never re-encoded). Players otherwise estimate a VBR file's length
+    from its first frames, which can show double the real time and mis-seek."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return
+    fixed = path.with_name(path.name + ".fixed.mp3")
+    try:
+        run_checked(
+            [
+                ffmpeg,
+                "-nostdin",
+                "-v",
+                "error",
+                "-i",
+                str(path),
+                "-map",
+                "0:a:0",
+                "-c:a",
+                "copy",
+                "-write_xing",
+                "1",
+                "-f",
+                "mp3",
+                "-y",
+                str(fixed),
+            ],
+            lambda: None,
+            timeout=60,
+        )
+        if fixed.stat().st_size > 0:
+            fixed.replace(path)
+    except Exception:  # The original still plays; only its length estimate suffers.
+        pass
+    finally:
+        fixed.unlink(missing_ok=True)

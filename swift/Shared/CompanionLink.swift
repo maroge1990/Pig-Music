@@ -84,6 +84,14 @@ import WatchConnectivity
   func cancelTransfers() {
     for transfer in session?.outstandingFileTransfers ?? [] { transfer.cancel() }
   }
+  /// Cancels only the queued transfers whose envelope matches.
+  func cancelTransfers(where matches: (Data) -> Bool) {
+    for transfer in session?.outstandingFileTransfers ?? [] {
+      if let data = transfer.file.metadata?["envelope"] as? Data, matches(data) {
+        transfer.cancel()
+      }
+    }
+  }
   func message(_ data: Data) {
     guard let session, session.activationState == .activated else { return }
     guard
