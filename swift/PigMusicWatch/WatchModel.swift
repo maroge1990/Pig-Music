@@ -52,7 +52,7 @@ import PigPlayback
   var artists: [ArtistGroup] {
     Dictionary(grouping: albums, by: \.artist).map { name, albums in
       ArtistGroup(id: name, name: name, albums: albums)
-    }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }.sorted { $0.name.sortingCompare($1.name) == .orderedAscending }
   }
   var albums: [AlbumGroup] {
     var grouped: [String: [CompanionSong]] = [:]

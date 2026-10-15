@@ -194,7 +194,11 @@ def build_library(
         )
     artists.sort(key=lambda a: a["name"].casefold().removeprefix("the "))
     albums.sort(
-        key=lambda a: (a["artist"].casefold(), a["year"], a["title"].casefold())
+        key=lambda a: (
+            a["artist"].casefold().removeprefix("the "),
+            a["year"],
+            a["title"].casefold(),
+        )
     )
     return {
         "artists": artists,

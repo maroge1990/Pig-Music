@@ -25,4 +25,19 @@ struct LibrarySortingTests {
       try await store.tracks(albumId: "album", sort: .titleDescending).map(\.id) == tracks.map(\.id)
     )
   }
+  @Test func aLeadingTheIsIgnoredWhenSorting() async throws {
+    #expect("The Beatles".sortingName == "Beatles")
+    #expect("The".sortingName == "The")
+    #expect("Theatre".sortingName == "Theatre")
+    let store = try LibraryStore(path: ":memory:")
+    let names = ["The Cure", "ABBA", "the Beatles", "Coldplay", "Theory", "2Pac", "10cc"]
+    let tracks = names.enumerated().map { index, name in
+      Track(id: String(index), title: name, artist: name)
+    }
+    try await store.replace(LibrarySnapshot(revision: "one", tracks: tracks))
+    let expected = ["2Pac", "10cc", "ABBA", "the Beatles", "Coldplay", "The Cure", "Theory"]
+    #expect(try await store.tracks(limit: 10, sort: .title).map(\.title) == expected)
+    #expect(try await store.tracks(limit: 10, sort: .artist).map(\.artist) == expected)
+    #expect(names.sorted { $0.sortingCompare($1) == .orderedAscending } == expected)
+  }
 }

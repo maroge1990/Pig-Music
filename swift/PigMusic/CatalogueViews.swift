@@ -143,11 +143,24 @@ struct CatalogueArtistView: View {
     }
   }
   private func loadPopular() async {
+    // A list saved on this device draws while the server is asked, so the
+    // section is there when the page opens rather than arriving later.
+    if popularity == nil,
+      let saved = await model.storedCatalogue(key: "popular:" + artistId, as: CataloguePopularity.self)
+    {
+      popularity = saved
+      popularSongs = Self.songs(
+        saved,
+        await model.storedCatalogue(key: "popular-matches:" + artistId, as: [Track?].self))
+    }
     guard
       let popular = try? await model.cachedCatalogue(
         key: "popular:" + artistId, load: { try await $0.cataloguePopularity(artistId: artistId) })
     else { return }
     popularity = popular
+    // Show the songs straight away; library matches replace rows as they arrive.
+    popularSongs = Self.songs(
+      popular, model.peekCatalogue(key: "popular-matches:" + artistId, as: [Track?].self))
     let tracks = popular.songs.map(\.track)
     let matches =
       tracks.isEmpty

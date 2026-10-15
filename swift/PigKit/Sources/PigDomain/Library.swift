@@ -182,3 +182,21 @@ extension PlaylistEntry {
 public enum LibrarySort: String, Codable, Sendable, CaseIterable {
   case title, artist, titleDescending
 }
+
+extension String {
+  /// The name as it files alphabetically: a leading "The " is ignored, so
+  /// "The Beatles" sits under B. "The" alone keeps its place.
+  public var sortingName: Substring {
+    let trimmed = drop { $0.isWhitespace }
+    guard trimmed.count > 4, trimmed.prefix(4).lowercased() == "the " else { return trimmed }
+    return trimmed.dropFirst(4).drop { $0.isWhitespace }
+  }
+  /// Alphabetical order by `sortingName`, ignoring case and accents and reading
+  /// numbers as numbers. It never depends on the device locale, so database
+  /// indexes built with it stay valid.
+  public func sortingCompare(_ other: String) -> ComparisonResult {
+    let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive, .numeric]
+    let order = String(sortingName).compare(String(other.sortingName), options: options)
+    return order == .orderedSame ? compare(other) : order
+  }
+}

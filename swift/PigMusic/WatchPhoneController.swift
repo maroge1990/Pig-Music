@@ -30,6 +30,9 @@ import SwiftUI
   @ObservationIgnored private var poll: Task<Void, Never>?
   @ObservationIgnored private var published: CompanionManifest?
   @ObservationIgnored private var manifestURL: URL?
+  /// The Watch's last confirmation, kept so a relaunch does not count every
+  /// song as still to send until the Watch answers again.
+  @ObservationIgnored private var receiptURL: URL?
   @ObservationIgnored private var subscriptionsURL: URL?
   @ObservationIgnored private var generation = 0
   @ObservationIgnored private var peerRevision: Int64 = 0
@@ -83,6 +86,7 @@ import SwiftUI
             }
             receipt = confirmed
             confirmedAt = Date()
+            saveReceipt()
             downloads?.budgetBytes = max(2 * 1024 * 1024 * 1024, confirmed.budgetBytes)
             await publish()
           }
@@ -138,6 +142,7 @@ import SwiftUI
       exclusionsURL.flatMap { try? Data(contentsOf: $0) }
       .flatMap { try? JSONDecoder().decode([String: Set<String>].self, from: $0) } ?? [:]
     manifestURL = directory.appendingPathComponent("watch-manifest.json")
+    receiptURL = directory.appendingPathComponent("watch-receipt.json")
     let previousManifest = directory.appendingPathComponent(
       "watch-manifest-\(context.revision).json")
     if context.account == namespace,
@@ -146,6 +151,14 @@ import SwiftUI
       old.context == context
     {
       published = old
+      if let saved = receiptURL.flatMap({ try? Data(contentsOf: $0) })
+        .flatMap({ try? JSONDecoder().decode(SavedReceipt.self, from: $0) }),
+        saved.receipt.context == context
+      {
+        receipt = saved.receipt
+        confirmedAt = saved.at
+        downloads?.budgetBytes = max(2 * 1024 * 1024 * 1024, saved.receipt.budgetBytes)
+      }
     }
     startPolling()
   }
@@ -316,6 +329,16 @@ import SwiftUI
     guard let exclusionsURL, let data = try? JSONEncoder().encode(exclusions) else { return }
     try? data.write(to: exclusionsURL, options: .atomic)
   }
+  private struct SavedReceipt: Codable {
+    var receipt: CompanionReceipt
+    var at: Date
+  }
+  private func saveReceipt() {
+    guard let receiptURL, let receipt,
+      let data = try? JSONEncoder().encode(SavedReceipt(receipt: receipt, at: confirmedAt ?? Date()))
+    else { return }
+    try? data.write(to: receiptURL, options: .atomic)
+  }
   private func saveSubscriptions() {
     guard let subscriptionsURL, let data = try? JSONEncoder().encode(subscriptions) else { return }
     try? data.write(to: subscriptionsURL, options: .atomic)
@@ -395,6 +418,8 @@ import SwiftUI
     subscriptions = [:]
     exclusions = [:]
     subscriptionsURL = nil
+    if let receiptURL { try? FileManager.default.removeItem(at: receiptURL) }
+    receiptURL = nil
     sent = [:]
     link?.cancelTransfers()
     advance(account: nil)

@@ -5,8 +5,12 @@ import PigDomain
 /// Each instance is permanently bound to one server/person database.
 public actor LibraryStore {
   private let database: DatabaseQueue
+  /// Library order ignores a leading "The", like the server's artist list.
+  static let sortName = DatabaseCollation("sortname") { $0.sortingCompare($1) }
   public init(path: String) throws {
-    let queue = try DatabaseQueue(path: path)
+    var configuration = Configuration()
+    configuration.prepareDatabase { $0.add(collation: LibraryStore.sortName) }
+    let queue = try DatabaseQueue(path: path, configuration: configuration)
     var migrator = DatabaseMigrator()
     migrator.registerMigration("library-v1") { db in
       try db.execute(sql: "CREATE TABLE metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
@@ -74,6 +78,19 @@ public actor LibraryStore {
     migrator.registerMigration("library-categories-v7") { db in
       // Older caches dropped artists' compilation flag: force one full resync.
       try db.execute(sql: "DELETE FROM metadata WHERE key='revision'")
+    }
+    migrator.registerMigration("library-sortname-v8") { db in
+      // Indexes for the "The"-ignoring order (`LibraryStore.sortName`).
+      for kind in LibraryCollection.allCases {
+        try db.execute(
+          sql: "CREATE INDEX \(kind.rawValue)_sortname ON \(kind.rawValue)(name COLLATE sortname, id)")
+      }
+      for table in ["tracks", "albums"] {
+        try db.execute(
+          sql:
+            "CREATE INDEX \(table)_artist_sortname ON \(table)(json_extract(CAST(payload AS TEXT),'$.artist') COLLATE sortname, name COLLATE sortname, id)"
+        )
+      }
     }
     try migrator.migrate(queue)
     database = queue
@@ -180,7 +197,7 @@ public actor LibraryStore {
       let rows = try Row.fetchAll(
         db,
         sql:
-          "SELECT payload FROM albums WHERE id IN (SELECT value FROM artists, json_each(CAST(artists.payload AS TEXT), '$.album_ids') WHERE artists.id=?) ORDER BY name COLLATE NOCASE,id LIMIT ? OFFSET ?",
+          "SELECT payload FROM albums WHERE id IN (SELECT value FROM artists, json_each(CAST(artists.payload AS TEXT), '$.album_ids') WHERE artists.id=?) ORDER BY name COLLATE sortname,id LIMIT ? OFFSET ?",
         arguments: [artistId, limit, offset])
       return try rows.map {
         try LibraryCodec.decoder().decode(Album.self, from: $0["payload"] as Data)
@@ -289,10 +306,10 @@ public actor LibraryStore {
 
   private static func order(_ sort: LibrarySort) -> String {
     switch sort {
-    case .title: "name COLLATE NOCASE, id"
-    case .titleDescending: "name COLLATE NOCASE DESC, id"
+    case .title: "name COLLATE sortname, id"
+    case .titleDescending: "name COLLATE sortname DESC, id"
     case .artist:
-      "json_extract(CAST(payload AS TEXT),'$.artist') COLLATE NOCASE, name COLLATE NOCASE, id"
+      "json_extract(CAST(payload AS TEXT),'$.artist') COLLATE sortname, name COLLATE sortname, id"
     }
   }
 
