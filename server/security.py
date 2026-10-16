@@ -133,6 +133,21 @@ class Security:
             from .media import saved_track
 
             track_id = request.path_params.get("track_id")
+            if track_id and track_id.startswith("mix:"):
+                try:
+                    if not (
+                        request.url.path.startswith(
+                            ("/api/playback/files/", "/api/v1/playback/")
+                        )
+                        or request.url.path == f"/api/v1/tracks/{track_id}/file"
+                    ):
+                        raise LookupError()
+                    self.auth.store.mixes.entry(person["id"], track_id, playback=True)
+                except (LookupError, AttributeError):
+                    raise HTTPException(404, "Track not found")
+                request.state.user = person
+                request.state.session = session
+                return person
             # Household files stream for every member without being added first.
             # Device copies stay limited to the member's own library.
             streaming = (

@@ -276,15 +276,13 @@ class Downloader:
                 candidate,
                 path,
                 lambda: self.check(job_id),
-                lambda received, total: self.store.progress(job_id, received, total),
+                lambda received, total: self.progress(job_id, received, total),
             )
             return {}
         context = Context(
             candidate.get("effective_profile", "native_standard"),
             check=lambda: self.check(job_id),
-            progress=lambda received, total: self.store.progress(
-                job_id, received, total, getattr(self.context, "claim_token", None)
-            ),
+            progress=lambda received, total: self.progress(job_id, received, total),
             deadline=min(
                 self.deadlines.get(job_id, float("inf")),
                 getattr(self.context, "source_deadline", float("inf")),
@@ -298,6 +296,11 @@ class Downloader:
             candidate["source_url"], REGISTRY[source].download_hosts, path, context
         )
         return {}
+
+    def progress(self, job_id, received, total):
+        self.store.progress(
+            job_id, received, total, getattr(self.context, "claim_token", None)
+        )
 
     def validate(self, path, target, profile, decode=True, check=lambda: None):
         probe = probe_file(path, check)
@@ -618,6 +621,15 @@ class Downloader:
             job = {**job, "exact_quality": True}
         try:
             preferred = desired["preferred"]
+            mix_cache = getattr(self.store, "mix_cache", None)
+            if mix_cache is not None and type(self) is Downloader:
+                try:
+                    if mix_cache.promote(self, job, preferred):
+                        return
+                except (Cancelled, QualityDeadline):
+                    raise
+                except (OSError, ValueError):
+                    pass  # A stale/unsuitable cache copy never blocks acquisition.
             self.deadlines[job["id"]] = (
                 time.monotonic() + desired["fallback_minutes"] * 60
             )

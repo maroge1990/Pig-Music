@@ -6,6 +6,7 @@ import { PageHeader } from "./PageHeader";
 import { SongRow } from "./SongRow";
 import { withLibrary, type Song } from "./songs";
 import { warmArtist, whenIdle } from "./prefetch";
+import { Mixes } from "./Mixes";
 
 function songRows(items: Item[]): Song[] {
   return items.map((item) => ({
@@ -210,6 +211,7 @@ export function Home() {
   return (
     <main className="personal-main home-page">
       <PageHeader title="Home" subtitle="Find your next favourite." />
+      <Mixes />
       <RecentlyAdded />
       <HomeSection kind="recommended" />
       <HomeSection kind="popular" />

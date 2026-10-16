@@ -42,7 +42,10 @@ struct SongActionsView: View {
               Task { await add() }
             }.disabled(loading || !model.canMutate)
           } else if track.serverState == "not_in_library" {
-            Button("Request song", systemImage: "arrow.down.circle") {
+            Button(
+              track.id.hasPrefix("mix:") ? "Add to my library" : "Request song",
+              systemImage: "arrow.down.circle"
+            ) {
               Task { await request() }
             }.disabled(loading || !model.canMutate)
           }

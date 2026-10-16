@@ -83,7 +83,7 @@ export function SongRow({
     >
       <button
         className="song-main"
-        aria-label={`Play ${song.title}${song.state === "saved" ? "" : " (streams without downloading)"}`}
+        aria-label={`Play ${song.title}${song.state === "saved" || song.cache_id ? "" : " (streams without downloading)"}`}
         onClick={() => player.play(queue, index)}
       >
         {numbered ? (
@@ -117,14 +117,16 @@ export function SongRow({
         ) : (
           <button
             aria-label={
-              state === "server"
+              state === "server" || song.cache_id
                 ? `Add ${song.title} to your library`
                 : `Download ${song.title} to your library`
             }
             title={
-              state === "server"
-                ? "On the server — add to your library"
-                : "Not downloaded — download to the server"
+              song.cache_id
+                ? "Prepared for this mix — add to your library to keep"
+                : state === "server"
+                  ? "On the server — add to your library"
+                  : "Not downloaded — download to the server"
             }
             onClick={() => void download()}
           >
@@ -291,7 +293,7 @@ function SongMenu({
           {state !== "saved" &&
             state !== "pending" &&
             item(
-              state === "server"
+              state === "server" || song.cache_id
                 ? "Add to my library"
                 : "Download to my library",
               <Download size={18} />,

@@ -35,6 +35,16 @@
   --text-accent: #ef7aae;
 }
 :root {
+  --mix-daily-background: #442a19;
+  --mix-daily-foreground: #f6b7d4;
+  --mix-artist-background: #f6b7d4;
+  --mix-artist-foreground: #442a19;
+  --mix-genre-background: #15111a;
+  --mix-genre-foreground: #ef7aae;
+  --mix-popular-background: #ea5048;
+  --mix-popular-foreground: #442a19;
+  --mix-back-background: #f2ecf0;
+  --mix-back-foreground: #d6336c;
   --radius-compact: 0.375rem;
   --radius-control: 0.625rem;
   --radius-card: 1rem;

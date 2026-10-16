@@ -11,6 +11,7 @@ Private household music-library management in one Unraid container: shared setti
 
 ## Capabilities
 
+- Daily personalised mixes on Home, with prepared discovery downloads, branded covers and saved editions on web and iOS/iPadOS 26+.
 - Personal accounts and libraries over shared files, joined by one-use invites.
 - Saved and catalogue browsing, artist portraits and backgrounds, discographies, popular music and recommendations.
 - Song, album and artist requests, optional monitoring, parallel transfers and a recoverable queue.

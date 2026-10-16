@@ -815,14 +815,26 @@ class UserLibrary:
 
     def history(self, user_id, events, session_id):
         now = int(time.time())
+        mix_tracks = {}
+        for event in events:
+            if event["track_id"].startswith("mix:"):
+                try:
+                    mix_tracks[event["track_id"]] = self.store.mixes.entry(
+                        user_id, event["track_id"]
+                    )
+                except (LookupError, AttributeError):
+                    raise ValueError("A played track is outside your library")
         with self.store.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             added = 0
             for event in events:
-                if not conn.execute(
-                    "SELECT 1 FROM library_members WHERE user_id=? AND track_id=?",
-                    (user_id, event["track_id"]),
-                ).fetchone():
+                if (
+                    event["track_id"] not in mix_tracks
+                    and not conn.execute(
+                        "SELECT 1 FROM library_members WHERE user_id=? AND track_id=?",
+                        (user_id, event["track_id"]),
+                    ).fetchone()
+                ):
                     raise ValueError("A played track is outside your library")
                 if (
                     event["played_at"] > now + 300
@@ -842,4 +854,16 @@ class UserLibrary:
                         event["event_id"],
                     ),
                 ).rowcount
+                if event["track_id"] in mix_tracks:
+                    from .mix_cache import song_key
+
+                    conn.execute(
+                        "INSERT OR IGNORE INTO mix_listens VALUES (?,?,?,?)",
+                        (
+                            user_id,
+                            song_key(mix_tracks[event["track_id"]]),
+                            event["played_at"],
+                            event["event_id"],
+                        ),
+                    )
         return {"recorded": added}

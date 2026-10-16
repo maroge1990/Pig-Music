@@ -137,6 +137,20 @@ export async function mockApi(
         downloads_enabled: true,
       });
     if (path === "/v1/playlists") return json(route, { playlists: [] });
+    if (path === "/v1/home/mixes")
+      return json(route, { mixes: [], preparing: false });
+    if (path === "/v1/admin/mixes")
+      return json(route, {
+        budget_bytes: 50000000000,
+        reserve_bytes: 2000000000,
+        profile: "mp3_320",
+        timezone: "Australia/Melbourne",
+        files: 0,
+        used_bytes: 0,
+        ready: 0,
+        preparing: 0,
+        retrying: 0,
+      });
     if (path.startsWith("/v1/home/"))
       return json(route, {
         state: "ready",

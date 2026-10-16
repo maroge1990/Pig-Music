@@ -1066,6 +1066,11 @@
             "title": "Isrcs",
             "type": "array"
           },
+          "library_track_id": {
+            "nullable": true,
+            "title": "Library Track Id",
+            "type": "string"
+          },
           "musicbrainz_recording_id": {
             "nullable": true,
             "title": "Musicbrainz Recording Id",
@@ -1883,6 +1888,116 @@
         "title": "MembershipResultDTO",
         "type": "object"
       },
+      "MixCacheSettings": {
+        "properties": {
+          "budget_bytes": {
+            "maximum": 2000000000000.0,
+            "minimum": 1000000000.0,
+            "title": "Budget Bytes",
+            "type": "integer"
+          },
+          "profile": {
+            "pattern": "^(mp3_320|native_standard|lossless)$",
+            "title": "Profile",
+            "type": "string"
+          },
+          "reserve_bytes": {
+            "maximum": 100000000000.0,
+            "minimum": 1000000000.0,
+            "title": "Reserve Bytes",
+            "type": "integer"
+          },
+          "timezone": {
+            "maxLength": 100,
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "budget_bytes",
+          "reserve_bytes",
+          "profile",
+          "timezone"
+        ],
+        "title": "MixCacheSettings",
+        "type": "object"
+      },
+      "MixDTO": {
+        "properties": {
+          "day": {
+            "title": "Day",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tracks": {
+            "items": {
+              "$ref": "#/components/schemas/TrackDTO"
+            },
+            "title": "Tracks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "day",
+          "title",
+          "reason",
+          "tracks"
+        ],
+        "title": "MixDTO",
+        "type": "object"
+      },
+      "MixFeedback": {
+        "properties": {
+          "track_id": {
+            "maxLength": 100,
+            "title": "Track Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "track_id"
+        ],
+        "title": "MixFeedback",
+        "type": "object"
+      },
+      "MixList": {
+        "properties": {
+          "mixes": {
+            "items": {
+              "$ref": "#/components/schemas/MixDTO"
+            },
+            "title": "Mixes",
+            "type": "array"
+          },
+          "preparing": {
+            "title": "Preparing",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mixes",
+          "preparing"
+        ],
+        "title": "MixList",
+        "type": "object"
+      },
       "NativeMutationInput": {
         "properties": {
           "action": {
@@ -2378,6 +2493,11 @@
             },
             "title": "Isrcs",
             "type": "array"
+          },
+          "library_track_id": {
+            "nullable": true,
+            "title": "Library Track Id",
+            "type": "string"
           },
           "match_kind": {
             "nullable": true,
@@ -3436,6 +3556,11 @@
             "title": "Isrcs",
             "type": "array"
           },
+          "library_track_id": {
+            "nullable": true,
+            "title": "Library Track Id",
+            "type": "string"
+          },
           "musicbrainz_recording_id": {
             "nullable": true,
             "title": "Musicbrainz Recording Id",
@@ -4260,6 +4385,236 @@
         "tags": [
           "owner-downloads"
         ]
+      }
+    },
+    "/api/v1/admin/mixes": {
+      "get": {
+        "operationId": "mix_status_api_v1_admin_mixes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Mix Status"
+      },
+      "put": {
+        "operationId": "mix_settings_api_v1_admin_mixes_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MixCacheSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Mix Settings"
       }
     },
     "/api/v1/admin/unassigned": {
@@ -6969,6 +7324,122 @@
         ]
       }
     },
+    "/api/v1/home/mixes": {
+      "get": {
+        "operationId": "home_mixes_api_v1_home_mixes_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MixList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Home Mixes",
+        "tags": [
+          "personal-library"
+        ]
+      }
+    },
     "/api/v1/home/popular": {
       "get": {
         "operationId": "popular_api_v1_home_popular_get",
@@ -9613,6 +10084,382 @@
         "summary": "Revoke",
         "tags": [
           "accounts"
+        ]
+      }
+    },
+    "/api/v1/mixes/hide": {
+      "post": {
+        "operationId": "hide_mix_song_api_v1_mixes_hide_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MixFeedback"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Hide Mix Song",
+        "tags": [
+          "personal-library"
+        ]
+      }
+    },
+    "/api/v1/mixes/{edition_id}/hide": {
+      "post": {
+        "operationId": "hide_mix_api_v1_mixes__edition_id__hide_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "edition_id",
+            "required": true,
+            "schema": {
+              "title": "Edition Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Hide Mix",
+        "tags": [
+          "personal-library"
+        ]
+      }
+    },
+    "/api/v1/mixes/{edition_id}/save": {
+      "post": {
+        "operationId": "save_mix_api_v1_mixes__edition_id__save_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "edition_id",
+            "required": true,
+            "schema": {
+              "title": "Edition Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaylistDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Save Mix",
+        "tags": [
+          "personal-library"
         ]
       }
     },

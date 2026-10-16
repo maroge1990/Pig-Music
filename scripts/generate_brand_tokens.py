@@ -24,6 +24,16 @@ TYPE_ROLES = [
     ("display", 36, "largeTitle"),
 ]
 
+# Content artwork stays appearance-independent. These are Pig-Branding roles,
+# not an additional palette; action/focus colours remain semantic theme roles.
+MIX_ARTWORK = {
+    "daily": (("logo", "brown"), ("logo", "pink")),
+    "artist": (("logo", "pink"), ("logo", "brown")),
+    "genre": (("dark", "canvas"), ("logo", "rose")),
+    "popular": (("logo", "coral"), ("logo", "brown")),
+    "back": (("light", "raised"), ("light", "accent")),
+}
+
 
 def outputs():
     tokens = json.loads((ROOT / "docs/pig-family-brand-tokens.json").read_text())
@@ -41,6 +51,9 @@ def outputs():
         ]
         css += ["}"]
     css += [":root {"]
+    for kind, pair in MIX_ARTWORK.items():
+        for name, (section, role) in zip(("background", "foreground"), pair):
+            css += [f"  --mix-{kind}-{name}: {tokens[section][role].lower()};"]
     for name, value in tokens["radii"]["web"].items():
         css += [f"  --radius-{name}: {value / 16:g}rem;"]
     css += ["  --radius-hero: 1.375rem;", "  --radius-capsule: 999px;"]
@@ -105,7 +118,31 @@ def outputs():
             f"        scheme == .dark ? Color({rgb[1]}) : Color({rgb[0]})",
             "    }",
         ]
-    swift += ["}", "", "public enum PigType {"]
+    swift += [
+        "}",
+        "",
+        "public enum PigMixArtwork {",
+        "    public static func colours(_ kind: String) -> (background: Color, foreground: Color) {",
+        "        switch kind {",
+    ]
+    for kind, pair in MIX_ARTWORK.items():
+        colours = []
+        for section, role in pair:
+            h = tokens[section][role].lstrip("#")
+            rgb = ", ".join(
+                f"{name}: {int(h[i:i+2],16) / 255:.8f}"
+                for name, i in [("red", 0), ("green", 2), ("blue", 4)]
+            )
+            colours.append(f"Color({rgb})")
+        swift += [f'        case "{kind}": return ({", ".join(colours)})']
+    swift += [
+        '        default: return colours("daily")',
+        "        }",
+        "    }",
+        "}",
+        "",
+        "public enum PigType {",
+    ]
     for name, _, style in TYPE_ROLES:
         swift += [f"    public static let {name}: Font = .{style}"]
     swift += ["}"]

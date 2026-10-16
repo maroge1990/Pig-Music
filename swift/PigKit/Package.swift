@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
   name: "PigKit",
-  platforms: [.iOS(.v18), .watchOS(.v11), .macOS(.v13)],
+  platforms: [.iOS("26.0"), .watchOS(.v11), .macOS(.v13)],
   products: [
     .library(name: "PigBrand", targets: ["PigBrand"]),
     .library(name: "PigAPI", targets: ["PigAPI"]),

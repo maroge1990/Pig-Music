@@ -1,0 +1,83 @@
+"""Authenticated personal mix editions; cache administration remains web-only."""
+
+import asyncio
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
+
+from ..api_models import MixList, PlaylistDTO
+from .personal import playlist_dto
+
+
+class MixFeedback(BaseModel):
+    track_id: str = Field(max_length=100)
+
+
+class MixCacheSettings(BaseModel):
+    budget_bytes: int = Field(ge=1_000_000_000, le=2_000_000_000_000)
+    reserve_bytes: int = Field(ge=1_000_000_000, le=100_000_000_000)
+    profile: str = Field(pattern="^(mp3_320|native_standard|lossless)$")
+    timezone: str = Field(max_length=100)
+
+
+def mixes_router(mixes):
+    router = APIRouter()
+
+    @router.get("/api/v1/home/mixes", response_model=MixList, tags=["personal-library"])
+    async def home_mixes(request: Request):
+        return await asyncio.to_thread(mixes.list, request.state.user["id"])
+
+    @router.post(
+        "/api/v1/mixes/{edition_id}/save",
+        response_model=PlaylistDTO,
+        tags=["personal-library"],
+    )
+    async def save_mix(edition_id: str, request: Request):
+        try:
+            return playlist_dto(
+                await asyncio.to_thread(
+                    mixes.save, request.state.user["id"], edition_id
+                )
+            )
+        except LookupError:
+            raise HTTPException(404, "Mix not found")
+
+    @router.post("/api/v1/mixes/hide", tags=["personal-library"])
+    async def hide_mix_song(body: MixFeedback, request: Request):
+        try:
+            await asyncio.to_thread(mixes.hide, request.state.user["id"], body.track_id)
+            return {"hidden": True}
+        except LookupError:
+            raise HTTPException(404, "Mix song not found")
+
+    @router.post("/api/v1/mixes/{edition_id}/hide", tags=["personal-library"])
+    async def hide_mix(edition_id: str, request: Request):
+        try:
+            await asyncio.to_thread(
+                mixes.hide_edition, request.state.user["id"], edition_id
+            )
+            return {"hidden": True}
+        except LookupError:
+            raise HTTPException(404, "Mix not found")
+
+    # These paths intentionally lack the personal-library tag.
+    admin = APIRouter()
+
+    @admin.get("/api/v1/admin/mixes")
+    async def mix_status():
+        return await asyncio.to_thread(mixes.cache.status)
+
+    @admin.put("/api/v1/admin/mixes")
+    async def mix_settings(body: MixCacheSettings):
+        from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+        try:
+            ZoneInfo(body.timezone)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise HTTPException(422, "Choose a valid timezone")
+        await asyncio.to_thread(
+            mixes.store.write_document, "mix-settings", body.model_dump()
+        )
+        return await asyncio.to_thread(mixes.cache.status)
+
+    router.include_router(admin)
+    return router

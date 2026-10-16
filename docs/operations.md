@@ -18,9 +18,17 @@ These files live under appdata. They stay out of source control and bundles, and
 
 Per-person Plex tokens are encrypted in SQLite with a key derived from the server authentication secret. Back up and restore the whole appdata directory, including that secret. A copy of a live database is not a backup.
 
+## Prepared mixes
+
+With preloading enabled, the background mix worker prepares current and next-day editions. `PIG_MUSIC_PRELOAD=false` disables automatic preparation for isolated development/tests. Work has a four-minute per-person pass budget with durable cursors, so interrupted or slow work resumes without starting from the first song. The worker uses enabled download sources and respects the server download pause; explicit library requests take priority. Existing files provide immediate rediscovery; imported metadata can seed discoveries before files arrive. Empty libraries get clearly labelled regional charts. The adapters use ListenBrainz and the existing Apple chart; recommendations are not evidence that a source can supply audio.
+
+Discovery files live under appdata `mix-cache/`, outside the published music library. Admin > Overview > Mix preparation shows usage/readiness, unavailable candidates, preparation issues by person and reclaimable bytes. Refreshing status preserves unsaved setting edits. Configure the budget (initially 50 GB), disk-free reserve (2 GB), preferred quality and rotation timezone (Australia/Melbourne). Those are configurable starting limits, not measured NAS capacity. Docker includes timezone data. Mix preferences, editions, feedback, leases and audio references are in SQLite migration 10.
+
+Active/current and staged-next editions retain their files; retired/hidden editions get a cleanup grace period. Playing an edition renews a six-hour lease over its queue, including across rotation. Explicit pending library requests also retain matching cache files until completion or cancellation; successful promotion publishes an independent validated file. Cleanup cannot delete library files. Saving an edition preserves ordered metadata without permanently retaining discoveries. Explicit playback of an expired saved-edition song uses the normal downloader to refill the temporary cache and creates a six-hour playback lease; it does not require experimental streaming or create library membership. Only songs still in this person's saved mix metadata qualify. Upcoming queue entries can prepare ahead; paused/failed work remains durable. Phone offline downloads and Watch delivery keep the existing durable-library rules. Back up before adopting schema 10; restore a compatible backup when rolling back to an older schema reader.
+
 ## Container images
 
-`.github/workflows/container.yml` builds the pinned Dockerfile, tests that exact image (backend suite, then 1 GB artwork, delivery and sync scale gates), and publishes `ghcr.io/maroge1990/pig-music:sha-<rev>` (plus `:main` on main, `:vX.Y.Z` on tags). Pull requests only validate. No workflow deploys, and there is no `latest` tag. Images carry OCI source/revision labels. The package stays private.
+`.github/workflows/container.yml` builds the pinned Dockerfile, tests that exact image (backend suite, then 1 GB artwork, delivery, sync and mix scale gates), and publishes `ghcr.io/maroge1990/pig-music:sha-<rev>` (plus `:main` on main, `:vX.Y.Z` on tags). Pull requests only validate. No workflow deploys, and there is no `latest` tag. Images carry OCI source/revision labels. The package stays private.
 
 Unraid pulls with a GitHub credential that has `read:packages`, entered through `docker login ghcr.io --password-stdin`. Never put it in templates, Git, docs, shell history or build arguments.
 
@@ -86,13 +94,15 @@ Add `--metadata-only` to skip the audio transfer. The harness uses fresh appdata
 - authenticated playback and range requests;
 - fallback order, preview rejection and cancellation.
 
+For temporary mix preparation, add `--mix-cache`. This verifies the real transfer and complete audio validation, reopens fresh state to verify cache persistence, checks that no queue/acquired/library-membership rows were created, then reclaims the unreferenced test audio. The report includes the measured codec/bitrate, size, hash and elapsed time. `--profile mp3_320` tests the default mix quality; `--profile native_standard` tests retained source-native audio. These tests use a new isolated output directory and explicitly override library/download paths, never household appdata or the NAS.
+
 The yt-dlp, EJS and Node runtimes are pinned in the image. Release changes to them only through CI. YouTube cookies are uploaded in Admin (Netscape format) and are never echoed back.
 
 ## Native app installation (free Apple account)
 
 1. Open `swift/PigMusic.xcodeproj` and select scheme **PigMusic**, which embeds **PigMusicWatch**.
 2. In Xcode Settings → Accounts, add the Apple Account. In Signing & Capabilities, choose the **Personal Team** with automatic signing. If you change bundle IDs, update the Watch identifier and `WKCompanionAppBundleIdentifier` together. Keep signing changes local.
-3. Enable Developer Mode on the device, then build and run. The minimum OS is iOS/iPadOS 18 and watchOS 11.
+3. Enable Developer Mode on the device, then build and run. The minimum OS is iOS/iPadOS 26 and watchOS 11.
 4. Sign in with the server's HTTPS address, or join with an invite link or code. People and providers are managed on the web.
 
 Personal Team profiles expire after seven days; rebuild and reinstall when they do. Use the device journeys in [testing](testing.md#native-device-acceptance).

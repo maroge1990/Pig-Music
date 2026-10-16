@@ -37,9 +37,7 @@ import PigPlayback
       return
     }
     if playing { listenSeconds += delta }
-    if listenSeconds >= 30, !listenReported,
-      item.track.serverState == nil || item.track.serverState == "in_library"
-    {
+    if listenSeconds >= 30, !listenReported {
       listenReported = true
       onListen?(
         ListeningEvent(
@@ -142,7 +140,9 @@ import PigPlayback
       if ProcessInfo.processInfo.arguments.contains("--seamless-demo") { seamlessEnabled = true }
     #endif
     observations.append(
-      NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime).receive(on: DispatchQueue.main).sink {
+      NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime).receive(
+        on: DispatchQueue.main
+      ).sink {
         [weak self] notification in
         let identity = notification.object.map { ObjectIdentifier($0 as AnyObject) }
         Task { @MainActor in
@@ -153,7 +153,9 @@ import PigPlayback
         }
       })
     observations.append(
-      NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).receive(on: DispatchQueue.main).sink {
+      NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification).receive(
+        on: DispatchQueue.main
+      ).sink {
         [weak self] notification in
         let began =
           (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt)
@@ -164,7 +166,9 @@ import PigPlayback
         Task { @MainActor in self?.interruption(began: began, shouldResume: shouldResume) }
       })
     observations.append(
-      NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).receive(on: DispatchQueue.main).sink {
+      NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification).receive(
+        on: DispatchQueue.main
+      ).sink {
         [weak self] notification in
         let reason = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
         Task { @MainActor in
@@ -182,7 +186,9 @@ import PigPlayback
           Task { @MainActor in self?.sessionActive = false }
         })
     observations.append(
-      NotificationCenter.default.publisher(for: .AVAudioEngineConfigurationChange).receive(on: DispatchQueue.main).sink {
+      NotificationCenter.default.publisher(for: .AVAudioEngineConfigurationChange).receive(
+        on: DispatchQueue.main
+      ).sink {
         [weak self] notification in
         let identity = notification.object.map { ObjectIdentifier($0 as AnyObject) }
         Task { @MainActor in
@@ -426,7 +432,8 @@ import PigPlayback
   nonisolated private static let sessionQueue = DispatchQueue(
     label: "au.com.pig.music.audio-session", qos: .userInitiated)
   nonisolated private static func activateSession() async throws {
-    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+    try await withCheckedThrowingContinuation {
+      (continuation: CheckedContinuation<Void, any Error>) in
       sessionQueue.async {
         do {
           let session = AVAudioSession.sharedInstance()

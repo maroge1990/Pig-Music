@@ -4,6 +4,33 @@ import PigAPI
 import PigDomain
 
 extension NativeService {
+  public func hideMix(_ id: String) async throws {
+    switch try await client.hide_mix_api_v1_mixes__edition_id__hide_post(
+      .init(path: .init(edition_id: id)))
+    {
+    case .ok: return
+    case .unauthorized: throw NativeFailure.authentication
+    default: throw NativeFailure.unavailable("Unable to hide this edition. Try again.")
+    }
+  }
+  public func saveMix(_ id: String) async throws -> Playlist {
+    switch try await client.save_mix_api_v1_mixes__edition_id__save_post(
+      .init(path: .init(edition_id: id)))
+    {
+    case .ok(let value): return try LibraryCodec.convert(value.body.json)
+    case .unauthorized: throw NativeFailure.authentication
+    default: throw NativeFailure.unavailable("Unable to save this mix. Try again.")
+    }
+  }
+  public func hideMixSong(_ trackId: String) async throws {
+    switch try await client.hide_mix_song_api_v1_mixes_hide_post(
+      .init(body: .json(.init(track_id: trackId))))
+    {
+    case .ok: return
+    case .unauthorized: throw NativeFailure.authentication
+    default: throw NativeFailure.unavailable("Unable to hide this song. Try again.")
+    }
+  }
   public func applyMutation(_ mutation: OfflineMutation) async throws -> OfflineMutationReceipt {
     guard
       var json = try JSONSerialization.jsonObject(with: LibraryCodec.encoder().encode(mutation))

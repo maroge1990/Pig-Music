@@ -28,6 +28,8 @@ export type Song = {
   recording_id?: string;
   /** Catalogue artist, so "Go to artist" skips a name search. */
   artist_id?: string;
+  /** Prepared mix entry resolved against the server's validated files. */
+  cache_id?: string;
 };
 
 export function fromTrack(t: Track, cover?: string | null, key = t.id): Song {

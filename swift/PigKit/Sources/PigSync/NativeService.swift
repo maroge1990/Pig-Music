@@ -27,6 +27,10 @@ public actor NativeService: LibrarySource {
   public let server: URL
   let vault: any DeviceTokenStore
   private let artworkTransport: ArtworkTransport
+  private var playbackHistory: [String: String] = [:]
+  public func qualifiedHistoryTrackID(_ id: String) -> String? {
+    id.hasPrefix("mix:") ? id : playbackHistory[id]
+  }
   public init(server: String, vault: any DeviceTokenStore) throws {
     self.server = try ServerAddress.validate(server)
     self.vault = vault
@@ -70,7 +74,8 @@ public actor NativeService: LibrarySource {
     case .ok(let value): return try LibraryCodec.convert(value.body.json)
     case .unauthorized: throw NativeFailure.authentication
     default:
-      throw NativeFailure.unavailable("Can't reach your server. Check your connection and try again.")
+      throw NativeFailure.unavailable(
+        "Can't reach your server. Check your connection and try again.")
     }
   }
   /// Nil from a server older than this endpoint.
@@ -92,6 +97,18 @@ public actor NativeService: LibrarySource {
 
   public func home(_ section: HomeSection) async throws -> HomeContent {
     switch section {
+    case .mixes:
+      switch try await client.home_mixes_api_v1_home_mixes_get(.init()) {
+      case .ok(let response):
+        let value = try response.body.json
+        return HomeContent(
+          mixes: try value.mixes.map { try LibraryCodec.convert($0, to: PersonalMix.self) },
+          mixesPreparing: value.preparing)
+      case .unauthorized: throw NativeFailure.authentication
+      default:
+        throw NativeFailure.unavailable(
+          "Your mixes are unavailable. Your library is still accessible.")
+      }
     case .recent:
       switch try await client.recent_api_v1_home_recent_get(.init()) {
       case .ok(let response):
@@ -456,13 +473,15 @@ public actor NativeService: LibrarySource {
   /// ahead so they start at once. Best effort: failures are ignored.
   public func prepareRemote(_ tracks: [Track]) async {
     let wanted = tracks.filter {
-      ["not_in_library", "requested", "failed"].contains($0.serverState ?? "")
+      !$0.id.hasPrefix("mix:")
+        && ["not_in_library", "requested", "failed"].contains($0.serverState ?? "")
     }.prefix(3)
     guard !wanted.isEmpty else { return }
     _ = try? await client.prepare_remote_api_v1_remote_playback_prepare_post(
       .init(body: .json(.init(tracks: wanted.map(remoteInput)))))
   }
   public func resolve(_ track: Track) async throws -> URL {
+    if track.id.hasPrefix("mix:") { return try await playbackURL(trackId: track.id) }
     // Household files stream like your own; playing never adds them to your library.
     // Requested songs have no file yet and stream like the catalogue.
     if !["not_in_library", "requested", "failed"].contains(track.serverState ?? "") {
@@ -470,7 +489,10 @@ public actor NativeService: LibrarySource {
     }
     let response = try await client.playback_remote_api_v1_remote_playback_post(
       .init(body: .json(remoteInput(track))))
-    struct Remote: Decodable { let url: String }
+    struct Remote: Decodable {
+      let url: String
+      let historyTrackId: String?
+    }
     switch response {
     case .ok(let success):
       let remote: Remote = try LibraryCodec.convert(success.body.json)
@@ -479,6 +501,10 @@ public actor NativeService: LibrarySource {
       guard let url = URL(string: remote.url, relativeTo: server)?.absoluteURL,
         url.scheme == "https", url.host != nil, url.user == nil, url.password == nil
       else { throw NativeFailure.invalidMediaURL }
+      if let identity = remote.historyTrackId, identity.hasPrefix("mix:") {
+        if playbackHistory.count >= 2048 { playbackHistory.removeAll() }
+        playbackHistory[track.id] = identity
+      }
       return url
     case .unauthorized: throw NativeFailure.authentication
     case .conflict:

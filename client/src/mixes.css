@@ -1,0 +1,97 @@
+.mix-row {
+  display: flex;
+  gap: 20px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  padding: 12px 6px 20px;
+  margin-inline: -6px;
+}
+.mix-card {
+  flex: 0 0 170px;
+  min-width: 0;
+  scroll-snap-align: start;
+  text-align: left;
+}
+.mix-artwork {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--radius-compact);
+}
+.mix-card strong,
+.mix-card span,
+.mix-card small {
+  display: block;
+}
+.mix-card strong {
+  margin-top: 10px;
+}
+.mix-card span {
+  color: var(--secondary);
+  font-size: var(--type-subhead);
+  margin: 4px 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.mix-card small {
+  color: var(--secondary);
+}
+.mix-dialog {
+  position: fixed;
+  max-height: 85dvh;
+  width: min(740px, calc(100% - 24px));
+  max-width: 740px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-compact);
+  background: var(--surface);
+  color: var(--text);
+}
+.mix-dialog::backdrop {
+  background: var(--scrim);
+}
+.mix-close {
+  float: right;
+}
+.mix-heading {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  clear: both;
+  padding-top: 8px;
+}
+.mix-heading > .mix-artwork {
+  width: 110px;
+  flex: 0 0 110px;
+}
+.mix-heading h2 {
+  margin: 8px 0;
+}
+.mix-heading p {
+  color: var(--secondary);
+}
+.mix-actions {
+  display: flex;
+  gap: 12px;
+  margin: 20px 0;
+  flex-wrap: wrap;
+}
+.mix-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.mix-options {
+  margin-block: 16px;
+}
+@media (max-width: 600px) {
+  .mix-card {
+    flex-basis: 150px;
+  }
+  .mix-dialog {
+    padding: 16px;
+  }
+}

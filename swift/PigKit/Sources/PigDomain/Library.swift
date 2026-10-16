@@ -18,6 +18,15 @@ public struct Track: Codable, Sendable, Identifiable, Hashable {
   public var serverState: String?
   public var musicbrainzReleaseId: String?
   public var musicbrainzRecordingId: String?
+  public var libraryTrackId: String?
+  public var actionTrack: Track {
+    var result = self
+    if let libraryTrackId {
+      result.id = libraryTrackId
+      result.libraryTrackId = nil
+    }
+    return result
+  }
   public init(
     id: String, title: String, artist: String, album: String? = nil, duration: Double? = nil
   ) {

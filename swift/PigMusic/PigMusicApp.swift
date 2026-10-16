@@ -161,7 +161,7 @@ struct LibraryShell: View {
       }
       .sheet(item: $model.actionTrack) {
         // A half-height card like the web's ⋯ menu; drag up for every action.
-        SongActionsView(model: model, track: $0)
+        SongActionsView(model: model, track: $0.actionTrack)
           .presentationDetents([.medium, .large])
           .presentationDragIndicator(.visible)
           .presentationContentInteraction(.scrolls)

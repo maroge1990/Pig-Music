@@ -165,6 +165,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             preload_task = asyncio.create_task(preload_library())
             if os.environ.get("PIG_MUSIC_PRELOAD", "true").lower() != "false":
                 warmer.start()
+                mixes.start(client)
             maintenance_task = asyncio.create_task(maintain_artwork())
             if (
                 scanner.root.is_dir()
@@ -175,6 +176,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 yield
             finally:
                 await device_copies.close()
+                await mixes.close()
                 downloader.stopping.set()
                 scanner.stopping.set()
                 plex.stopping.set()
@@ -236,6 +238,11 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     from .routes.home import home_router
 
     home = HomeDiscovery(store, music_catalogue)
+    from .mixes import Mixes
+    from .routes.mixes import mixes_router
+
+    mixes = Mixes(store, home, source_runtime)
+    app.include_router(mixes_router(mixes))
     warmer = Warmer(store, home, lambda: app.state.http)
     app.include_router(home_router(store, music_catalogue, home))
     app.include_router(discover_router(store, music_catalogue, popularity, warmer))
@@ -1023,8 +1030,11 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     @app.post("/api/v1/playback/{track_id}/url", response_model=PlaybackURL)
     def playback_url(track_id: str, request: Request):
         try:
-            track_file(store, track_id)
-        except FileNotFoundError:
+            if track_id.startswith("mix:"):
+                mixes.playback(request.state.user["id"], track_id)
+            else:
+                track_file(store, track_id)
+        except (FileNotFoundError, LookupError):
             raise HTTPException(404, "File unavailable")
         return {
             "url": security.sign_url(
@@ -1052,10 +1062,14 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     @app.head("/api/v1/tracks/{track_id}/file", tags=["personal-library"])
     @app.get("/api/playback/files/{track_id}")
     @app.head("/api/playback/files/{track_id}")
-    def playback_file(track_id: str):
+    def playback_file(track_id: str, request: Request):
         try:
-            target = track_file(store, track_id)
-        except FileNotFoundError:
+            target = (
+                mixes.playback(request.state.user["id"], track_id)
+                if track_id.startswith("mix:")
+                else track_file(store, track_id)
+            )
+        except (FileNotFoundError, LookupError):
             raise HTTPException(404, "This saved file is unavailable on the server.")
         types = {
             ".mp3": "audio/mpeg",
@@ -1113,16 +1127,20 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         tracks: list[TrackInput] = Field(max_length=3)
 
     @app.post("/api/v1/remote-playback/prepare", tags=["personal-library"])
-    async def prepare_remote(body: RemotePreparation):
+    async def prepare_remote(body: RemotePreparation, request: Request):
         """Players name the next songs in their queue so slow sources are
         fetched before they are reached."""
-        if not public_settings(store)["remote_playback"]:
-            return {"preparing": 0}
-        return {
-            "preparing": remote_audio.prepare(
-                app.state.http, [t.model_dump(exclude_none=True) for t in body.tracks]
+        tracks = [t.model_dump(exclude_none=True) for t in body.tracks]
+        queued = []
+        others = []
+        for track in tracks:
+            identity = await asyncio.to_thread(
+                mixes.queue_saved, request.state.user["id"], track
             )
-        }
+            (queued if identity else others).append(track)
+        if not public_settings(store)["remote_playback"]:
+            return {"preparing": len(queued)}
+        return {"preparing": len(queued) + remote_audio.prepare(app.state.http, others)}
 
     @app.get("/api/playback/remote/{token}", tags=["personal-library"])
     @app.head("/api/playback/remote/{token}", tags=["personal-library"])
@@ -1137,6 +1155,44 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         )
 
     async def remote_playback(track, request):
+        user = getattr(request.state, "user", None)
+        cached_id = (
+            await asyncio.to_thread(mixes.reference, user["id"], track)
+            if user
+            else None
+        )
+        if user:
+            try:
+                if not cached_id:
+                    cached_id = await mixes.restore(user["id"], track)
+                else:
+                    try:
+                        await asyncio.to_thread(
+                            mixes.entry, user["id"], cached_id, True
+                        )
+                        await asyncio.to_thread(mixes.cache.available, track)
+                    except (FileNotFoundError, LookupError):
+                        cached_id = await mixes.restore(user["id"], track)
+            except ValueError as exc:
+                raise HTTPException(503, str(exc))
+        if cached_id:
+            try:
+                await asyncio.to_thread(
+                    mixes.playback, request.state.user["id"], cached_id
+                )
+                return {
+                    **track,
+                    "id": cached_id,
+                    "history_track_id": cached_id,
+                    "url": security.sign_url(
+                        "/api/playback/files/" + cached_id,
+                        request.state.user,
+                        request.state.session,
+                    ),
+                    "source": "Prepared mix",
+                }
+            except (FileNotFoundError, LookupError):
+                pass
         if not public_settings(store)["remote_playback"]:
             raise HTTPException(
                 409, "Experimental remote playback is disabled in Settings."

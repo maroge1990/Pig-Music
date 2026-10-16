@@ -15,7 +15,7 @@ LABEL org.opencontainers.image.source="https://github.com/maroge1990/Pig-Music" 
       org.opencontainers.image.revision="$VCS_REF" \
       org.opencontainers.image.version="$VERSION" \
       org.opencontainers.image.title="Pig Music"
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg libicu76 libssl3t64 libstdc++6 libatomic1 && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg tzdata libicu76 libssl3t64 libstdc++6 libatomic1 && rm -rf /var/lib/apt/lists/*
 COPY --from=soulseek /slskd /opt/slskd
 # Reuse the digest-pinned Node 24 runtime for local yt-dlp EJS challenges.
 COPY --from=frontend /usr/local/bin/node /usr/local/bin/node
@@ -25,7 +25,7 @@ RUN pip install --no-cache-dir -r requirements.lock.txt
 RUN node --version && python -c "import yt_dlp.version, yt_dlp_ejs; assert yt_dlp.version.__version__ == '2026.08.19'"
 COPY server/ ./server/
 COPY api/ ./api/
-COPY scripts/benchmark_native_sync.py scripts/verify_download_source.py ./scripts/
+COPY scripts/benchmark_native_sync.py scripts/benchmark_mixes.py scripts/verify_download_source.py ./scripts/
 COPY scripts/export_openapi.py ./scripts/
 COPY scripts/prune_artwork.py scripts/verify_state_migration.py scripts/benchmark_cover_store.py scripts/benchmark_delivery.py scripts/generate_brand_tokens.py ./scripts/
 COPY docs/pig-family-brand-tokens.json ./docs/

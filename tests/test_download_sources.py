@@ -461,6 +461,47 @@ def test_owner_source_routes_and_credentials_never_return_secrets(
     assert client.post(root + "/unknown/check", headers=headers).status_code == 404
 
 
+def test_aac_without_nominal_bitrate_is_measured_without_changing_audio(tmp_path):
+    from server.vendor.audio_probe import probe_file as container_probe
+    from server.quality import satisfies
+
+    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
+        pytest.skip("FFmpeg and FFprobe required")
+    path = tmp_path / "native.m4a"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "anoisesrc=duration=3:seed=1",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-write_btrt",
+            "0",
+            str(path),
+        ],
+        check=True,
+        timeout=20,
+    )
+    # Model source-native MP4s whose decoder descriptor omits nominal bitrates.
+    # The AAC packets and the independently measured duration stay unchanged.
+    content = bytearray(path.read_bytes())
+    descriptor = content.index(b"\x40\x15\x00\x00\x00", content.index(b"esds"))
+    content[descriptor + 5 : descriptor + 13] = b"\x00" * 8
+    path.write_bytes(content)
+    assert container_probe(path)["bitrate_kbps"] == 0
+    measured = probe_file(path)
+    assert 112 <= measured["bitrate_kbps"] <= 140
+    assert satisfies("native_standard", measured)
+    assert not satisfies("aac_256", measured)
+    assert path.read_bytes() == content
+
+
 def test_aac_hls_remux_retains_compressed_packets(tmp_path):
     if not shutil.which("ffmpeg"):
         pytest.skip("FFmpeg required")

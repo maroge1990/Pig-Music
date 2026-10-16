@@ -147,6 +147,8 @@ class HomeDiscovery:
                         if len(content) > 2_000_000:
                             raise ValueError("Feed too large")
                 data = json.loads(content)
+                if path == "lb-radio/tags" and isinstance(data, list):
+                    data = {"recordings": data}
                 if not isinstance(data, dict):
                     raise ValueError("Invalid feed")
                 self.store.write_document(

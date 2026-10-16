@@ -1,7 +1,7 @@
 import Foundation
 
 public enum HomeSection: String, CaseIterable, Sendable {
-  case recent, popular, recommended
+  case recent, popular, recommended, mixes
 }
 
 public struct DiscoveryItem: Codable, Sendable, Identifiable, Hashable {
@@ -44,8 +44,24 @@ public struct DiscoveryFeed: Codable, Sendable {
 public struct HomeContent: Codable, Sendable {
   public let albums: [Album]
   public let feed: DiscoveryFeed?
-  public init(albums: [Album] = [], feed: DiscoveryFeed? = nil) {
+  public let mixes: [PersonalMix]?
+  public let mixesPreparing: Bool?
+  public init(
+    albums: [Album] = [], feed: DiscoveryFeed? = nil, mixes: [PersonalMix]? = nil,
+    mixesPreparing: Bool? = nil
+  ) {
     self.albums = albums
     self.feed = feed
+    self.mixes = mixes
+    self.mixesPreparing = mixesPreparing
   }
+}
+
+public struct PersonalMix: Codable, Sendable, Identifiable {
+  public let id: String
+  public let kind: String
+  public let day: String
+  public let title: String
+  public let reason: String
+  public let tracks: [Track]
 }

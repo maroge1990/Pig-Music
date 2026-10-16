@@ -2,7 +2,8 @@
 
 Run as a module from the repository root. Use recordings you control or have
 permission to download. No production appdata, mount, source settings or cookies
-are read. A successful transfer is fully validated/tagged/published by Downloader.
+are read. Library transfers are fully validated/tagged/published by Downloader;
+--mix-cache instead verifies temporary validated storage, restart and cleanup.
 """
 
 import argparse
@@ -10,34 +11,44 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import time
 
 from server.downloader import Downloader, matches
 from server.providers.contracts import Context, ProviderError
 from server.routes.personal import TrackInput
 from server.store import Store
+from server.mix_cache import MixCache, MixDownloader, song_key
 
 
-def verify(source, target, output, metadata_only=False):
+def verify(source, target, output, metadata_only=False, mix_cache=False, profile=None):
     output = Path(output).absolute()
     output.mkdir(parents=True, exist_ok=False)
     # The normal download root validates NAS identity when explicitly set. This
     # process uses fresh appdata's local staging/library and never that mount.
     os.environ.pop("PIG_MUSIC_DOWNLOAD_ROOT", None)
+    os.environ["PIG_MUSIC_LIBRARY"] = str(output / "unmounted-library")
     store = Store(output / "state")
-    profile = "lossless" if source == "monochrome" else "native_standard"
+    profile = profile or ("lossless" if source == "monochrome" else "native_standard")
     store.save_download_settings(
         {"enabled": True, "profile": profile, "sources": [source]}
     )
-    worker = Downloader(store)
+    if mix_cache:
+        cache = MixCache(store)
+        store.write_document("mix-settings", {"profile": profile})
+        worker = MixDownloader(cache, None, lambda: False)
+    else:
+        worker = Downloader(store)
     report = {
         "source": source,
         "profile": profile,
         "metadata_only": metadata_only,
         "audio_verified": False,
+        "purpose": "mix-cache" if mix_cache else "library",
         "recording": {
             key: target.get(key) for key in ("artist", "title", "album", "duration")
         },
     }
+    started = time.monotonic()
     if metadata_only:
         try:
             candidates = worker.runtime.search(source, target, Context(profile))
@@ -47,6 +58,39 @@ def verify(source, target, output, metadata_only=False):
             )
         except ProviderError as exc:
             report.update(metadata_reachable=False, error=str(exc))
+    elif mix_cache:
+        complete = worker.fetch(target)
+        report["status"] = worker.result
+        if complete:
+            # Fresh objects must recover the validated file without a library row.
+            restarted = Store(store.directory)
+            persisted = MixCache(restarted)
+            path = persisted.file(song_key(target))
+            with restarted.connect() as conn:
+                probe = json.loads(
+                    conn.execute(
+                        "SELECT probe FROM mix_audio WHERE key=?", (song_key(target),)
+                    ).fetchone()[0]
+                )
+                for table in ("queue", "acquired", "library_members"):
+                    if conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]:
+                        raise ValueError(
+                            "Mix preparation created durable library state"
+                        )
+            report.update(
+                audio_verified=True,
+                probe=probe,
+                bytes=path.stat().st_size,
+                restart_verified=True,
+                sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+            )
+            # No active edition owns this standalone acceptance file.
+            persisted.cleanup(time.time() + 7200)
+            report["cleanup_verified"] = not path.exists()
+            if path.exists():
+                raise ValueError("Unreferenced acceptance audio was not reclaimed")
+        else:
+            report["error"] = worker.error or "Mix preparation deferred"
     else:
         store.submit_catalogue([{**target, "status": "missing"}])
         worker.process(store.claim_request())
@@ -70,6 +114,7 @@ def verify(source, target, output, metadata_only=False):
             )
         else:
             report["error"] = request.get("error", "Recording did not complete")
+    report["seconds"] = round(time.monotonic() - started, 2)
     (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
     return report
 
@@ -96,6 +141,16 @@ def main():
         action="store_true",
         help="Search/hydrate without downloading audio",
     )
+    parser.add_argument(
+        "--mix-cache",
+        action="store_true",
+        help="Verify temporary cache download, restart and cleanup instead of library publication",
+    )
+    parser.add_argument(
+        "--profile",
+        choices=("native_standard", "mp3_320", "lossless"),
+        help="Expected retained quality; defaults to source-native (lossless for Monochrome)",
+    )
     args = parser.parse_args()
     target = TrackInput.model_validate(json.loads(args.track.read_text())).model_dump(
         exclude_none=True
@@ -103,7 +158,14 @@ def main():
     target["album_artist"] = target["album_artist"] or target["artist"]
     if target["duration"] <= 0 or not target["album"]:
         parser.error("Acceptance needs an expected album and full recording duration")
-    report = verify(args.source, target, args.output, args.metadata_only)
+    report = verify(
+        args.source,
+        target,
+        args.output,
+        args.metadata_only,
+        args.mix_cache,
+        args.profile,
+    )
     print(json.dumps(report, indent=2))
     success = (
         report.get("metadata_reachable")

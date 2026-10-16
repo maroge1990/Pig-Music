@@ -33,6 +33,8 @@ class TrackDTO(BaseModel):
     genre: str | None = None
     server_state: ServerState = "in_library"
     request_progress: float | None = None
+    # Mix playback keeps its private entry ID; personal actions use this file ID.
+    library_track_id: str | None = None
 
 
 class AlbumDTO(BaseModel):
@@ -137,6 +139,20 @@ class PlaylistDTO(BaseModel):
 
 class PlaylistList(BaseModel):
     playlists: list[PlaylistDTO]
+
+
+class MixDTO(BaseModel):
+    id: str
+    kind: str
+    day: str
+    title: str
+    reason: str
+    tracks: list[TrackDTO]
+
+
+class MixList(BaseModel):
+    mixes: list[MixDTO]
+    preparing: bool
 
 
 class SearchResults(BaseModel):

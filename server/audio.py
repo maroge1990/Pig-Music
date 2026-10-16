@@ -27,6 +27,8 @@ def measured_bitrate(path, duration, check=lambda: None):
             ffprobe,
             "-v",
             "error",
+            "-protocol_whitelist",
+            "file,pipe",
             "-select_streams",
             "a:0",
             "-show_entries",
@@ -55,7 +57,11 @@ def measured_bitrate(path, duration, check=lambda: None):
 
 def probe_file(path, check=lambda: None):
     probe = vendor_probe(path)
-    if probe and probe["codec"] in {"opus", "vorbis"} and not probe["bitrate_kbps"]:
+    if (
+        probe
+        and probe["codec"] in {"aac", "opus", "vorbis"}
+        and not probe["bitrate_kbps"]
+    ):
         probe["bitrate_kbps"] = measured_bitrate(path, probe["duration"], check)
     return probe
 

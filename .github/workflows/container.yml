@@ -68,6 +68,11 @@ jobs:
           docker run --rm -i --network none --memory=1g \
             -e PYTHONDONTWRITEBYTECODE=1 --entrypoint python pig-music:candidate - \
             < scripts/benchmark_disjoint_sync.py | tee disjoint-sync-benchmark.json
+      - name: Two-person mix preparation and rotation under 1 GB
+        run: |
+          docker run --rm --network none --memory=1g \
+            -e PYTHONDONTWRITEBYTECODE=1 --entrypoint python pig-music:candidate \
+            scripts/benchmark_mixes.py
       - name: Brand token drift
         run: python scripts/generate_brand_tokens.py --check
       - name: Frontend tests and formatting

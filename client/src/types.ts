@@ -6,6 +6,7 @@ export type Track = {
     | "in_library"
     | "failed";
   id: string;
+  library_track_id?: string | null;
   title: string;
   artist: string;
   album: string;

@@ -211,6 +211,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   /** Resolve the audio for one song: your file, or a stream when unsaved. */
   async function resolve(s: Song) {
+    if (s.cache_id) {
+      const found = await resolveSaved(s.cache_id);
+      return { ...found, source: "Your mix" };
+    }
     // Household files play straight from the server without being added.
     if (s.state === "server" && s.server) return resolveSaved(s.server.id);
     if (s.saved) return resolveSaved(s.saved.id);
@@ -236,7 +240,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         source: body.source as string,
         note: body.note as string | undefined,
         saved_id:
-          body.source === "Saved library" ? (body.id as string) : undefined,
+          body.history_track_id ||
+          (body.source === "Saved library" ? (body.id as string) : undefined),
       };
     }
     const response = await apiFetch("/api/v1/remote-playback", {
@@ -255,7 +260,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       url: body.url as string,
       source: body.source as string,
       note: body.note as string | undefined,
-      saved_id: undefined,
+      saved_id: body.history_track_id as string | undefined,
     };
   }
   async function resolveSaved(id: string) {
@@ -304,7 +309,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   function prepareUpcoming() {
     const next = queue.current
       .slice(cursor.current + 1, cursor.current + 3)
-      .filter((s) => !s.saved && s.state !== "server");
+      .filter((s) => !s.cache_id && !s.saved && s.state !== "server");
     if (!next.length) return;
     void apiFetch("/api/v1/remote-playback/prepare", {
       method: "POST",

@@ -82,6 +82,56 @@ struct HomeTests {
       }
     }
   }
+  @Test func preparedMixesKeepPrivatePlaybackIdentityAndNeverUseRemoteStreaming() async throws {
+    let transport = HomeTransport(
+      json:
+        #"{"mixes":[{"id":"edition","kind":"daily","title":"Daily blend","reason":"For you","day":"2026-10-16","tracks":[{"id":"mix:edition:0","title":"Discovery","artist":"Artist","server_state":"not_in_library","musicbrainz_recording_id":"recording","musicbrainz_release_id":"release"}]}],"preparing":true}"#
+    )
+    let content = try await service(transport).home(.mixes)
+    let track = try #require(content.mixes?.first?.tracks.first)
+    #expect(track.id == "mix:edition:0")
+    #expect(track.musicbrainzReleaseId == "release")
+    #expect(content.mixesPreparing == true)
+    #expect(await transport.paths == ["/api/v1/home/mixes"])
+    let playback = HomeTransport(
+      json: #"{"url":"/api/playback/files/mix:edition:0?sig=fixture","expires_in":21600}"#)
+    _ = try await service(playback).resolve(track)
+    #expect(await playback.paths.count == 1)
+    #expect(await playback.paths.first?.contains("/api/v1/playback/") == true)
+    await service(playback).prepareRemote([track])
+    #expect(await playback.paths.count == 1)
+  }
+  @Test func mixActionsUseTheOwnedFileWithoutChangingPlaybackIdentity() throws {
+    let track = try LibraryCodec.decoder().decode(
+      Track.self,
+      from: Data(
+        #"{"id":"mix:edition:0","title":"Owned song","artist":"Artist","server_state":"in_library","library_track_id":"owned-file"}"#
+          .utf8))
+    #expect(track.actionTrack.id == "owned-file")
+    #expect(track.id == "mix:edition:0")
+    #expect(track.actionTrack.libraryTrackId == nil)
+  }
+  @Test func savedMixPlaybackKeepsItsQualifiedListenIdentity() async throws {
+    let transport = HomeTransport(
+      json:
+        #"{"url":"/api/playback/files/mix:restored:0?sig=fixture","history_track_id":"mix:restored:0"}"#
+    )
+    let api = service(transport)
+    let track = try LibraryCodec.decoder().decode(
+      Track.self,
+      from: Data(
+        #"{"id":"playlist-song","title":"Discovery","artist":"Artist","album":"Album","server_state":"not_in_library"}"#
+          .utf8))
+    _ = try await api.resolve(track)
+    #expect(await api.qualifiedHistoryTrackID(track.id) == "mix:restored:0")
+    #expect(await api.qualifiedHistoryTrackID("unrelated-song") == nil)
+    #expect(await transport.paths == ["/api/v1/remote-playback"])
+  }
+  @Test func hidingAnEditionUsesItsScopedEndpoint() async throws {
+    let transport = HomeTransport(json: #"{"hidden":true}"#)
+    try await service(transport).hideMix("edition")
+    #expect(await transport.paths == ["/api/v1/mixes/edition/hide"])
+  }
 }
 
 struct CatalogueContractTests {

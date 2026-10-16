@@ -253,7 +253,7 @@ def generate():
             "CURRENT_PROJECT_VERSION": "3",
             "SDKROOT": "iphoneos",
             "SUPPORTED_PLATFORMS": "iphoneos iphonesimulator",
-            "IPHONEOS_DEPLOYMENT_TARGET": "18.0",
+            "IPHONEOS_DEPLOYMENT_TARGET": "26.0",
             "TARGETED_DEVICE_FAMILY": "1,2",
             "CODE_SIGN_STYLE": "Automatic",
             "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",

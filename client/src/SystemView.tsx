@@ -15,6 +15,7 @@ import { QualitySelect } from "./QualitySelect";
 import { sourceIds, sourceName, sources } from "./sources";
 import { LibraryScan } from "./LibraryScan";
 import { ToolBoundary } from "./ToolBoundary";
+import { MixCacheSettings } from "./MixCacheSettings";
 const Organisation = lazy(() =>
   import("./Organisation").then((m) => ({ default: m.Organisation })),
 );
@@ -107,6 +108,7 @@ export function SystemStatus({
           </p>
         </section>
       </div>
+      <MixCacheSettings />
     </>
   );
 }

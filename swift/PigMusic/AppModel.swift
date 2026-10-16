@@ -280,10 +280,25 @@ import UIKit
       restoredQueue = PlaybackCheckpoint(queue: queue, elapsed: position.elapsed)
     }
     var savedOccurrenceIds = restoredQueue?.queue.items.map(\.id) ?? []
+    let listeningGeneration = generation
     player.onListen = { [weak self] event in
       Task {
-        try? await database.recordListen(event)
-        await self?.flushHistory()
+        guard let self, self.generation == listeningGeneration, let service = self.service else {
+          return
+        }
+        let identity = await service.qualifiedHistoryTrackID(event.trackId) ?? event.trackId
+        let exists: Bool
+        if identity.hasPrefix("mix:") {
+          exists = true
+        } else {
+          exists = (try? await database.track(id: identity)) != nil
+        }
+        guard exists, self.generation == listeningGeneration else { return }
+        try? await database.recordListen(
+          ListeningEvent(
+            eventId: event.eventId, trackId: identity, playedAt: event.playedAt,
+            seconds: event.seconds))
+        await self.flushHistory()
       }
     }
     player.onUpcoming = { [weak self] tracks in
@@ -441,7 +456,10 @@ import UIKit
   @ObservationIgnored private var homePreparingRetries = 0
   private static let homeFreshness: TimeInterval = 30 * 60
   /// Library changes can change recommendations; the next Home visit refreshes them.
-  func homeLibraryChanged() { homeLoadedAt[.recommended] = nil }
+  func homeLibraryChanged() {
+    homeLoadedAt[.recommended] = nil
+    homeLoadedAt[.mixes] = nil
+  }
   func refreshHome(force: Bool = false) async {
     guard let service else { return }
     let sections = HomeSection.allCases.filter { section in
@@ -451,6 +469,8 @@ import UIKit
       guard let loaded = homeLoadedAt[section] else { return true }
       return Date().timeIntervalSince(loaded) > Self.homeFreshness
         || homeContent[section]?.feed?.state == .preparing
+        || homeContent[section]?.mixesPreparing == true
+        || (section == .mixes && Date().timeIntervalSince(loaded) > 300)
     }
     guard !sections.isEmpty else { return }
     let stamp = generation
@@ -491,7 +511,9 @@ import UIKit
     guard generation == stamp else { return }
     homeLoading.subtract(sections)
     // Like the web: a chart still being prepared is asked for again, a few times.
-    if HomeSection.allCases.contains(where: { homeContent[$0]?.feed?.state == .preparing }),
+    if HomeSection.allCases.contains(where: {
+      homeContent[$0]?.feed?.state == .preparing || homeContent[$0]?.mixesPreparing == true
+    }),
       homePreparingRetries < 6
     {
       homePreparingRetries += 1
@@ -877,7 +899,12 @@ import UIKit
       var discarded: [String] = []
       let now = Int(Date().timeIntervalSince1970)
       for event in pending {
-        let exists = try await database.track(id: event.trackId) != nil
+        let exists: Bool
+        if event.trackId.hasPrefix("mix:") {
+          exists = true
+        } else {
+          exists = try await database.track(id: event.trackId) != nil
+        }
         if event.playedAt < now - 30 * 86400 || event.playedAt > now + 300 || !exists {
           discarded.append(event.id)
         } else {

@@ -43,6 +43,7 @@ test("Home order, with no song recommendations", async ({ page }) => {
   await page.goto("/#/home");
   const sections = page.locator(".home-page > .home-section > h2");
   await expect(sections).toHaveText([
+    "Your mixes",
     "Recently added",
     "Recommended for you",
     "Popular in Australia",
@@ -61,3 +62,94 @@ test("Home order, with no song recommendations", async ({ page }) => {
     "Songs",
   ]);
 });
+
+for (const appearance of ["light", "dark"]) {
+  test(`Mixes stay in one row and play prepared audio (${appearance})`, async ({
+    page,
+  }) => {
+    const kinds = [
+      "daily",
+      "artist",
+      "genre",
+      "popular",
+      "back",
+      "artist",
+      "genre",
+      "daily",
+    ];
+    const mixes = kinds.map((kind, i) => ({
+      id: "edition-" + i,
+      kind,
+      title: i === 0 ? "Daily blend" : "Mix " + i,
+      day: "2026-10-16",
+      reason: "Music close to your taste",
+      tracks: [
+        {
+          ...album.tracks[0],
+          id: `mix:edition-${i}:0`,
+          server_state: "not_in_library",
+        },
+      ],
+    }));
+    const mock = await mockApi(page, {
+      appearance,
+      answers: {
+        "/v1/home/mixes": (route) =>
+          route.fulfill({ json: { mixes, preparing: false } }),
+        "/v1/playback/mix%3Aedition-0%3A0/url": (route) =>
+          route.fulfill({
+            json: { url: "/api/playback/files/prepared", expires_in: 21600 },
+          }),
+        "/playback/files/prepared": (route) =>
+          route.fulfill({
+            status: 200,
+            contentType: "audio/mpeg",
+            body: Buffer.alloc(64),
+          }),
+        "/v1/mixes/edition-0/save": (route) =>
+          route.fulfill({ json: { id: "saved-mix" } }),
+        "/v1/mixes/edition-1/hide": (route) =>
+          route.fulfill({ json: { hidden: true } }),
+      },
+    });
+    await page.goto("/#/home");
+    const cards = page.locator(".mix-card");
+    await expect(cards).toHaveCount(8);
+    const positions = await cards.evaluateAll((nodes) =>
+      nodes.map((node) => node.getBoundingClientRect().top),
+    );
+    expect(Math.max(...positions) - Math.min(...positions)).toBeLessThan(2);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    const covers = await cards
+      .locator("svg")
+      .evaluateAll((nodes) => nodes.slice(0, 5).map((node) => node.innerHTML));
+    expect(new Set(covers).size).toBe(5);
+    await cards.first().click();
+    const dialog = page.getByRole("dialog", { name: "Daily blend" });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Save this edition" }).click();
+    await expect(dialog.getByRole("status")).toContainText("Playlist saved");
+    const playback = page.waitForRequest(
+      (request) =>
+        request.url().includes("/v1/playback/") && request.method() === "POST",
+    );
+    await dialog.getByRole("button", { name: "Play mix" }).click();
+    expect(decodeURIComponent((await playback).url())).toContain(
+      "mix:edition-0:0/url",
+    );
+    await expect(dialog).not.toBeVisible();
+    expect(
+      mock.unknown.filter((path) => path.includes("remote-playback")),
+    ).toEqual([]);
+    await cards.nth(1).click();
+    const hidden = page.getByRole("dialog", { name: "Mix 1" });
+    await hidden.getByText("Mix options", { exact: true }).click();
+    await hidden.getByRole("button", { name: "Hide this edition" }).click();
+    await expect(cards).toHaveCount(7);
+    await expect(hidden).not.toBeVisible();
+  });
+}

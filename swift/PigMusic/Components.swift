@@ -243,7 +243,7 @@ struct SongRow: View {
   var showArtwork = true
   let play: () -> Void
   @Environment(\.colorScheme) private var scheme
-  private var current: Bool { model.player.queue.current?.track.id == track.id }
+  private var current: Bool { model.player.queue.current?.track.actionTrack.id == track.actionTrack.id }
   private var caption: String {
     if number != nil { return track.durationText ?? track.artist }
     return [track.artist, track.album].compactMap { $0 }.filter { !$0.isEmpty }
