@@ -1,6 +1,8 @@
 .mix-row {
   display: flex;
   gap: 20px;
+  /* Covers line up even when one card's caption runs longer. */
+  align-items: flex-start;
   overflow-x: auto;
   overscroll-behavior-x: contain;
   scroll-snap-type: x proximity;

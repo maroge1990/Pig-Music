@@ -401,12 +401,12 @@ def test_background_pass_prepares_all_families_and_tomorrow_without_duplicate_wo
     app, owner = protected(tmp_path, monkeypatch)
     store = app.state.store
     mixes = store.mixes
-    owned = [track(n, id=f"owned-{n}", genre="Rock") for n in range(45)]
+    owned = [track(n, id=f"owned-{n}", genre="Rock", year=1994) for n in range(45)]
     discoveries = [
         track(n, genre="Rock", reason="Similar to Artist 0", bucket="related")
-        for n in range(100, 120)
+        for n in range(100, 150)
     ]
-    discoveries += [track(120, bucket="popular")]
+    discoveries += [track(150, bucket="popular")]
     for song in owned + discoveries:
         cached(mixes, song, now=time.time())
     monkeypatch.setattr(
@@ -432,10 +432,13 @@ def test_background_pass_prepares_all_families_and_tomorrow_without_duplicate_wo
         )  # Current and next day; revisiting Home never prepares again.
         assert {m["kind"] for m in first["mixes"]} == {
             "daily",
+            "fresh",
             "back",
             "artist",
             "genre",
+            "decade",
             "popular",
+            "deep",
         }
         for mix in first["mixes"]:
             assert mix["day"] == str(mixes.day())
@@ -443,9 +446,9 @@ def test_background_pass_prepares_all_families_and_tomorrow_without_duplicate_wo
         with store.connect() as conn:
             assert (
                 conn.execute(
-                    "SELECT COUNT(*) FROM mix_editions WHERE active=0 AND retired_at IS NULL"
+                    "SELECT COUNT(*) FROM mix_editions WHERE active=0 AND retired_at IS NULL AND kind!='radio'"
                 ).fetchone()[0]
-                == 5
+                == 8
             )
         assert store.queue()["items"] == []
 
@@ -609,6 +612,7 @@ def test_hide_edition_is_private_does_not_break_queue_and_expires_with_rotation(
         assert client.get("/api/v1/home/mixes").json() == {
             "mixes": [],
             "preparing": False,
+            "radio": None,
         }
         assert client.post(f"/api/v1/playback/mix:{edition}:0/url").status_code == 200
     tomorrow = mixes.day() + timedelta(days=1)
@@ -728,7 +732,7 @@ def test_empty_library_is_not_reported_as_perpetually_preparing(tmp_path, monkey
 
     monkeypatch.setattr(mixes.home, "popular", AsyncMock(return_value={"songs": []}))
     asyncio.run(mixes.prepare_person(None, owner, mixes.day()))
-    assert mixes.list(owner) == {"mixes": [], "preparing": False}
+    assert mixes.list(owner) == {"mixes": [], "preparing": False, "radio": None}
 
 
 def test_automatic_and_on_demand_downloads_share_one_transfer(tmp_path, monkeypatch):
@@ -934,3 +938,208 @@ def test_shutdown_cancels_a_pass_that_ignores_the_stop_flag(tmp_path, monkeypatc
         return mixes.task.cancelled()
 
     assert asyncio.run(run())
+
+
+def test_new_families_follow_their_selection_rules(tmp_path, monkeypatch):
+    app, owner = protected(tmp_path, monkeypatch)
+    store = app.state.store
+    mixes = store.mixes
+    owned = [
+        track(n, id=f"owned-{n}", genre="Rock", year=1990 + n % 10) for n in range(40)
+    ]
+    pool = [
+        track(n, genre="Rock", reason="Similar to Artist 0", bucket="related")
+        for n in range(100, 160)
+    ]
+    pool += [track(n, bucket="decade", decade=1990) for n in range(160, 172)]
+    pool += [
+        track(n, bucket="release", reason="New from Artist 1") for n in range(172, 176)
+    ]
+    for song in owned + pool:
+        cached(mixes, song, now=time.time())
+    monkeypatch.setattr(
+        store.user_libraries,
+        "projection",
+        lambda user: {"tracks": owned, "artists": [], "albums": []},
+    )
+
+    async def candidates(client, projection):
+        return pool, "Rock"
+
+    monkeypatch.setattr(mixes, "candidates", candidates)
+    now = int(time.time())
+    with store.connect() as conn:
+        # Two plays make a song no longer a deep cut.
+        for n in range(5):
+            for event in range(2):
+                conn.execute(
+                    "INSERT INTO play_events(user_id,track_id,played_at,seconds,device_session_id,event_id) VALUES (?,?,?,?,?,?)",
+                    (owner, f"owned-{n}", now, 60, "fixture", f"e{n}-{event}"),
+                )
+        for n in range(40):
+            conn.execute(
+                "INSERT INTO library_members VALUES (?,?,?,?)",
+                (
+                    owner,
+                    f"owned-{n}",
+                    now - (86400 if n < 12 else 40 * 86400),
+                    "import" if n != 0 else "migration",
+                ),
+            )
+    today = mixes.day()
+    asyncio.run(mixes.prepare_person(None, owner, today))
+
+    def songs(kind):
+        row = mixes.edition(owner, kind, today)
+        return json.loads(row[1])["tracks"] if row else None
+
+    daily = songs("daily")
+    assert sum(t.get("bucket") in {"related", "decade"} for t in daily) == 15
+    fresh = songs("fresh")
+    assert len(fresh) >= 10 and all(t.get("bucket") for t in fresh)
+    assert not {song_key(t) for t in fresh} & {song_key(t) for t in daily}
+    assert {t["title"] for t in songs("releases")} <= {
+        f"Song {n}" for n in range(172, 176)
+    }
+    deep = {t["id"] for t in songs("deep")}
+    assert deep and not deep & {f"owned-{n}" for n in range(5)}
+    # Only recent, non-migration additions; eleven qualify.
+    assert {t["id"] for t in songs("recent")} == {f"owned-{n}" for n in range(1, 12)}
+    decade = json.loads(mixes.edition(owner, "decade", today)[1])
+    assert decade["title"] == "Your 1990s"
+    assert any(t.get("bucket") == "decade" for t in decade["tracks"])
+    genre = songs("genre")
+    assert sum(1 for t in genre if t.get("bucket")) == 15
+
+
+def test_artist_neighbourhood_mix_can_hold_more_of_the_artist():
+    songs = [track(n, artist="Focus") for n in range(10)]
+    songs += [track(n, artist=f"Neighbour {n}") for n in range(10, 30)]
+    picked = choose(songs, 25, "day", per_artist=8)
+    assert sum(t["artist"] == "Focus" for t in picked) == 8
+    assert len(choose(songs, 25, "day")) == 22  # Default keeps two per artist.
+    assert all(a["artist"] != b["artist"] for a, b in zip(picked, picked[1:]))
+
+
+def test_recent_releases_come_from_resolved_library_artists(tmp_path, monkeypatch):
+    app, _ = protected(tmp_path, monkeypatch)
+    store = app.state.store
+    mixes = store.mixes
+    artist = {"id": "local-a", "name": "Artist A"}
+    store.write_document(
+        "library-artist:local-a",
+        {"id": "a0e8a8f3-1a2b-4c3d-9e8f-000000000001", "name": "Artist A"},
+    )
+    day = mixes.day()
+    calls = []
+
+    async def get(client, path, **params):
+        calls.append((path, params))
+        recording = lambda n, date_text: {
+            "id": f"0000000{n}-0000-4000-8000-000000000000",
+            "title": f"New {n}",
+            "artist-credit": [{"name": "Artist A", "artist": {"name": "Artist A"}}],
+            "releases": [
+                {
+                    "id": f"1000000{n}-0000-4000-8000-000000000000",
+                    "title": "Fresh album",
+                    "status": "Official",
+                    "date": date_text,
+                    "release-group": {"primary-type": "Album"},
+                }
+            ],
+        }
+        return {
+            "recordings": [
+                recording(1, str(day)),
+                recording(2, "1999-01-01"),  # A reissue of an old song.
+                recording(3, str(day)),
+                recording(4, str(day)),
+                recording(5, str(day)),
+            ]
+        }
+
+    monkeypatch.setattr(mixes.home.catalogue, "get", get)
+    found = asyncio.run(
+        mixes.releases(None, {"artists": [artist], "mix_day": str(day)})
+    )
+    assert [t["title"] for t in found] == ["New 1", "New 3", "New 4"]
+    assert all(t["bucket"] == "release" for t in found)
+    assert "firstreleasedate" in calls[0][1]["query"]
+    assert asyncio.run(mixes.releases(None, {"artists": [], "mix_day": str(day)})) == []
+
+
+def test_radio_appends_stable_entries_pages_and_learns_from_skips(
+    tmp_path, monkeypatch
+):
+    app, owner = protected(tmp_path, monkeypatch)
+    store = app.state.store
+    mixes = store.mixes
+    user, token = member(app, owner)
+    owned = [track(n, id=f"owned-{n}", artist=f"Owner {n}") for n in range(60)]
+    found = [
+        track(n, bucket="related", artist=f"New {n}", reason="Similar to Owner 1")
+        for n in range(100, 140)
+    ]
+    for song in owned + found:
+        cached(mixes, song, now=time.time())
+    monkeypatch.setattr(
+        store.user_libraries,
+        "projection",
+        lambda person: {"tracks": owned, "artists": [], "albums": []},
+    )
+    today = mixes.day()
+    mixes.stage(user, "fresh", today, "Fresh finds", "Reason", found)
+    asyncio.run(mixes.prepare_radio(user, today))
+    edition = mixes.radio_row(user, today)[0]
+    payload = json.loads(mixes.radio_row(user, today)[1])
+    assert len(payload["tracks"]) == 20 and not payload["queue"]
+    assert sum(t.get("bucket") == "related" for t in payload["tracks"]) == 10
+    # Radio is never promoted to an ordinary Home mix, but has its own card.
+    mixes.activate(today)
+    feed = mixes.list(user)
+    assert all(m["kind"] != "radio" for m in feed["mixes"])
+    assert feed["radio"] == {"title": "Member's radio", "ready": 20}
+    with TestClient(
+        app,
+        base_url="https://private.ts.net",
+        headers={"Authorization": "Bearer " + token},
+    ) as client:
+        first = client.get("/api/v1/radio").json()
+        assert [t["id"] for t in first["tracks"]] == [
+            f"mix:{edition}:{n}" for n in range(10)
+        ]
+        assert first["title"] == "Member's radio"
+        url = client.post(f"/api/v1/playback/{first['tracks'][0]['id']}/url")
+        assert url.status_code == 200, url.text
+        page = client.get("/api/v1/radio", params={"after": first["tracks"][-1]["id"]})
+        assert [t["id"] for t in page.json()["tracks"]] == [
+            f"mix:{edition}:{n}" for n in range(10, 20)
+        ]
+        assert page.json()["preparing"] is True
+        skipped = first["tracks"][0]
+        assert (
+            client.post(
+                "/api/v1/radio/feedback",
+                json={"track_id": skipped["id"], "action": "skip"},
+            ).status_code
+            == 200
+        )
+        assert (
+            client.post(
+                "/api/v1/radio/feedback", json={"track_id": "mix:x:0", "action": "skip"}
+            ).status_code
+            == 404
+        )
+    # Entries already handed out never move when the station grows.
+    mixes.stopping.clear()  # Leaving the client shut the app's worker down.
+    asyncio.run(mixes.prepare_radio(user, today))
+    grown = json.loads(mixes.radio_row(user, today)[1])
+    assert len(grown["tracks"]) == 40
+    assert grown["tracks"][:20] == payload["tracks"]
+    weights = mixes.radio_weights(user, [skipped, owned[59]])
+    assert weights[song_key(skipped)] < weights[song_key(owned[59])]
+    # Another person cannot play or steer this station.
+    assert mixes.radio_next(owner)["id"] != edition
+    with pytest.raises(LookupError):
+        mixes.radio_feedback(owner, skipped["id"], "like")

@@ -14,6 +14,7 @@ MIGRATIONS = (
     (9, "0009_native_mutations"),
     (10, "0010_mixes"),
     (11, "0011_remove_plex"),
+    (12, "0012_radio_feedback"),
 )
 
 

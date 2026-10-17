@@ -309,6 +309,23 @@ import UIKit
         for track in tracks where await archive?.localFile(track) == nil { remote.append(track) }
         await service.prepareRemote(remote)
       }
+      let queue = self.player.queue
+      if let current = queue.current, self.radioIDs.contains(current.track.id),
+        queue.items.count - queue.index - 1 <= 5
+      {
+        self.refillRadio()
+      }
+    }
+    player.onSkip = { [weak self] track, heard in
+      guard let self, self.radioIDs.contains(track.id), heard < 30, let service = self.service
+      else { return }
+      Task { try? await service.radioFeedback(trackId: track.id, action: "skip") }
+    }
+    player.onQueueEnd = { [weak self] in
+      guard let self, let current = self.player.queue.current,
+        self.radioIDs.contains(current.track.id)
+      else { return }
+      self.refillRadio(continuing: true)
     }
     player.onCheckpoint = { checkpoint in
       let ids = checkpoint.queue.items.map(\.id)
@@ -928,6 +945,39 @@ import UIKit
       guard generation == stamp else { return }
       play(tracks.shuffled())
     } catch { message = error.localizedDescription }
+  }
+  /// Songs in the queue that came from the person's radio, by `mix:` id.
+  var radioIDs: Set<String> = []
+  @ObservationIgnored private var radioLoading = false
+  func startRadio() async {
+    do {
+      let batch = try await readCatalogue { try await $0.radio(after: nil) }
+      guard !batch.tracks.isEmpty else {
+        message = "Your radio is still preparing. Try again shortly."
+        return
+      }
+      radioIDs = Set(batch.tracks.map(\.id))
+      play(batch.tracks)
+    } catch { message = error.localizedDescription }
+  }
+  /// Appends the next prepared songs. At the end of the queue, plays them
+  /// as a fresh queue so the station never stops.
+  private func refillRadio(continuing: Bool = false) {
+    guard !radioLoading,
+      let last = player.queue.items.last(where: { radioIDs.contains($0.track.id) })?.track.id
+    else { return }
+    radioLoading = true
+    Task {
+      defer { radioLoading = false }
+      guard let batch = try? await readCatalogue({ try await $0.radio(after: last) }) else {
+        return
+      }
+      let known = Set(player.queue.items.map(\.track.id))
+      let added = batch.tracks.filter { !known.contains($0.id) }
+      guard !added.isEmpty else { return }
+      radioIDs.formUnion(added.map(\.id))
+      if continuing { play(added) } else { player.enqueue(added) }
+    }
   }
   func play(_ tracks: [Track], at index: Int = 0, restored: PlaybackCheckpoint? = nil) {
     #if DEBUG

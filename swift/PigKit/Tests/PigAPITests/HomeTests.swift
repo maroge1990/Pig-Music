@@ -111,6 +111,26 @@ struct HomeTests {
     #expect(track.id == "mix:edition:0")
     #expect(track.actionTrack.libraryTrackId == nil)
   }
+  @Test func radioCardAndPagesDecodeAsOrdinaryMixEntries() async throws {
+    let home = HomeTransport(
+      json: #"{"mixes":[],"preparing":false,"radio":{"title":"Mark's radio","ready":20}}"#)
+    let content = try await service(home).home(.mixes)
+    #expect(content.radio?.title == "Mark's radio")
+    #expect(content.radio?.ready == 20)
+    let page = HomeTransport(
+      json:
+        #"{"id":"radio-1","title":"Mark's radio","preparing":true,"tracks":[{"id":"mix:radio-1:10","title":"Discovery","artist":"Artist","server_state":"not_in_library"}]}"#
+    )
+    let batch = try await service(page).radio(after: "mix:radio-1:9")
+    #expect(batch.tracks.map { $0.id } == ["mix:radio-1:10"])
+    #expect(batch.preparing)
+    let path = try #require(await page.paths.first)
+    #expect(path.hasPrefix("/api/v1/radio?"))
+    #expect(path.contains("after=mix:radio-1:9") || path.contains("after=mix%3Aradio-1%3A9"))
+    let feedback = HomeTransport(json: #"{"recorded":true}"#)
+    try await service(feedback).radioFeedback(trackId: "mix:radio-1:10", action: "skip")
+    #expect(await feedback.paths == ["/api/v1/radio/feedback"])
+  }
   @Test func savedMixPlaybackKeepsItsQualifiedListenIdentity() async throws {
     let transport = HomeTransport(
       json:

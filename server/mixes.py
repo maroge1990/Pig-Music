@@ -6,11 +6,13 @@ from datetime import date, datetime, timedelta
 import hashlib
 import json
 import logging
+import threading
 import time
 import uuid
 import httpx
 from zoneinfo import ZoneInfo
 
+from .artist_identity import cached_identity
 from .catalogue import background_metadata, credit
 from .home import release_choice
 from .media import chart_region, settings, track_file
@@ -23,14 +25,50 @@ PASS_SECONDS = 240
 SHUTDOWN_SECONDS = 10
 KINDS = {
     "daily": "Daily blend",
+    "fresh": "Fresh finds",
+    "releases": "New from your artists",
     "back": "Back in the mix",
     "artist": "Around an artist",
     "genre": "Genre rotation",
+    "decade": "Decade rotation",
     "popular": "In rotation",
+    "deep": "Deep cuts",
+    "recent": "Recently added",
 }
+# Home order: the lead blend and discovery first, library-only mixes last.
+KIND_ORDER = (
+    "CASE kind WHEN 'daily' THEN 0 WHEN 'fresh' THEN 2 WHEN 'releases' THEN 3"
+    " WHEN 'artist' THEN 4 WHEN 'genre' THEN 5 WHEN 'decade' THEN 6"
+    " WHEN 'popular' THEN 7 WHEN 'recent' THEN 8 WHEN 'deep' THEN 9"
+    " WHEN 'back' THEN 10 ELSE 6 END,kind"
+)
+# Discovery sources a Daily blend and Fresh finds draw on.
+DISCOVERY = {"related", "genre", "decade"}
+SEEDS, PER_SEED, GENRE_SONGS, DECADE_SONGS = 5, 12, 20, 12
+CANDIDATE_LIMIT = 100
+RELEASE_ARTISTS, RELEASE_DAYS = 10, 90
+# Radio keeps this many ready songs ahead of the listener, added in batches.
+RADIO_BUFFER, RADIO_BATCH, RADIO_PAGE = 20, 20, 10
 
 
-def choose(tracks, count, salt, history=None, weights=None, previous=None):
+def decade_theme(tracks, day):
+    """A decade with enough owned songs, rotating daily; None without one."""
+    decades = Counter(
+        t["year"] // 10 * 10
+        for t in tracks
+        if isinstance(t.get("year"), int) and t["year"] >= 1900
+    )
+    eligible = sorted(d for d, n in decades.items() if n >= 15)
+    return (
+        eligible[date.fromisoformat(str(day)).toordinal() % len(eligible)]
+        if eligible
+        else None
+    )
+
+
+def choose(
+    tracks, count, salt, history=None, weights=None, previous=None, per_artist=2
+):
     """Daily weighted shuffle with diversity; identity is never guessed from title."""
     history = history or {}
     weights = weights or {}
@@ -58,7 +96,7 @@ def choose(tracks, count, salt, history=None, weights=None, previous=None):
             (
                 t
                 for t in ordered
-                if artists[t["artist"]] < 2
+                if artists[t["artist"]] < per_artist
                 and (not result or result[-1]["artist"] != t["artist"])
             ),
             None,
@@ -78,6 +116,9 @@ class Mixes:
         store.mix_cache = self.cache
         store.mixes = self
         self.stopping = asyncio.Event()
+        # Set when a listener reaches the radio buffer, so the worker refills now.
+        self.wake = asyncio.Event()
+        self.radio_lock = threading.Lock()
         self.task = None
 
     def day(self):
@@ -88,6 +129,7 @@ class Mixes:
 
     async def close(self):
         self.stopping.set()
+        self.wake.set()
         if not self.task:
             return
         # Workers poll the stop flag, but a provider call can outlast the
@@ -109,9 +151,10 @@ class Mixes:
             except Exception:
                 log.exception("Mix preparation failed; retaining ready editions")
             try:
-                await asyncio.wait_for(self.stopping.wait(), timeout=60)
+                await asyncio.wait_for(self.wake.wait(), timeout=60)
             except TimeoutError:
                 pass
+            self.wake.clear()
 
     def people(self):
         with self.store.connect() as conn:
@@ -146,6 +189,33 @@ class Mixes:
                 )
             }
 
+    def plays(self, user_id):
+        """Play counts by library track id and by mix song key."""
+        with self.store.connect() as conn:
+            by_track = dict(
+                conn.execute(
+                    "SELECT track_id,COUNT(*) FROM play_events WHERE user_id=? GROUP BY track_id",
+                    (user_id,),
+                )
+            )
+            by_key = dict(
+                conn.execute(
+                    "SELECT key,COUNT(*) FROM mix_listens WHERE user_id=? GROUP BY key",
+                    (user_id,),
+                )
+            )
+        return by_track, by_key
+
+    def recently_added(self, user_id, days=30):
+        with self.store.connect() as conn:
+            return {
+                r[0]
+                for r in conn.execute(
+                    "SELECT track_id FROM library_members WHERE user_id=? AND added_at>=? AND source!='migration'",
+                    (user_id, int(time.time()) - days * 86400),
+                )
+            }
+
     def exposure(self, user, day):
         with self.store.connect() as conn:
             row = conn.execute(
@@ -170,7 +240,7 @@ class Mixes:
         """Use public artist/tag seeds only; personal listening never leaves PigMusic."""
         seeds = await self.home.seeds(client, projection, {"unavailable": False})
         records = []
-        for identity, name in seeds[:3]:
+        for identity, name in seeds[:SEEDS]:
             if self.stopping.is_set():
                 break
             data, _ = await self.home.feed(
@@ -194,7 +264,7 @@ class Mixes:
                                 "related",
                             )
                         )
-            records.extend(seed_records[:6])
+            records.extend(seed_records[:PER_SEED])
         labels = {
             t["genre"].casefold(): t["genre"]
             for t in projection.get("tracks", [])
@@ -224,28 +294,46 @@ class Mixes:
                 "lb-radio/tags",
                 tag=genre,
                 operator="or",
-                count=6,
+                count=GENRE_SONGS,
                 pop_begin=20,
                 pop_end=100,
             )
             records.extend(
                 (r.get("recording_mbid"), genre, "genre")
-                for r in data.get("recordings", [])[:6]
+                for r in data.get("recordings", [])[:GENRE_SONGS]
+                if isinstance(r, dict)
+            )
+        decade = decade_theme(
+            projection.get("tracks", []), projection.get("mix_day") or self.day()
+        )
+        if decade:
+            data, _ = await self.home.feed(
+                client,
+                "lb-radio/tags",
+                tag=f"{decade}s",
+                operator="or",
+                count=DECADE_SONGS,
+                pop_begin=20,
+                pop_end=100,
+            )
+            records.extend(
+                (r.get("recording_mbid"), f"From the {decade}s", "decade")
+                for r in data.get("recordings", [])[:DECADE_SONGS]
                 if isinstance(r, dict)
             )
         # Current regional charts are a separate signal from lifetime popularity.
         popular = await self.home.popular(client)
         candidates, seen = [], set()
-        for recording, reason, bucket in records[:100]:
-            if self.stopping.is_set() or len(candidates) >= 24:
+        for recording, reason, bucket in records[:200]:
+            if self.stopping.is_set() or len(candidates) >= CANDIDATE_LIMIT:
                 break
             if not self.home.identity(recording):
                 continue
             if recording in seen:
-                if bucket == "genre":
+                if bucket in {"genre", "decade"}:
                     for item in candidates:
                         if item["musicbrainz_recording_id"] == recording:
-                            item["genre"] = genre
+                            item[bucket] = genre if bucket == "genre" else decade
                 continue
             seen.add(recording)
             try:
@@ -269,10 +357,12 @@ class Mixes:
                         "reason": reason,
                         "bucket": bucket,
                         "genre": genre if bucket == "genre" else None,
+                        "decade": decade if bucket == "decade" else None,
                     }
                 )
             except (ValueError, KeyError, httpx.HTTPError):
                 continue
+        candidates += await self.releases(client, projection)
         # Chart songs only enter a personalised popular mix with an artist/genre affinity.
         artist_names = {
             t["artist"].casefold() for t in projection.get("tracks", []) + candidates
@@ -305,7 +395,70 @@ class Mixes:
                 unique[key].update(bucket="popular", reason=track["reason"])
             if track.get("genre"):
                 unique[key]["genre"] = track["genre"]
+            if track.get("decade"):
+                unique[key]["decade"] = track["decade"]
         return list(unique.values()), genre
+
+    async def releases(self, client, projection):
+        """Recent recordings by library artists already resolved to MusicBrainz.
+
+        One search per artist; ten artists rotate daily so the whole library
+        is covered over time without new identity lookups.
+        """
+        day = date.fromisoformat(str(projection.get("mix_day") or self.day()))
+        artists = [
+            (a, known)
+            for a in projection.get("artists", [])
+            if not a.get("compilation_only")
+            and (known := cached_identity(self.store, a))
+        ]
+        if not artists:
+            return []
+        offset = day.toordinal() % len(artists)
+        # A month-aligned window keeps the search cacheable for the whole day.
+        since = (day - timedelta(days=RELEASE_DAYS)).replace(day=1)
+        found = []
+        for artist, known in (artists[offset:] + artists[:offset])[:RELEASE_ARTISTS]:
+            if self.stopping.is_set():
+                break
+            try:
+                data = await self.home.catalogue.get(
+                    client,
+                    "recording/",
+                    query=f"arid:{known['id']} AND firstreleasedate:[{since} TO *]"
+                    " AND status:official AND video:false",
+                    limit=25,
+                )
+            except (ValueError, KeyError, httpx.HTTPError):
+                continue
+            picks = 0
+            for recording in data.get("recordings", []):
+                release = release_choice(recording.get("releases", []))
+                date_text = (release or {}).get("date") or ""
+                if (
+                    picks >= 3
+                    or not release
+                    or not recording.get("id")
+                    or not credit(recording.get("artist-credit", []))
+                    or date_text < str(since)
+                ):
+                    continue
+                picks += 1
+                found.append(
+                    {
+                        "title": recording["title"],
+                        "artist": credit(recording["artist-credit"]),
+                        "album": release["title"],
+                        "duration": (recording.get("length") or 0) / 1000,
+                        "musicbrainz_recording_id": recording["id"],
+                        "musicbrainz_release_id": release["id"],
+                        "isrcs": recording.get("isrcs", []),
+                        "reason": "New from " + artist["name"],
+                        "bucket": "release",
+                        "released": date_text,
+                    }
+                )
+        return found
 
     def edition(self, user_id, kind, day):
         with self.store.connect() as conn:
@@ -380,7 +533,7 @@ class Mixes:
                 (time.time(), str(today)),
             )
             for identity, user, kind, payload in conn.execute(
-                "SELECT id,user_id,kind,payload FROM mix_editions WHERE day=? AND active=0 AND retired_at IS NULL AND user_id IN (SELECT id FROM users WHERE disabled=0)",
+                "SELECT id,user_id,kind,payload FROM mix_editions WHERE day=? AND active=0 AND retired_at IS NULL AND kind!='radio' AND user_id IN (SELECT id FROM users WHERE disabled=0)",
                 (str(today),),
             ).fetchall():
                 if json.loads(payload).get("state") != "ready":
@@ -411,6 +564,14 @@ class Mixes:
                 log.exception(
                     "Preparing one person's mixes failed; other members continue"
                 )
+            try:
+                await asyncio.wait_for(
+                    self.prepare_radio(user, today), timeout=PASS_SECONDS
+                )
+            except TimeoutError:
+                pass
+            except Exception:
+                log.exception("Preparing one person's radio failed")
         await asyncio.to_thread(self.cache.cleanup)
 
     async def prepare_person(self, client, user, today):
@@ -513,13 +674,8 @@ class Mixes:
                 ]
                 salt = f"{user}:{day}"
                 previous = await asyncio.to_thread(self.exposure, user, day)
-                related = choose(
-                    [t for t in discoveries if t["bucket"] != "popular"],
-                    9,
-                    salt,
-                    history,
-                    previous=previous,
-                )
+                pool = [t for t in discoveries if t["bucket"] in DISCOVERY]
+                related = choose(pool, 15, salt, history, previous=previous)
                 popular_tracks = choose(
                     [t for t in discoveries if t["bucket"] == "popular"],
                     30,
@@ -529,7 +685,7 @@ class Mixes:
                 chart = choose(popular_tracks, 3, salt, history, previous=previous)
                 familiar = choose(
                     owned,
-                    max(18, 30 - len(related) - len(chart)),
+                    max(12, 30 - len(related) - len(chart)),
                     salt,
                     history,
                     weights,
@@ -568,6 +724,41 @@ class Mixes:
                     "Saved music worth another listen",
                     choose(owned, 30, salt + ":back", history),
                 )
+                # Discoveries only, never repeating today's Daily blend.
+                in_daily = {song_key(t) for t in daily}
+                fresh = choose(
+                    [t for t in pool if song_key(t) not in in_daily],
+                    30,
+                    salt + ":fresh",
+                    history,
+                )
+                if len(fresh) >= 10:
+                    await asyncio.to_thread(
+                        self.stage,
+                        user,
+                        "fresh",
+                        day,
+                        KINDS["fresh"],
+                        "New to you, picked from artists and genres you love",
+                        fresh,
+                    )
+                releases = choose(
+                    [t for t in discoveries if t["bucket"] == "release"],
+                    30,
+                    salt + ":releases",
+                    history,
+                    per_artist=3,
+                )
+                if len(releases) >= 3:
+                    await asyncio.to_thread(
+                        self.stage,
+                        user,
+                        "releases",
+                        day,
+                        KINDS["releases"],
+                        "Recent releases by artists in your library",
+                        releases,
+                    )
                 seeded = [
                     t
                     for t in owned
@@ -588,6 +779,7 @@ class Mixes:
                     25,
                     salt,
                     history,
+                    per_artist=8,
                 )
                 if len({t["artist"].casefold() for t in artist_tracks}) > 1:
                     await asyncio.to_thread(
@@ -600,6 +792,18 @@ class Mixes:
                         artist_tracks,
                     )
                 if genre:
+                    same = (
+                        lambda t: (t.get("genre") or "").casefold() == genre.casefold()
+                    )
+                    genre_new = choose(
+                        [t for t in pool if same(t)], 15, salt + ":genre", history
+                    )
+                    genre_owned = choose(
+                        [t for t in owned if same(t)],
+                        30 - len(genre_new),
+                        salt + ":genre",
+                        history,
+                    )
                     await asyncio.to_thread(
                         self.stage,
                         user,
@@ -607,16 +811,74 @@ class Mixes:
                         day,
                         genre + " rotation",
                         "A genre from your library",
-                        choose(
-                            [
-                                t
-                                for t in owned + candidates
-                                if (t.get("genre") or "").casefold() == genre.casefold()
-                            ],
-                            30,
-                            salt,
-                            history,
-                        ),
+                        choose(genre_owned + genre_new, 30, salt, history),
+                    )
+                decade = decade_theme(owned, day)
+                if decade:
+                    decade_new = choose(
+                        [t for t in pool if t.get("decade") == decade],
+                        12,
+                        salt + ":decade",
+                        history,
+                    )
+                    decade_owned = choose(
+                        [
+                            t
+                            for t in owned
+                            if isinstance(t.get("year"), int)
+                            and t["year"] // 10 * 10 == decade
+                        ],
+                        30 - len(decade_new),
+                        salt + ":decade",
+                        history,
+                    )
+                    await asyncio.to_thread(
+                        self.stage,
+                        user,
+                        "decade",
+                        day,
+                        f"Your {decade}s",
+                        f"Music from the {decade}s, from your library and beyond",
+                        choose(decade_owned + decade_new, 30, salt, history),
+                    )
+                plays = await asyncio.to_thread(self.plays, user)
+                deep = choose(
+                    [
+                        t
+                        for t in owned
+                        if plays[0].get(t.get("id"), 0) + plays[1].get(song_key(t), 0)
+                        <= 1
+                    ],
+                    30,
+                    salt + ":deep",
+                    history,
+                )
+                if len(deep) >= 10:
+                    await asyncio.to_thread(
+                        self.stage,
+                        user,
+                        "deep",
+                        day,
+                        KINDS["deep"],
+                        "Songs you own but have barely played",
+                        deep,
+                    )
+                added = await asyncio.to_thread(self.recently_added, user)
+                recent = choose(
+                    [t for t in owned if t.get("id") in added],
+                    30,
+                    salt + ":recent",
+                    history,
+                )
+                if len(recent) >= 10:
+                    await asyncio.to_thread(
+                        self.stage,
+                        user,
+                        "recent",
+                        day,
+                        KINDS["recent"],
+                        "Music added to your library in the last 30 days",
+                        recent,
                     )
                 if popular_tracks:
                     await asyncio.to_thread(
@@ -763,7 +1025,7 @@ class Mixes:
                 raise ValueError()
             with self.store.connect() as conn:
                 row = conn.execute(
-                    "SELECT payload,active,retired_at,lease_until FROM mix_editions WHERE id=? AND user_id=?",
+                    "SELECT payload,active,retired_at,lease_until,kind FROM mix_editions WHERE id=? AND user_id=?",
                     (identity, user),
                 ).fetchone()
             if not row:
@@ -771,10 +1033,13 @@ class Mixes:
             payload = json.loads(row[0])
             # Old queues get a bounded lease across a rotation; old metadata alone
             # never grants access to another person's files or an arbitrary path.
+            # Today's radio is never "active" on Home but is always playable.
+            live_radio = row[4] == "radio" and row[2] is None
             if playback and (
                 payload["state"] != "ready"
                 or (
                     not row[1]
+                    and not live_radio
                     and (row[2] is None or row[2] < time.time() - 6 * 3600)
                     and row[3] < time.time()
                 )
@@ -830,7 +1095,8 @@ class Mixes:
                 )
             }
             rows = conn.execute(
-                "SELECT id,kind,day,payload FROM mix_editions WHERE user_id=? AND active=1 ORDER BY CASE kind WHEN 'daily' THEN 0 WHEN 'back' THEN 4 ELSE 2 END,kind",
+                "SELECT id,kind,day,payload FROM mix_editions WHERE user_id=? AND active=1 ORDER BY "
+                + KIND_ORDER,
                 (user,),
             ).fetchall()
             preparing = bool(
@@ -845,46 +1111,12 @@ class Mixes:
             if "edition:" + identity in hidden:
                 continue
             payload = json.loads(raw)
-            tracks = []
-            for index, track in enumerate(payload["tracks"]):
-                if song_key(track) in hidden:
-                    continue
-                try:
-                    self.cache.available(track)
-                except FileNotFoundError:
-                    continue
-                library_id = None
-                match = self.store.index.match(track).track
-                if match:
-                    try:
-                        track_file(self.store, match["id"])
-                        library_id = match["id"]
-                    except FileNotFoundError:
-                        pass
-                tracks.append(
-                    TrackDTO(
-                        **{
-                            **track,
-                            "id": f"mix:{identity}:{index}",
-                            "server_state": (
-                                "in_library"
-                                if library_id in members
-                                else (
-                                    "household_available"
-                                    if library_id
-                                    else "not_in_library"
-                                )
-                            ),
-                            "library_track_id": library_id,
-                            "available": True,
-                            "cover_url": (
-                                f"/api/catalogue/artwork/release/{track['musicbrainz_release_id']}"
-                                if track.get("musicbrainz_release_id")
-                                else track.get("cover_url")
-                            ),
-                        }
-                    )
-                )
+            tracks = [
+                dto
+                for index, track in enumerate(payload["tracks"])
+                if song_key(track) not in hidden
+                and (dto := self.track_dto(identity, index, track, members))
+            ]
             if tracks:
                 result.append(
                     {
@@ -896,7 +1128,267 @@ class Mixes:
                         "tracks": tracks,
                     }
                 )
-        return {"mixes": result, "preparing": preparing}
+        radio = self.radio_row(user, self.day())
+        card = None
+        if radio and json.loads(radio[1])["tracks"]:
+            payload = json.loads(radio[1])
+            card = {
+                "title": payload["title"],
+                "ready": max(0, len(payload["tracks"]) - 1 - payload.get("served", -1)),
+            }
+        return {"mixes": result, "preparing": preparing, "radio": card}
+
+    def track_dto(self, identity, index, track, members):
+        """A playable mix entry, or None while its audio is unavailable."""
+        try:
+            self.cache.available(track)
+        except FileNotFoundError:
+            return None
+        library_id = None
+        match = self.store.index.match(track).track
+        if match:
+            try:
+                track_file(self.store, match["id"])
+                library_id = match["id"]
+            except FileNotFoundError:
+                pass
+        return TrackDTO(
+            **{
+                **track,
+                "id": f"mix:{identity}:{index}",
+                "server_state": (
+                    "in_library"
+                    if library_id in members
+                    else ("household_available" if library_id else "not_in_library")
+                ),
+                "library_track_id": library_id,
+                "available": True,
+                "cover_url": (
+                    f"/api/catalogue/artwork/release/{track['musicbrainz_release_id']}"
+                    if track.get("musicbrainz_release_id")
+                    else track.get("cover_url")
+                ),
+            }
+        )
+
+    # Radio: one append-only edition per person per day. Entries keep the
+    # ordinary mix:{edition}:{index} identity, so playback, signed URLs,
+    # listens and cache retention need no radio-specific path.
+    def radio_row(self, user, day):
+        with self.store.connect() as conn:
+            return conn.execute(
+                "SELECT id,payload FROM mix_editions WHERE user_id=? AND kind='radio' AND day=?",
+                (user, str(day)),
+            ).fetchone()
+
+    def radio_edition(self, user, day):
+        row = self.radio_row(user, day)
+        if row:
+            return row[0]
+        with self.store.connect() as conn:
+            name = conn.execute(
+                "SELECT display_name FROM users WHERE id=?", (user,)
+            ).fetchone()[0]
+        identity = self.stage(
+            user,
+            "radio",
+            day,
+            f"{name}'s radio",
+            "Your library and new discoveries, without end",
+            [],
+        )
+        # Ready from the start: entries become playable as they are appended.
+        self.radio_update(
+            identity, lambda p: p.update(state="ready", served=-1, queue=[])
+        )
+        return identity
+
+    def radio_update(self, identity, change):
+        """Read-modify-write so the worker and listeners never lose updates."""
+        with self.radio_lock, self.store.connect() as conn:
+            payload = json.loads(
+                conn.execute(
+                    "SELECT payload FROM mix_editions WHERE id=?", (identity,)
+                ).fetchone()[0]
+            )
+            change(payload)
+            conn.execute(
+                "UPDATE mix_editions SET payload=? WHERE id=?",
+                (json.dumps(payload), identity),
+            )
+            return payload
+
+    def radio_weights(self, user, tracks):
+        """Favourites lift a song; a recent skip lowers and a like lifts its artist."""
+        now = time.time()
+        with self.store.connect() as conn:
+            rows = conn.execute(
+                "SELECT artist,action,MAX(at) FROM radio_feedback WHERE user_id=? AND at>? GROUP BY artist,action",
+                (user, now - 30 * 86400),
+            ).fetchall()
+        factor = {}
+        for artist, action, at in rows:
+            key = artist.casefold()
+            if action == "skip" and at > now - 7 * 86400:
+                factor[key] = factor.get(key, 1) * 0.3
+            elif action == "like":
+                factor[key] = factor.get(key, 1) * 2
+        favourites = self.favourite_weights(user)
+        return {
+            song_key(t): favourites.get(song_key(t), 1)
+            * factor.get(t["artist"].casefold(), 1)
+            for t in tracks
+        }
+
+    def radio_pool(self, user, day):
+        """Discoveries already chosen for today's mixes; radio adds no lookups."""
+        with self.store.connect() as conn:
+            rows = conn.execute(
+                "SELECT payload FROM mix_editions WHERE user_id=? AND day=? AND kind!='radio' AND kind NOT LIKE 'saved:%'",
+                (user, str(day)),
+            ).fetchall()
+        pool = {}
+        for (raw,) in rows:
+            payload = json.loads(raw)
+            for track in payload.get("planned") or payload["tracks"]:
+                if track.get("bucket") in DISCOVERY | {"release"}:
+                    pool.setdefault(song_key(track), track)
+        return list(pool.values())
+
+    def radio_batch(self, user, day, payload):
+        projection = self.store.user_libraries.projection(user)
+        hidden = self.hidden(user)
+        used = {song_key(t) for t in payload["tracks"] + payload.get("queue", [])}
+        owned = [
+            t
+            for t in projection["tracks"]
+            if t.get("available", True)
+            and song_key(t) not in hidden
+            and song_key(t) not in used
+        ]
+        owned_keys = {
+            t.get("musicbrainz_recording_id") or song_key(t)
+            for t in projection["tracks"]
+        }
+        discoveries = [
+            t
+            for t in self.radio_pool(user, day)
+            if song_key(t) not in hidden
+            and song_key(t) not in used
+            and (t.get("musicbrainz_recording_id") or song_key(t)) not in owned_keys
+        ]
+        history = self.history(user, owned)
+        weights = self.radio_weights(user, owned + discoveries)
+        salt = f"{user}:{day}:radio:{len(payload['tracks'])}"
+        half = RADIO_BATCH // 2
+        new = choose(discoveries, half, salt, history, weights)
+        mine = choose(owned, RADIO_BATCH - len(new), salt, history, weights)
+        return choose(mine + new, RADIO_BATCH, salt, history, weights)
+
+    async def prepare_radio(self, user, today):
+        """Keep RADIO_BUFFER ready songs ahead of the listener's position."""
+        deadline = time.monotonic() + PASS_SECONDS
+        identity = await asyncio.to_thread(self.radio_edition, user, today)
+        payload = await asyncio.to_thread(self.radio_update, identity, lambda p: None)
+        ahead = len(payload["tracks"]) - 1 - payload.get("served", -1)
+        if ahead >= RADIO_BUFFER:
+            return
+        if not payload.get("queue"):
+            batch = await asyncio.to_thread(self.radio_batch, user, today, payload)
+            if not batch:
+                return
+            payload = await asyncio.to_thread(
+                self.radio_update,
+                identity,
+                lambda p: p.update(queue=batch, planned=p.get("planned", []) + batch),
+            )
+        added = 0
+        for track in list(payload["queue"]):
+            if self.stopping.is_set() or time.monotonic() >= deadline:
+                break
+            error = None
+            try:
+                await asyncio.to_thread(self.cache.available, track)
+                ready = True
+            except FileNotFoundError:
+                reason = await asyncio.to_thread(self.blocked)
+                if reason:
+                    await asyncio.to_thread(
+                        self.radio_update, identity, lambda p: p.update(blocked=reason)
+                    )
+                    break
+                downloader = await asyncio.to_thread(
+                    MixDownloader,
+                    self.cache,
+                    self.runtime,
+                    lambda: self.stopping.is_set() or time.monotonic() >= deadline,
+                )
+                ready = await asyncio.to_thread(downloader.fetch, track)
+                if not ready and downloader.result != "failed":
+                    break  # Deferred: keep the song queued for the next pass.
+                error = downloader.error or "No matching recording available"
+
+            def advance(p, track=track, ready=ready):
+                p["queue"] = [t for t in p["queue"] if song_key(t) != song_key(track)]
+                p.pop("blocked", None)
+                if ready:
+                    p["tracks"].append(track)
+                else:
+                    p.setdefault("failures", {})[song_key(track)] = error
+
+            await asyncio.to_thread(self.radio_update, identity, advance)
+            added += ready
+        if added:
+            log.info("Mixes: radio for %s gained %d songs", user, added)
+
+    def radio_next(self, user, after=None):
+        """The next playable radio songs after a listener's last entry."""
+        identity = self.radio_edition(user, self.day())
+        start = 0
+        if after:
+            try:
+                prefix, edition, position = after.split(":")
+                if prefix == "mix" and edition == identity:
+                    start = int(position) + 1
+            except ValueError:
+                pass
+        with self.store.connect() as conn:
+            members = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT track_id FROM library_members WHERE user_id=?", (user,)
+                )
+            }
+        hidden = self.hidden(user)
+        payload = self.radio_update(identity, lambda p: None)
+        tracks, last = [], start - 1
+        for index in range(max(0, start), len(payload["tracks"])):
+            if len(tracks) >= RADIO_PAGE:
+                break
+            track = payload["tracks"][index]
+            last = index
+            if song_key(track) in hidden:
+                continue
+            dto = self.track_dto(identity, index, track, members)
+            if dto:
+                tracks.append(dto)
+        payload = self.radio_update(
+            identity, lambda p: p.update(served=max(p.get("served", -1), last))
+        )
+        return {
+            "id": identity,
+            "title": payload["title"],
+            "tracks": tracks,
+            "preparing": len(payload["tracks"]) - 1 - payload["served"] < RADIO_BUFFER,
+        }
+
+    def radio_feedback(self, user, track_id, action):
+        track = self.entry(user, track_id)
+        with self.store.connect() as conn:
+            conn.execute(
+                "INSERT INTO radio_feedback VALUES (?,?,?,?,?)",
+                (user, song_key(track), track["artist"], action, int(time.time())),
+            )
 
     def inspect(self, user):
         """Owner diagnostics: every live edition with each intended song's state."""
@@ -907,7 +1399,8 @@ class Mixes:
             if not person:
                 raise LookupError("Person not found")
             rows = conn.execute(
-                "SELECT id,kind,day,active,payload FROM mix_editions WHERE user_id=? AND (retired_at IS NULL OR active=1) ORDER BY day,CASE kind WHEN 'daily' THEN 0 WHEN 'back' THEN 4 ELSE 2 END,kind",
+                "SELECT id,kind,day,active,payload FROM mix_editions WHERE user_id=? AND (retired_at IS NULL OR active=1) ORDER BY day,"
+                + KIND_ORDER,
                 (user,),
             ).fetchall()
         hidden = self.hidden(user)

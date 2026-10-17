@@ -16,6 +16,10 @@ import PigPlayback
   @ObservationIgnored var onListen: (@MainActor (ListeningEvent) -> Void)?
   /// Called when a new song becomes current, with the songs queued after it.
   @ObservationIgnored var onUpcoming: (@MainActor ([Track]) -> Void)?
+  /// A person skipped a song, with the seconds of it they heard.
+  @ObservationIgnored var onSkip: (@MainActor (Track, Double) -> Void)?
+  /// Playback reached the end of the queue without repeat.
+  @ObservationIgnored var onQueueEnd: (@MainActor () -> Void)?
   @ObservationIgnored private var listenOccurrence: UUID?
   @ObservationIgnored private var listenSeconds: Double = 0
   @ObservationIgnored private var listenReported = false
@@ -215,7 +219,7 @@ import PigPlayback
       return .success
     }
     commands.nextTrackCommand.addTarget { @Sendable [weak self] _ in
-      Task { @MainActor in self?.next() }
+      Task { @MainActor in self?.skip() }
       return .success
     }
     commands.previousTrackCommand.addTarget { @Sendable [weak self] _ in
@@ -370,6 +374,7 @@ import PigPlayback
       intent.pause()
     } else if snapshot.state == .ended {
       intent.pause()
+      onQueueEnd?()
     }
     measureListen()
     checkpoint()
@@ -623,6 +628,11 @@ import PigPlayback
       checkpoint.queue.items.map(\.track), startingAt: checkpoint.queue.index,
       restored: checkpoint, artwork: artwork, resolve: resolve)
   }
+  /// A person chose to move on, as opposed to the song finishing.
+  func skip() {
+    if let item = queue.current { onSkip?(item.track, listenSeconds) }
+    next()
+  }
   func next() {
     if usingEngine {
       if queue.index + 1 < queue.items.count {
@@ -632,6 +642,7 @@ import PigPlayback
         retry(fromBeginning: true)
       } else {
         pause()
+        onQueueEnd?()
       }
     } else if queue.next() {
       prepareStreaming()
@@ -641,6 +652,7 @@ import PigPlayback
       prepareStreaming()
     } else {
       pause()
+      onQueueEnd?()
     }
   }
   func previous() {

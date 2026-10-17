@@ -185,6 +185,7 @@ def main():
         9,
         10,
         11,
+        12,
     ], "Unexpected migration versions"
     assert all(
         isinstance(r[1], str) and r[1] for r in ledger
@@ -214,6 +215,7 @@ def main():
         "mix_audio",
         "mix_feedback",
         "mix_listens",
+        "radio_feedback",
     ):
         if table not in before:
             assert (

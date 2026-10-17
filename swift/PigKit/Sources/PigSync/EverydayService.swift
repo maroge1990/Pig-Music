@@ -31,6 +31,22 @@ extension NativeService {
     default: throw NativeFailure.unavailable("Unable to hide this song. Try again.")
     }
   }
+  public func radio(after: String?) async throws -> RadioBatch {
+    switch try await client.radio_api_v1_radio_get(.init(query: .init(after: after))) {
+    case .ok(let value): return try LibraryCodec.convert(value.body.json, to: RadioBatch.self)
+    case .unauthorized: throw NativeFailure.authentication
+    default: throw NativeFailure.unavailable("Your radio is unavailable. Try again shortly.")
+    }
+  }
+  public func radioFeedback(trackId: String, action: String) async throws {
+    switch try await client.radio_feedback_api_v1_radio_feedback_post(
+      .init(body: .json(.init(action: action, track_id: trackId))))
+    {
+    case .ok: return
+    case .unauthorized: throw NativeFailure.authentication
+    default: throw NativeFailure.unavailable("Unable to update your radio. Try again.")
+    }
+  }
   public func applyMutation(_ mutation: OfflineMutation) async throws -> OfflineMutationReceipt {
     guard
       var json = try JSONSerialization.jsonObject(with: LibraryCodec.encoder().encode(mutation))

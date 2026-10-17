@@ -141,8 +141,21 @@ class MixDTO(BaseModel):
     tracks: list[TrackDTO]
 
 
+class RadioCard(BaseModel):
+    title: str
+    ready: int
+
+
 class MixList(BaseModel):
     mixes: list[MixDTO]
+    preparing: bool
+    radio: RadioCard | None = None
+
+
+class RadioBatch(BaseModel):
+    id: str
+    title: str
+    tracks: list[TrackDTO]
     preparing: bool
 
 

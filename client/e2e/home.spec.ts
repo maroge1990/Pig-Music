@@ -69,18 +69,21 @@ for (const appearance of ["light", "dark"]) {
   }) => {
     const kinds = [
       "daily",
+      "fresh",
+      "releases",
       "artist",
       "genre",
+      "decade",
       "popular",
+      "recent",
+      "deep",
       "back",
-      "artist",
-      "genre",
-      "daily",
     ];
     const mixes = kinds.map((kind, i) => ({
       id: "edition-" + i,
       kind,
-      title: i === 0 ? "Daily blend" : "Mix " + i,
+      title:
+        i === 0 ? "Daily blend" : kind === "decade" ? "Your 1990s" : "Mix " + i,
       day: "2026-10-16",
       reason: "Music close to your taste",
       tracks: [
@@ -114,7 +117,7 @@ for (const appearance of ["light", "dark"]) {
     });
     await page.goto("/#/home");
     const cards = page.locator(".mix-card");
-    await expect(cards).toHaveCount(8);
+    await expect(cards).toHaveCount(10);
     const positions = await cards.evaluateAll((nodes) =>
       nodes.map((node) => node.getBoundingClientRect().top),
     );
@@ -126,8 +129,11 @@ for (const appearance of ["light", "dark"]) {
     ).toBe(true);
     const covers = await cards
       .locator("svg")
-      .evaluateAll((nodes) => nodes.slice(0, 5).map((node) => node.innerHTML));
-    expect(new Set(covers).size).toBe(5);
+      .evaluateAll((nodes) => nodes.map((node) => node.innerHTML));
+    expect(new Set(covers).size).toBe(10);
+    await expect(
+      cards.filter({ hasText: "Your 1990s" }).locator("svg text"),
+    ).toHaveText("90s");
     await cards.first().click();
     const dialog = page.getByRole("dialog", { name: "Daily blend" });
     await expect(dialog).toBeVisible();
@@ -149,7 +155,75 @@ for (const appearance of ["light", "dark"]) {
     const hidden = page.getByRole("dialog", { name: "Mix 1" });
     await hidden.getByText("Mix options", { exact: true }).click();
     await hidden.getByRole("button", { name: "Hide this edition" }).click();
-    await expect(cards).toHaveCount(7);
+    await expect(cards).toHaveCount(9);
     await expect(hidden).not.toBeVisible();
   });
 }
+
+test("Radio starts from Home, refills before it runs out and reports skips", async ({
+  page,
+}) => {
+  const entry = (index: number) => ({
+    ...album.tracks[0],
+    id: `mix:radio-1:${index}`,
+    title: "Radio song " + index,
+    server_state: "not_in_library",
+  });
+  const pages: string[] = [];
+  const skips: unknown[] = [];
+  await mockApi(page, {
+    answers: {
+      "/v1/home/mixes": (route) =>
+        route.fulfill({
+          json: {
+            mixes: [],
+            preparing: false,
+            radio: { title: "Mark's radio", ready: 20 },
+          },
+        }),
+      "/v1/radio": (route) => {
+        const after = new URL(route.request().url()).searchParams.get("after");
+        pages.push(after ?? "");
+        const start = after ? Number(after.split(":")[2]) + 1 : 0;
+        return route.fulfill({
+          json: {
+            id: "radio-1",
+            title: "Mark's radio",
+            preparing: false,
+            tracks: start < 4 ? [entry(start), entry(start + 1)] : [],
+          },
+        });
+      },
+      "/v1/radio/feedback": (route) => {
+        skips.push(route.request().postDataJSON());
+        return route.fulfill({ json: { recorded: true } });
+      },
+    },
+  });
+  await page.route("**/api/v1/playback/*/url", (route) =>
+    route.fulfill({
+      json: { url: "/api/playback/files/prepared", expires_in: 21600 },
+    }),
+  );
+  await page.route("**/api/playback/files/prepared", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "audio/mpeg",
+      body: Buffer.alloc(64),
+    }),
+  );
+  await page.goto("/#/home");
+  await page.locator(".mix-card", { hasText: "Mark's radio" }).click();
+  await expect(page.getByRole("region", { name: "Now playing" })).toContainText(
+    "Radio song 0",
+  );
+  // Two songs left is below the refill threshold, so the next page is asked for.
+  await expect.poll(() => pages).toEqual(["", "mix:radio-1:1"]);
+  await page.getByRole("button", { name: "Next song" }).first().click();
+  await expect(page.getByRole("region", { name: "Now playing" })).toContainText(
+    "Radio song 1",
+  );
+  await expect
+    .poll(() => skips)
+    .toEqual([{ track_id: "mix:radio-1:0", action: "skip" }]);
+});

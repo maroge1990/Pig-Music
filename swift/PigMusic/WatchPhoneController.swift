@@ -654,7 +654,7 @@ import SwiftUI
           await remove(id)
         }
       case "playPause": model.player.toggle()
-      case "next": model.player.next()
+      case "next": model.player.skip()
       case "previous": model.player.previous()
       case "sync": await publish(force: true)
       default: return CompanionReply(message: "Unsupported Watch command.")

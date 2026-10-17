@@ -30,7 +30,18 @@ export type Song = {
   artist_id?: string;
   /** Prepared mix entry resolved against the server's validated files. */
   cache_id?: string;
+  /** From the person's endless radio: the queue refills as it nears its end. */
+  radio?: boolean;
 };
+
+/** A prepared mix or radio entry; plays the library file when there is one. */
+export function fromMixTrack(t: Track, radio = false): Song {
+  return {
+    ...fromTrack({ ...t, id: t.library_track_id || t.id }),
+    cache_id: t.id,
+    ...(radio ? { radio } : {}),
+  };
+}
 
 export function fromTrack(t: Track, cover?: string | null, key = t.id): Song {
   const saved =

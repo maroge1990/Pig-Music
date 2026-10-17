@@ -103,7 +103,8 @@ public actor NativeService: LibrarySource {
         let value = try response.body.json
         return HomeContent(
           mixes: try value.mixes.map { try LibraryCodec.convert($0, to: PersonalMix.self) },
-          mixesPreparing: value.preparing)
+          mixesPreparing: value.preparing,
+          radio: try value.radio.map { try LibraryCodec.convert($0, to: RadioCard.self) })
       case .unauthorized: throw NativeFailure.authentication
       default:
         throw NativeFailure.unavailable(

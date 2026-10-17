@@ -1,15 +1,20 @@
 """Authenticated personal mix editions; cache administration remains web-only."""
 
 import asyncio
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from ..api_models import MixList, PlaylistDTO
+from ..api_models import MixList, PlaylistDTO, RadioBatch
 from .personal import playlist_dto
 
 
 class MixFeedback(BaseModel):
     track_id: str = Field(max_length=100)
+
+
+class RadioFeedback(BaseModel):
+    track_id: str = Field(max_length=100)
+    action: str = Field(pattern="^(skip|like)$")
 
 
 class MixCacheSettings(BaseModel):
@@ -25,6 +30,28 @@ def mixes_router(mixes):
     @router.get("/api/v1/home/mixes", response_model=MixList, tags=["personal-library"])
     async def home_mixes(request: Request):
         return await asyncio.to_thread(mixes.list, request.state.user["id"])
+
+    @router.get("/api/v1/radio", response_model=RadioBatch, tags=["personal-library"])
+    async def radio(request: Request, after: str | None = Query(None, max_length=100)):
+        result = await asyncio.to_thread(
+            mixes.radio_next, request.state.user["id"], after
+        )
+        if result["preparing"]:
+            mixes.wake.set()
+        return result
+
+    @router.post("/api/v1/radio/feedback", tags=["personal-library"])
+    async def radio_feedback(body: RadioFeedback, request: Request):
+        try:
+            await asyncio.to_thread(
+                mixes.radio_feedback,
+                request.state.user["id"],
+                body.track_id,
+                body.action,
+            )
+            return {"recorded": True}
+        except LookupError:
+            raise HTTPException(404, "Mix song not found")
 
     @router.post(
         "/api/v1/mixes/{edition_id}/save",

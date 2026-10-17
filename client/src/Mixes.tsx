@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Play, X } from "lucide-react";
+import { Play, Radio, X } from "lucide-react";
 import { api } from "./api";
 import { usePlayer } from "./Player";
 import { SongRow } from "./SongRow";
-import { fromTrack, type Song } from "./songs";
+import { fromMixTrack, type Song } from "./songs";
 import type { Track } from "./types";
 import "./mixes.css";
 
@@ -15,13 +15,37 @@ type Mix = {
   reason: string;
   tracks: Track[];
 };
-type MixFeed = { mixes: Mix[]; preparing: boolean };
+type MixFeed = {
+  mixes: Mix[];
+  preparing: boolean;
+  radio?: { title: string; ready: number } | null;
+};
 
-/** Cover family: interlocking blend, artist orbit, genre waves, chart bars, rewind. */
-export function MixArtwork({ kind }: { kind: string }) {
-  const palette = ["daily", "artist", "genre", "popular", "back"].includes(kind)
-    ? kind
-    : "daily";
+/** Newer kinds borrow the five Pig-Branding mix palettes. */
+const PALETTES: Record<string, string> = {
+  daily: "daily",
+  artist: "artist",
+  genre: "genre",
+  popular: "popular",
+  back: "back",
+  radio: "popular",
+  fresh: "genre",
+  releases: "artist",
+  decade: "back",
+  deep: "artist",
+  recent: "daily",
+};
+
+/** "Your 1990s" → "90s"; 2000 onwards keeps the century: "2010s". */
+export function decadeLabel(title = "") {
+  const match = /\b(\d{2})(\d)0s\b/.exec(title);
+  if (!match) return "";
+  return match[1] === "19" ? `${match[2]}0s` : `${match[1]}${match[2]}0s`;
+}
+
+/** Cover family: one geometric motif per kind of mix. */
+export function MixArtwork({ kind, title }: { kind: string; title?: string }) {
+  const palette = PALETTES[kind] ?? "daily";
   const background = `var(--mix-${palette}-background)`;
   const ink = `var(--mix-${palette}-foreground)`;
   return (
@@ -73,6 +97,65 @@ export function MixArtwork({ kind }: { kind: string }) {
             stroke="none"
           />
         )}
+        {kind === "radio" && (
+          <>
+            <circle cx="56" cy="144" r="12" fill={ink} stroke="none" />
+            {[45, 80, 115].map((r) => (
+              <path
+                key={r}
+                d={`M${56} ${144 - r} A${r} ${r} 0 0 1 ${56 + r} 144`}
+              />
+            ))}
+          </>
+        )}
+        {kind === "fresh" &&
+          [0, 45, 90, 135].map((angle) => (
+            <path
+              key={angle}
+              d="M100 38 V162"
+              transform={`rotate(${angle} 100 100)`}
+            />
+          ))}
+        {kind === "releases" && (
+          <>
+            <circle cx="100" cy="100" r="62" />
+            <circle cx="100" cy="100" r="34" />
+            <circle cx="100" cy="100" r="9" fill={ink} stroke="none" />
+            <circle cx="160" cy="42" r="14" fill={ink} stroke="none" />
+          </>
+        )}
+        {kind === "decade" && (
+          <>
+            <path d="M40 84 A60 60 0 0 1 160 84" />
+            <path d="M30 168 H170" />
+            <text
+              x="100"
+              y="146"
+              textAnchor="middle"
+              fill={ink}
+              stroke="none"
+              fontSize={decadeLabel(title).length > 3 ? 50 : 64}
+              fontWeight="800"
+              letterSpacing="-2"
+            >
+              {decadeLabel(title) || "—"}
+            </text>
+          </>
+        )}
+        {kind === "deep" && (
+          <>
+            <rect x="38" y="38" width="124" height="124" />
+            <rect x="68" y="68" width="64" height="64" />
+            <rect x="92" y="92" width="16" height="16" fill={ink} />
+          </>
+        )}
+        {kind === "recent" && (
+          <>
+            <rect x="40" y="70" width="70" height="70" />
+            <rect x="90" y="50" width="70" height="70" fill={background} />
+            <path d="M125 68 V102 M108 85 H142" />
+          </>
+        )}
       </g>
       <path d="M18 182 H182" stroke={ink} strokeWidth="2" opacity=".5" />
       <circle cx="181" cy="19" r="5" fill={ink} />
@@ -81,10 +164,7 @@ export function MixArtwork({ kind }: { kind: string }) {
 }
 
 function songs(mix: Mix): Song[] {
-  return mix.tracks.map((t) => ({
-    ...fromTrack({ ...t, id: t.library_track_id || t.id }),
-    cache_id: t.id,
-  }));
+  return mix.tracks.map((t) => fromMixTrack(t));
 }
 
 export function Mixes() {
@@ -92,6 +172,19 @@ export function Mixes() {
   const [selected, setSelected] = useState<Mix | null>(null);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
+  const player = usePlayer();
+  const [starting, setStarting] = useState(false);
+  function startRadio() {
+    setStarting(true);
+    void api<{ tracks: Track[] }>("/v1/radio")
+      .then((batch) => {
+        if (batch.tracks.length)
+          player.play(batch.tracks.map((t) => fromMixTrack(t, true)));
+        else setError("Your radio is still preparing. Try again shortly.");
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setStarting(false));
+  }
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -125,15 +218,29 @@ export function Mixes() {
     <section className="home-section" aria-label="Your mixes">
       <h2>Your mixes</h2>
       <p>Familiar favourites. Something new. Made for today.</p>
-      {feed?.mixes.length ? (
+      {feed?.mixes.length || feed?.radio ? (
         <div className="mix-row">
+          {feed.radio && (
+            <button
+              className="album-card mix-card"
+              disabled={starting}
+              onClick={startRadio}
+            >
+              <MixArtwork kind="radio" />
+              <strong>{feed.radio.title}</strong>
+              <span>Your library and new discoveries</span>
+              <small>
+                <Radio size={12} aria-hidden="true" /> Endless · Start radio
+              </small>
+            </button>
+          )}
           {feed.mixes.map((mix) => (
             <button
               className="album-card mix-card"
               key={mix.id}
               onClick={() => setSelected(mix)}
             >
-              <MixArtwork kind={mix.kind} />
+              <MixArtwork kind={mix.kind} title={mix.title} />
               <strong>{mix.title}</strong>
               <span>
                 {[...new Set(mix.tracks.map((t) => t.artist))]
@@ -232,7 +339,7 @@ function MixDetails({
         <X size={20} />
       </button>
       <div className="mix-heading">
-        <MixArtwork kind={mix.kind} />
+        <MixArtwork kind={mix.kind} title={mix.title} />
         <div>
           <small>{mix.day}</small>
           <h2 id="mix-title">{mix.title}</h2>

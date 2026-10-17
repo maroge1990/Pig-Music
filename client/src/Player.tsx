@@ -1,4 +1,4 @@
-import { apiFetch } from "./api";
+import { api, apiFetch } from "./api";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -27,7 +27,14 @@ import {
   recordListen,
 } from "./listens";
 import { Cover } from "./Cover";
-import { fromTrack, goToAlbum, goToArtist, songBody, type Song } from "./songs";
+import {
+  fromMixTrack,
+  fromTrack,
+  goToAlbum,
+  goToArtist,
+  songBody,
+  type Song,
+} from "./songs";
 
 type Playing = Song & {
   url?: string;
@@ -299,6 +306,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         : null;
       setSong({ ...s, ...found });
       prepareUpcoming();
+      if (s.radio && queue.current.length - 1 - cursor.current <= 5)
+        void refillRadio();
     } catch (e) {
       if (request === serial.current) setError((e as Error).message);
     } finally {
@@ -316,6 +325,45 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ tracks: next.map(songBody) }),
     }).catch(() => undefined);
+  }
+  const radioRequest = useRef<Promise<number> | null>(null);
+  /** Radio: append the next prepared songs; resolves to how many arrived. */
+  function refillRadio(): Promise<number> {
+    if (radioRequest.current) return radioRequest.current;
+    const last = [...queue.current].reverse().find((s) => s.radio);
+    if (!last?.cache_id) return Promise.resolve(0);
+    radioRequest.current = api<{ tracks: Track[] }>(
+      "/v1/radio?after=" + encodeURIComponent(last.cache_id),
+    )
+      .then((batch) => {
+        const known = new Set(queue.current.map((s) => s.cache_id));
+        const added = batch.tracks
+          .map((t) => fromMixTrack(t, true))
+          .filter((s) => !known.has(s.cache_id));
+        queue.current.push(...added);
+        if (added.length) setQueueVersion((v) => v + 1);
+        return added.length;
+      })
+      .catch(() => 0)
+      .finally(() => {
+        radioRequest.current = null;
+      });
+    return radioRequest.current;
+  }
+  /** Skipping a radio song before it counts as a listen steers the station. */
+  function next() {
+    const event = playEvent.current;
+    if (
+      song?.radio &&
+      song.cache_id &&
+      !(event && event.seconds >= LISTEN_SECONDS)
+    )
+      void api("/v1/radio/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ track_id: song.cache_id, action: "skip" }),
+      }).catch(() => undefined);
+    step(1);
   }
   function play(songs: Song[], index = 0) {
     if (!songs[index]) return;
@@ -384,7 +432,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (repeat === "all" && queue.current.length)
       index = (index + queue.current.length) % queue.current.length;
     const next = queue.current[index];
-    if (!next) return;
+    if (!next) {
+      // Radio has no end: wait for the next prepared songs instead of stopping.
+      if (delta > 0 && queue.current[cursor.current]?.radio)
+        void refillRadio().then((added) => added && step(delta));
+      return;
+    }
     resumeAt.current = 0;
     cursor.current = index;
     setQueueVersion((v) => v + 1);
@@ -412,6 +465,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const hasNext =
     index >= 0 &&
     (index < queue.current.length - 1 ||
+      !!queue.current[index]?.radio ||
       (repeat === "all" && queue.current.length > 0));
   useEffect(() => {
     if (!song?.url) return;
@@ -433,7 +487,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
         },
         pause: () => audio.current?.pause(),
         previoustrack: previous,
-        nexttrack: () => step(1),
+        nexttrack: next,
         seekto: (details) => {
           if (audio.current && details.seekTime !== undefined)
             audio.current.currentTime = details.seekTime;
@@ -624,7 +678,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
               className="mini-next"
               aria-label="Next song"
               disabled={!hasNext || busy}
-              onClick={() => step(1)}
+              onClick={next}
             >
               <SkipForward size={22} fill="currentColor" />
             </button>
@@ -727,7 +781,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
               <button
                 aria-label="Next song"
                 disabled={!hasNext || busy}
-                onClick={() => step(1)}
+                onClick={next}
               >
                 <SkipForward size={30} fill="currentColor" />
               </button>

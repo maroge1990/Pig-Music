@@ -46,15 +46,31 @@ public struct HomeContent: Codable, Sendable {
   public let feed: DiscoveryFeed?
   public let mixes: [PersonalMix]?
   public let mixesPreparing: Bool?
+  public let radio: RadioCard?
   public init(
     albums: [Album] = [], feed: DiscoveryFeed? = nil, mixes: [PersonalMix]? = nil,
-    mixesPreparing: Bool? = nil
+    mixesPreparing: Bool? = nil, radio: RadioCard? = nil
   ) {
     self.albums = albums
     self.feed = feed
     self.mixes = mixes
     self.mixesPreparing = mixesPreparing
+    self.radio = radio
   }
+}
+
+/// The person's endless station, shown first among their mixes.
+public struct RadioCard: Codable, Sendable, Hashable {
+  public let title: String
+  public let ready: Int
+}
+
+/// The next prepared radio songs; ids are ordinary `mix:` entries.
+public struct RadioBatch: Codable, Sendable {
+  public let id: String
+  public let title: String
+  public let tracks: [Track]
+  public let preparing: Bool
 }
 
 public struct PersonalMix: Codable, Sendable, Identifiable {

@@ -583,7 +583,7 @@ struct NowPlayingView: View {
         .multilineTextAlignment(.center)
       HStack {
         Button("Retry") { player.retry() }
-        Button("Skip song") { player.next() }
+        Button("Skip song") { player.skip() }
         if player.seamlessEnabled {
           Button("Use streaming") { player.retry(streaming: true) }
         }

@@ -11,15 +11,31 @@ struct HomeView: View {
       VStack(alignment: .leading, spacing: 28) {
         Text("Find your next favourite.").font(PigType.subhead).foregroundStyle(.secondary)
           .padding(.horizontal)
-        if let mixes = model.homeContent[.mixes]?.mixes, !mixes.isEmpty {
+        let mixes = model.homeContent[.mixes]?.mixes ?? []
+        let radio = model.homeContent[.mixes]?.radio
+        if !mixes.isEmpty || radio != nil {
           Shelf(title: "Your mixes", caption: "Familiar favourites. Something new. Made for today.")
           {
+            if let radio {
+              Button {
+                Task { await model.startRadio() }
+              } label: {
+                VStack(alignment: .leading, spacing: 6) {
+                  MixArtwork(kind: "radio").frame(width: 150, height: 150)
+                  Text(radio.title).font(.headline).lineLimit(2)
+                  Text("Your library and new discoveries").font(PigType.footnote)
+                    .foregroundStyle(.secondary).lineLimit(2)
+                  Label("Endless · Start radio", systemImage: "dot.radiowaves.left.and.right")
+                    .font(PigType.footnote).foregroundStyle(.secondary)
+                }.frame(width: 150, alignment: .leading)
+              }.buttonStyle(.plain)
+            }
             ForEach(mixes) { mix in
               NavigationLink {
                 MixDetailView(model: model, mix: mix)
               } label: {
                 VStack(alignment: .leading, spacing: 6) {
-                  MixArtwork(kind: mix.kind).frame(width: 150, height: 150)
+                  MixArtwork(kind: mix.kind, title: mix.title).frame(width: 150, height: 150)
                   Text(mix.title).font(.headline).lineLimit(2)
                   Text(
                     Array(Set(mix.tracks.map(\.artist))).sorted().prefix(3).joined(separator: " · ")
@@ -163,7 +179,7 @@ struct MixDetailView: View {
     List {
       Section {
         HStack(spacing: 16) {
-          MixArtwork(kind: mix.kind).frame(width: 112, height: 112)
+          MixArtwork(kind: mix.kind, title: mix.title).frame(width: 112, height: 112)
           VStack(alignment: .leading, spacing: 6) {
             Text(mix.title).font(.title2.bold())
             Text(mix.reason).font(PigType.footnote).foregroundStyle(.secondary)
@@ -211,7 +227,7 @@ struct MixDetailView: View {
                   let current = model.homeContent[.mixes]
                   let updated = HomeContent(
                     mixes: current?.mixes?.filter { $0.id != mix.id },
-                    mixesPreparing: current?.mixesPreparing)
+                    mixesPreparing: current?.mixesPreparing, radio: current?.radio)
                   model.homeContent[.mixes] = updated
                   let archive = model.store
                   dismiss()
@@ -228,13 +244,24 @@ struct MixDetailView: View {
   }
 }
 
-/// Vector covers use the same five motifs and Pig family colours as the web.
+/// Vector covers use the same motifs and Pig family colours as the web.
 struct MixArtwork: View {
   let kind: String
+  var title = ""
+  /// Newer kinds borrow the five Pig-Branding mix palettes, as on the web.
+  static let palettes = [
+    "radio": "popular", "fresh": "genre", "releases": "artist", "decade": "back",
+    "deep": "artist", "recent": "daily",
+  ]
+  /// "Your 1990s" → "90s"; 2000 onwards keeps the century: "2010s".
+  static func decadeLabel(_ title: String) -> String {
+    guard let match = title.firstMatch(of: /(\d{2})(\d)0s/) else { return "" }
+    return match.1 == "19" ? "\(match.2)0s" : "\(match.1)\(match.2)0s"
+  }
   var body: some View {
     Canvas { context, size in
       context.scaleBy(x: size.width / 200, y: size.height / 200)
-      let pair = PigMixArtwork.colours(kind)
+      let pair = PigMixArtwork.colours(Self.palettes[kind] ?? kind)
       let ink = GraphicsContext.Shading.color(pair.foreground)
       context.fill(Path(CGRect(x: 0, y: 0, width: 200, height: 200)), with: .color(pair.background))
       if kind == "daily" {
@@ -267,6 +294,65 @@ struct MixArtwork: View {
             Path(CGRect(x: 35 + i * 36, y: 122 - i * 24, width: 20, height: 45 + i * 24)), with: ink
           )
         }
+      } else if kind == "radio" {
+        context.fill(Path(ellipseIn: CGRect(x: 44, y: 132, width: 24, height: 24)), with: ink)
+        for r in [CGFloat(45), 80, 115] {
+          var wave = Path()
+          wave.addArc(
+            center: CGPoint(x: 56, y: 144), radius: r, startAngle: .degrees(-90),
+            endAngle: .degrees(0), clockwise: false)
+          context.stroke(wave, with: ink, lineWidth: 12)
+        }
+      } else if kind == "fresh" {
+        for angle in [0.0, 45, 90, 135] {
+          var ray = context
+          ray.translateBy(x: 100, y: 100)
+          ray.rotate(by: .degrees(angle))
+          var line = Path()
+          line.move(to: CGPoint(x: 0, y: -62))
+          line.addLine(to: CGPoint(x: 0, y: 62))
+          ray.stroke(line, with: ink, lineWidth: 12)
+        }
+      } else if kind == "releases" {
+        context.stroke(
+          Path(ellipseIn: CGRect(x: 38, y: 38, width: 124, height: 124)), with: ink, lineWidth: 12)
+        context.stroke(
+          Path(ellipseIn: CGRect(x: 66, y: 66, width: 68, height: 68)), with: ink, lineWidth: 12)
+        context.fill(Path(ellipseIn: CGRect(x: 91, y: 91, width: 18, height: 18)), with: ink)
+        context.fill(Path(ellipseIn: CGRect(x: 146, y: 28, width: 28, height: 28)), with: ink)
+      } else if kind == "decade" {
+        var sun = Path()
+        sun.addArc(
+          center: CGPoint(x: 100, y: 84), radius: 60, startAngle: .degrees(180),
+          endAngle: .degrees(0), clockwise: false)
+        context.stroke(sun, with: ink, lineWidth: 12)
+        var base = Path()
+        base.move(to: CGPoint(x: 30, y: 168))
+        base.addLine(to: CGPoint(x: 170, y: 168))
+        context.stroke(base, with: ink, lineWidth: 12)
+        let label = Self.decadeLabel(title)
+        context.draw(
+          Text(label.isEmpty ? "—" : label)
+            .font(.system(size: label.count > 3 ? 50 : 64, weight: .heavy))
+            .foregroundStyle(pair.foreground),
+          at: CGPoint(x: 100, y: 128))
+      } else if kind == "deep" {
+        for (inset, width) in [(CGFloat(38), CGFloat(124)), (68, 64)] {
+          context.stroke(
+            Path(CGRect(x: inset, y: inset, width: width, height: width)), with: ink,
+            lineWidth: 12)
+        }
+        context.fill(Path(CGRect(x: 92, y: 92, width: 16, height: 16)), with: ink)
+      } else if kind == "recent" {
+        context.stroke(Path(CGRect(x: 40, y: 70, width: 70, height: 70)), with: ink, lineWidth: 12)
+        context.fill(Path(CGRect(x: 90, y: 50, width: 70, height: 70)), with: .color(pair.background))
+        context.stroke(Path(CGRect(x: 90, y: 50, width: 70, height: 70)), with: ink, lineWidth: 12)
+        var plus = Path()
+        plus.move(to: CGPoint(x: 125, y: 68))
+        plus.addLine(to: CGPoint(x: 125, y: 102))
+        plus.move(to: CGPoint(x: 108, y: 85))
+        plus.addLine(to: CGPoint(x: 142, y: 85))
+        context.stroke(plus, with: ink, lineWidth: 12)
       } else {
         for x in [CGFloat(95), CGFloat(156)] {
           var arrow = Path()
