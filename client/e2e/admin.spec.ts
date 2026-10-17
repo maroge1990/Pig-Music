@@ -47,8 +47,46 @@ test("the owner's Admin overview shows the numbers to act on", async ({
             failed: 2,
             reclaimable_bytes: 12000000,
             issues: [{ mix: "Daily blend", message: "Downloads are paused" }],
+            people: [
+              { id: "u1", name: "Mark", ready: 3, preparing: 1 },
+              { id: "u2", name: "Sam", ready: 1, preparing: 0 },
+            ],
           },
         }),
+      "/v1/admin/mixes/people/u1": (route) =>
+        route.fulfill({
+          json: {
+            person: "Mark",
+            editions: [
+              {
+                id: "e1",
+                kind: "daily",
+                day: "2026-10-18",
+                title: "Daily blend",
+                reason: "Discoveries inspired by your library",
+                state: "preparing",
+                active: false,
+                attempts: 1,
+                retry_at: null,
+                worked_at: null,
+                blocked: "Downloads are paused",
+                published: null,
+                songs: [
+                  { title: "Ready One", artist: "A", status: "cached" },
+                  {
+                    title: "Missing Two",
+                    artist: "B",
+                    status: "failed",
+                    detail: "No matching recording available",
+                  },
+                  { title: "Next Three", artist: "C", status: "next" },
+                ],
+              },
+            ],
+          },
+        }),
+      "/v1/admin/mixes/people/u2": (route) =>
+        route.fulfill({ json: { person: "Sam", editions: [] } }),
       "/warmer": (route) =>
         route.fulfill({
           json: {
@@ -85,6 +123,14 @@ test("the owner's Admin overview shows the numbers to act on", async ({
   await expect(mixes).toContainText("12 MB can be reclaimed");
   await mixes.getByText("Preparation issues", { exact: true }).click();
   await expect(mixes).toContainText("Daily blend: Downloads are paused");
+  await expect(mixes).toContainText("1/3 songs ready · 1 unavailable");
+  await expect(mixes).toContainText("Waiting: Downloads are paused");
+  await expect(mixes.locator("li[data-status=failed]")).toContainText(
+    "No matching recording available",
+  );
+  await expect(mixes.locator("li[data-status=next]")).toContainText("Up next");
+  await mixes.getByRole("button", { name: /Sam/ }).click();
+  await expect(mixes).toContainText("No mixes are planned for Sam yet.");
   const budget = mixes.getByLabel("Cache budget (GB)");
   await budget.fill("55");
   await mixes.getByRole("button", { name: "Refresh mix status" }).click();

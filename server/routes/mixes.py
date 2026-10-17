@@ -66,6 +66,13 @@ def mixes_router(mixes):
     async def mix_status():
         return await asyncio.to_thread(mixes.cache.status)
 
+    @admin.get("/api/v1/admin/mixes/people/{user_id}")
+    async def mix_person(user_id: str):
+        try:
+            return await asyncio.to_thread(mixes.inspect, user_id)
+        except LookupError:
+            raise HTTPException(404, "Person not found")
+
     @admin.put("/api/v1/admin/mixes")
     async def mix_settings(body: MixCacheSettings):
         from zoneinfo import ZoneInfo, ZoneInfoNotFoundError

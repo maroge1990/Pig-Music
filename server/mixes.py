@@ -323,6 +323,8 @@ class Mixes:
             "title": title,
             "reason": reason,
             "tracks": tracks,
+            # The intended songs stay visible to Admin after failures shorten tracks.
+            "planned": tracks,
             "state": "preparing",
             "attempts": 0,
             "retry_at": 0,
@@ -358,6 +360,14 @@ class Mixes:
                 "UPDATE mix_editions SET payload=?,active=? WHERE id=?",
                 (json.dumps(payload), int(active), identity),
             )
+        log.info(
+            "Mixes: published %s for %s on %s with %d of %d songs",
+            payload["title"],
+            row[0],
+            row[2],
+            len(tracks),
+            len(payload.get("planned") or tracks),
+        )
 
     def activate(self, today):
         with self.store.lifecycle_lock, self.store.connect() as conn:
@@ -668,6 +678,13 @@ class Mixes:
                             payload.setdefault("failures", {})[song_key(track)] = (
                                 downloader.error or "No matching recording available"
                             )
+                            log.info(
+                                "Mixes: %s by %s unavailable for %s: %s",
+                                track.get("title"),
+                                track.get("artist"),
+                                payload["title"],
+                                payload["failures"][song_key(track)],
+                            )
                         else:
                             payload["blocked"] = (
                                 downloader.error
@@ -880,6 +897,83 @@ class Mixes:
                     }
                 )
         return {"mixes": result, "preparing": preparing}
+
+    def inspect(self, user):
+        """Owner diagnostics: every live edition with each intended song's state."""
+        with self.store.connect() as conn:
+            person = conn.execute(
+                "SELECT display_name FROM users WHERE id=?", (user,)
+            ).fetchone()
+            if not person:
+                raise LookupError("Person not found")
+            rows = conn.execute(
+                "SELECT id,kind,day,active,payload FROM mix_editions WHERE user_id=? AND (retired_at IS NULL OR active=1) ORDER BY day,CASE kind WHEN 'daily' THEN 0 WHEN 'back' THEN 4 ELSE 2 END,kind",
+                (user,),
+            ).fetchall()
+        hidden = self.hidden(user)
+        now = time.time()
+        editions = []
+        for identity, kind, day, active, raw in rows:
+            payload = json.loads(raw)
+            published = {song_key(t) for t in payload["tracks"]}
+            failures = payload.get("failures", {})
+            preparing = payload["state"] != "ready"
+            cursor = payload.get("cursor", 0)
+            songs = []
+            for position, track in enumerate(
+                payload.get("planned") or payload["tracks"]
+            ):
+                key = song_key(track)
+                status, detail = "waiting", None
+                match = self.store.index.match(track).track
+                try:
+                    if not match:
+                        raise FileNotFoundError()
+                    track_file(self.store, match["id"])
+                    status = "library"
+                except (FileNotFoundError, ValueError, OSError):
+                    try:
+                        self.cache.file(key)
+                        status = "cached"
+                    except FileNotFoundError:
+                        pass
+                if key in hidden:
+                    status = "hidden"
+                elif status == "waiting" and key in failures:
+                    status, detail = "failed", failures[key]
+                elif status == "waiting" and not preparing and key not in published:
+                    status = "dropped"
+                elif status == "waiting" and preparing and position == cursor:
+                    status = "next"
+                songs.append(
+                    {
+                        "title": track.get("title"),
+                        "artist": track.get("artist"),
+                        "album": track.get("album"),
+                        "reason": track.get("reason"),
+                        "status": status,
+                        "detail": detail,
+                    }
+                )
+            retry = payload.get("retry_at", 0)
+            editions.append(
+                {
+                    "id": identity,
+                    "kind": kind,
+                    "day": day,
+                    "title": payload["title"],
+                    "reason": payload.get("reason"),
+                    "state": payload["state"],
+                    "active": bool(active),
+                    "attempts": payload.get("attempts", 0),
+                    "retry_at": retry if preparing and retry > now else None,
+                    "worked_at": payload.get("worked_at"),
+                    "blocked": payload.get("blocked") if preparing else None,
+                    "published": len(payload["tracks"]) if not preparing else None,
+                    "songs": songs,
+                }
+            )
+        return {"person": person[0], "editions": editions}
 
     def hide_edition(self, user, identity):
         with self.store.lifecycle_lock, self.store.connect() as conn:

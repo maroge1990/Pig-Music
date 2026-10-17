@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
-import { formatCount } from "./format";
+import {
+  formatCount,
+  formatDate,
+  formatDateTime,
+  formatRelative,
+} from "./format";
 import { QualitySelect, defaultQualityOptions } from "./QualitySelect";
 
 type Settings = {
@@ -16,20 +21,135 @@ type Settings = {
   failed?: number;
   reclaimable_bytes?: number;
   issues?: { mix: string; person?: string; message: string }[];
+  people?: { id: string; name: string; ready: number; preparing: number }[];
 };
+type SongStatus =
+  | "library"
+  | "cached"
+  | "next"
+  | "waiting"
+  | "failed"
+  | "dropped"
+  | "hidden";
+type Edition = {
+  id: string;
+  kind: string;
+  day: string;
+  title: string;
+  reason?: string | null;
+  state: "ready" | "preparing";
+  active: boolean;
+  attempts: number;
+  retry_at?: number | null;
+  worked_at?: number | null;
+  blocked?: string | null;
+  published?: number | null;
+  songs: {
+    title: string;
+    artist: string;
+    album?: string | null;
+    reason?: string | null;
+    status: SongStatus;
+    detail?: string | null;
+  }[];
+};
+type PersonMixes = { person: string; editions: Edition[] };
+
+const songLabels: Record<SongStatus, string> = {
+  library: "In library",
+  cached: "Cached",
+  next: "Up next",
+  waiting: "Waiting",
+  failed: "Unavailable",
+  dropped: "Left out",
+  hidden: "Hidden by listener",
+};
+function MixPersonDetail({ detail }: { detail: PersonMixes }) {
+  if (!detail.editions.length)
+    return <p>No mixes are planned for {detail.person} yet.</p>;
+  return (
+    <div className="mix-editions">
+      {detail.editions.map((edition) => {
+        const ready = edition.songs.filter(
+          (s) => s.status === "library" || s.status === "cached",
+        ).length;
+        const failed = edition.songs.filter(
+          (s) => s.status === "failed",
+        ).length;
+        return (
+          <details key={edition.id} open={edition.state === "preparing"}>
+            <summary>
+              <strong>{edition.title}</strong> · {formatDate(edition.day)} ·{" "}
+              {edition.state === "ready"
+                ? edition.active
+                  ? "Live"
+                  : "Ready for its day"
+                : "Preparing"}{" "}
+              · {ready}/{edition.songs.length} songs ready
+              {failed > 0 && ` · ${failed} unavailable`}
+            </summary>
+            <p>
+              {edition.reason && <>{edition.reason}. </>}
+              {edition.state === "ready" &&
+                `Published with ${edition.published ?? ready} songs. `}
+              {edition.attempts > 0 && `Attempt ${edition.attempts + 1}. `}
+              {edition.blocked && `Waiting: ${edition.blocked}. `}
+              {edition.retry_at &&
+                `Next try ${formatDateTime(edition.retry_at)}. `}
+              {edition.worked_at &&
+                `Last worked on ${formatRelative(edition.worked_at)}.`}
+            </p>
+            <ol>
+              {edition.songs.map((song, index) => (
+                <li key={index} data-status={song.status}>
+                  <span>
+                    <strong>{song.title}</strong> {song.artist}
+                    {song.album && ` · ${song.album}`}
+                    {song.detail && <small>{song.detail}</small>}
+                  </span>
+                  <em>{songLabels[song.status]}</em>
+                </li>
+              ))}
+            </ol>
+          </details>
+        );
+      })}
+    </div>
+  );
+}
+
 export function MixCacheSettings() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [person, setPerson] = useState<string>();
+  const [detail, setDetail] = useState<PersonMixes | null>(null);
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     void api<Settings>("/v1/admin/mixes", { signal: controller.signal })
-      .then(setSettings)
+      .then((value) => {
+        setSettings(value);
+        setPerson((current) => current ?? value.people?.[0]?.id);
+      })
       .catch((e) => {
         if (!controller.signal.aborted) setNotice(e.message);
       });
     return () => controller.abort();
   }, []);
+  useEffect(() => {
+    if (!person) return;
+    const controller = new AbortController();
+    void api<PersonMixes>(
+      `/v1/admin/mixes/people/${encodeURIComponent(person)}`,
+      { signal: controller.signal },
+    )
+      .then(setDetail)
+      .catch((e) => {
+        if (!controller.signal.aborted) setNotice(e.message);
+      });
+    return () => controller.abort();
+  }, [person, revision]);
   return (
     <section className="system-panel">
       <h2>Mix preparation</h2>
@@ -70,10 +190,12 @@ export function MixCacheSettings() {
                           failed: value.failed,
                           reclaimable_bytes: value.reclaimable_bytes,
                           issues: value.issues,
+                          people: value.people,
                         }
                       : value,
                   ),
                 )
+                .then(() => setRevision((n) => n + 1))
                 .catch((e) => setNotice(e.message))
                 .finally(() => setBusy(false));
             }}
@@ -95,6 +217,36 @@ export function MixCacheSettings() {
                 ))}
               </ul>
             </details>
+          )}
+          {!!settings.people?.length && (
+            <>
+              <nav
+                className="personal-tabs mix-people"
+                aria-label="Mixes by person"
+              >
+                {settings.people.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    aria-pressed={person === p.id}
+                    onClick={() => {
+                      setDetail(null);
+                      setPerson(p.id);
+                    }}
+                  >
+                    {p.name}
+                    <small>
+                      {p.ready} ready · {p.preparing} preparing
+                    </small>
+                  </button>
+                ))}
+              </nav>
+              {detail ? (
+                <MixPersonDetail detail={detail} />
+              ) : (
+                <p>Loading mixes…</p>
+              )}
+            </>
           )}
           <form
             onSubmit={(e) => {

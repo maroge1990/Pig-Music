@@ -81,6 +81,12 @@ class MixCache:
                     issues.append(
                         {"mix": payload["title"], "person": person, "message": message}
                     )
+            people = [
+                {"id": r[0], "name": r[1], "ready": r[2], "preparing": r[3]}
+                for r in conn.execute(
+                    "SELECT u.id,u.display_name,COUNT(CASE WHEN e.active=1 THEN 1 END),COUNT(CASE WHEN e.retired_at IS NULL AND json_extract(e.payload,'$.state')='preparing' THEN 1 END) FROM users u LEFT JOIN mix_editions e ON e.user_id=u.id WHERE u.disabled=0 GROUP BY u.id ORDER BY u.display_name COLLATE NOCASE"
+                )
+            ]
         return {
             **self.settings(),
             "files": count,
@@ -91,6 +97,7 @@ class MixCache:
             "failed": len(failed),
             "reclaimable_bytes": reclaimable,
             "issues": issues,
+            "people": people,
         }
 
     def room(self, size=160_000_000):

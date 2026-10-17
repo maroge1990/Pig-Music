@@ -107,6 +107,7 @@ def test_private_editions_signed_cache_playback_history_and_save(
         assert client.post(f"/api/v1/playback/mix:{other}:0/url").status_code == 404
         assert client.get("/api/v1/admin/mixes").status_code == 403
         assert client.put("/api/v1/admin/mixes", json={}).status_code == 403
+        assert client.get(f"/api/v1/admin/mixes/people/{user}").status_code == 403
         playback = client.post(f"/api/v1/playback/{song['id']}/url")
         assert playback.status_code == 200, playback.text
         assert client.get(playback.json()["url"]).content == audio.read_bytes()
@@ -225,6 +226,18 @@ def test_failed_preparation_retains_last_ready_and_publishes_shorter_complete_mi
     asyncio.run(mixes.prepare_staged(owner, mixes.day(), mixes.day()))
     feed = mixes.list(owner)["mixes"][0]
     assert feed["id"] == second and len(feed["tracks"]) == 1
+    # Admin still sees both intended songs and why the second was left out.
+    detail = mixes.inspect(owner)
+    edition = next(e for e in detail["editions"] if e["id"] == second)
+    assert edition["state"] == "ready" and edition["published"] == 1
+    assert [(s["title"], s["status"], s["detail"]) for s in edition["songs"]] == [
+        ("Song 1", "cached", None),
+        ("Song 2", "failed", "No matching candidate"),
+    ]
+    status = mixes.cache.status()
+    assert status["people"] == [
+        {"id": owner, "name": "mark", "ready": 1, "preparing": 0}
+    ]
 
 
 def test_owned_mix_rows_keep_library_actions_separate_from_private_playback(
