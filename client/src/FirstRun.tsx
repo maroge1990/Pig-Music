@@ -8,7 +8,7 @@ export function FirstRun({ complete }: { complete: () => void }) {
     <main className="account-shell">
       <section className="sign-in-card first-run-card">
         <img src="/brand/mark.png" alt="" className="account-pig" />
-        <h1>Welcome to Pig Music</h1>
+        <h1>Welcome to PigMusic</h1>
         <p>Create your administrator account to get started.</p>
         <form
           onSubmit={(event) => {
@@ -54,7 +54,7 @@ export function FirstRun({ complete }: { complete: () => void }) {
             <summary>Where do I find the installation code?</summary>
             <p>
               In Unraid, open Docker, select PigMusic and choose Logs. Copy the
-              code under “Pig Music first-run setup”. It confirms you control
+              code under “PigMusic first-run setup”. It confirms you control
               this installation and stops working after setup.
             </p>
           </details>

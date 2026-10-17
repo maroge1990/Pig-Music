@@ -47,7 +47,7 @@ export function InvitePanel({
   }
   async function share() {
     try {
-      await navigator.share({ title: "Join Pig Music", url: url as string });
+      await navigator.share({ title: "Join PigMusic", url: url as string });
     } catch {
       /* cancelled by the person sharing */
     }

@@ -66,7 +66,6 @@ from .media import (
 from .remote import LABELS, RemoteAudio
 from .scanner import LibraryScanner
 from .playlists import Playlists
-from .plex import Plex
 from .exporter import Exporter
 from .artist_jobs import ArtistJobs
 from .recovery import Recovery
@@ -94,7 +93,6 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     )
     scanner = LibraryScanner(store)
     playlists = Playlists(store)
-    plex = Plex(store, playlists)
     exporter = Exporter(store)
     artist_jobs = ArtistJobs(store, music_catalogue)
     recovery = Recovery(store)
@@ -137,7 +135,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         if not security.legacy_test and not await asyncio.to_thread(auth.has_owner):
             # Intentional one-time operator handover; never log submitted passwords.
             print(
-                "Pig Music first-run setup: open the private HTTPS WebUI, then enter this installation code:",
+                "PigMusic first-run setup: open the private HTTPS WebUI, then enter this installation code:",
                 flush=True,
             )
             print(security.installation_code(), flush=True)
@@ -159,7 +157,6 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             await asyncio.to_thread(organisation.recover)
             downloader = Downloader(store, runtime=source_runtime)
             task = asyncio.create_task(downloader.run())
-            plex_task = asyncio.create_task(plex.run())
             export_task = asyncio.create_task(exporter.run())
             artist_task = asyncio.create_task(artist_jobs.run(client))
             preload_task = asyncio.create_task(preload_library())
@@ -176,12 +173,13 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 yield
             finally:
                 await device_copies.close()
-                await mixes.close()
+                # Signal every worker before waiting on any of them.
+                mixes.stopping.set()
                 downloader.stopping.set()
                 scanner.stopping.set()
-                plex.stopping.set()
                 exporter.stopping.set()
                 artist_jobs.stopping.set()
+                await mixes.close()
                 await artist_task
                 preload_stopping.set()
                 preload_task.cancel()
@@ -190,7 +188,6 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 await change_feed.close()
                 maintenance_task.cancel()
                 await task
-                await plex_task
                 await export_task
                 try:
                     await preload_task
@@ -215,7 +212,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     )
     guard = security.current_user
     app = FastAPI(
-        title="Pig Music",
+        title="PigMusic",
         version="0.1.0",
         lifespan=lifespan,
         dependencies=[Depends(guard)],
@@ -633,10 +630,6 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     @app.post("/api/favourites")
     async def favourite_song(body: SongReference):
         return playlists.favourite(await resolve_song(body), body.favourite)
-
-    @app.get("/api/settings/plex")
-    def plex_status():
-        return plex.status()
 
     @app.get("/api/playlists/{playlist_id}")
     def playlist_detail(playlist_id: str):

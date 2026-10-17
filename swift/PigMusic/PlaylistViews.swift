@@ -214,16 +214,8 @@ struct PlaylistView: View {
         // Favourites keep the order they were favourited in; the server has no reorder for them.
         .moveDisabled(locked || playlist.favourites == true)
       }
-      Section("Settings") {
-        if let plex = playlist.plex {
-          LabeledContent(
-            "Plex export",
-            value: plex.status?.replacingOccurrences(of: "_", with: " ") ?? "Waiting for sync")
-          Text(
-            "\(plex.availableCount ?? 0) available · \(plex.pendingCount ?? 0) pending · \(plex.repeatedCount ?? 0) repeats combined by Plex"
-          ).font(PigType.caption)
-        }
-        if playlist.favourites != true {
+      if playlist.favourites != true {
+        Section("Settings") {
           HStack {
             TextField("Name", text: $name).submitLabel(.done)
               .onSubmit { Task { await edit(name: name) } }

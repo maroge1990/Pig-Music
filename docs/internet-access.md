@@ -1,13 +1,13 @@
 # Internet access and household invites
 
-9 October 2026. **Owner decision:** Pig Music becomes reachable from the internet at `https://music.markrogers.au` through a Cloudflare Tunnel, gated by Pig Music's own accounts. Tailscale is not removed; it remains the owner's administration route. This replaces the earlier "LAN/Tailscale only, no public exposure" rule. Cloudflare Access was considered and rejected: it adds a second guest list kept outside Pig Music (an email allowlist the owner must remember to update) and blocks the native iPhone app.
+9 October 2026. **Owner decision:** PigMusic becomes reachable from the internet at `https://music.markrogers.au` through a Cloudflare Tunnel, gated by PigMusic's own accounts. Tailscale is not removed; it remains the owner's administration route. This replaces the earlier "LAN/Tailscale only, no public exposure" rule. Cloudflare Access was considered and rejected: it adds a second guest list kept outside PigMusic (an email allowlist the owner must remember to update) and blocks the native iPhone app.
 
 ## Product model
 
 - The app never assumes how a server is reached. A server has one public HTTPS address (`PIG_MUSIC_PUBLIC_ORIGIN`). Cloudflare Tunnel is this household's choice; another owner could use Tailscale or their own reverse proxy.
 - Not everyone owns a server. An owner signs in to their own server ("Add my server" in the iPhone app). Everyone else joins an owner's server with an **invite**.
 - **Invite flow:** Admin → People → Add person (or Reset password) shows a QR code and link, `https://<origin>/#/join?code=<CODE>`. The person scans it with the phone camera (opens the web app) or inside the iPhone app, chooses a password and is signed in. The code is one-use and expires in 24 hours. In the link it sits in the URL fragment, which browsers never send in requests, Referer headers or access logs, and the web app removes it from the address bar immediately. Cloudflare terminates TLS, so it does see the code in request and response bodies (creating the invite over the public address, and completing it with the new password); create invites over Tailscale if that matters. The link carries no username; activation returns it.
-- There is no email in Pig Music and no external allowlist: the People list is the only guest list. Disable a person in Admin → People to remove access.
+- There is no email in PigMusic and no external allowlist: the People list is the only guest list. Disable a person in Admin → People to remove access.
 
 ## Protections in front of the login page
 
@@ -47,8 +47,7 @@ Accounts stop one person from browsing or editing another's library, playlists, 
 
 - **Credentials:** Argon2id password hashes. Opaque session tokens stored as hashes. Secure, HttpOnly, SameSite=Strict cookies. Browser writes need a same-origin check and the Pig request header. Devices use Bearer tokens.
 - **Revocation:** Revoking a session, disabling a member or removing a membership is re-checked on every media access, including signed URLs and Range requests. The last administrator can't be disabled. Password reset is available through the interactive admin CLI.
-- **Plex tokens:** AES-GCM encrypted and bound to each user, with a key derived from the server authentication secret. Anyone holding both the backup and the secret can decrypt them, so restrict access to appdata backups.
-- **Never logged or exported:** passwords, bearer tokens, setup codes, Plex tokens.
+- **Never logged or exported:** passwords, bearer tokens, setup codes.
 - **First-run installation code:** The one exception. Before any owner exists, startup prints a 128-bit installation code to the operator-only container console. It is never returned over HTTP, and it stops working once an owner exists. Keep startup logs private.
 - **HTTP hardening:** Same-origin CSP with no inline scripts, frame denial and HSTS. JSON bodies are capped at 1 MB before parsing (Apple XML imports at 20 MB). Validation errors omit submitted values. Failed sign-ins are rate limited, and only the administrator sees security activity.
 - **Dependencies:** CI audits the locked Python and npm dependencies before publishing an image.

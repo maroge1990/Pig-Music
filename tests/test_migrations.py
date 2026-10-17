@@ -73,3 +73,26 @@ def test_store_connections_enable_wal_and_foreign_keys(tmp_path):
     with store.connect() as conn:
         assert conn.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+
+
+def test_plex_retirement_drops_tokens_and_sync_state_only(tmp_path, monkeypatch):
+    migrations = importlib.import_module("server.migrations")
+    conn = sqlite3.connect(tmp_path / "plex.sqlite3")
+    monkeypatch.setattr(migrations, "MIGRATIONS", migrations.MIGRATIONS[:10])
+    migrations.migrate(conn)
+    conn.executemany(
+        "INSERT INTO documents VALUES (?,'{}')",
+        [
+            ("plex-status",),
+            ("plex-status:person",),
+            ("plex-playlist:playlist-a",),
+            ("plex-refresh-required",),
+            ("preferences",),
+        ],
+    )
+    conn.commit()
+    monkeypatch.undo()
+    migrations.migrate(conn)
+    names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master")}
+    assert "plex_accounts" not in names
+    assert list(conn.execute("SELECT name FROM documents")) == [("preferences",)]

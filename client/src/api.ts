@@ -88,14 +88,14 @@ const accountErrors: Record<string, string> = {
   invalid_installation_code:
     "The installation code is incorrect. Copy it from PigMusic’s Unraid logs.",
   owner_already_exists:
-    "An administrator account already exists. Reload Pig Music to sign in.",
+    "An administrator account already exists. Reload PigMusic to sign in.",
   invalid_username:
     "Use 2–64 letters, numbers, dots, underscores or hyphens for your username.",
   password_not_accepted:
     "Choose a password of 12–256 characters that is not a common password or your username.",
   authentication_required: "Please sign in to continue.",
   setup_required: "The administrator needs to finish the first account setup.",
-  https_required: "Open Pig Music using its private HTTPS address.",
+  https_required: "Open PigMusic using its private HTTPS address.",
   rate_limited: "Too many attempts. Please wait before trying again.",
   invalid_setup_code:
     "The setup code has expired or was already used. Ask your administrator for a new code.",

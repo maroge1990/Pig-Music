@@ -42,7 +42,7 @@ type Feed = {
 };
 const emptyMessages: Record<string, string> = {
   "recommended:no_seeds":
-    "Recommendations appear once Pig Music has matched artists in your library.",
+    "Recommendations appear once PigMusic has matched artists in your library.",
   "recommended:unavailable": "Recommendations are temporarily unavailable.",
   "popular:preparing": "Finding what\u2019s popular\u2026",
   "popular:unavailable": "Charts are temporarily unavailable.",

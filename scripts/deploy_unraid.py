@@ -97,7 +97,7 @@ def main():
         r"ghcr\.io/maroge1990/pig-music@sha256:[0-9a-f]{64}", args.image
     ):
         parser.error(
-            "Registry images must use the Pig Music repository and a full SHA-256 digest"
+            "Registry images must use the PigMusic repository and a full SHA-256 digest"
         )
     image = args.image or "pig-music:" + args.version
     revision = subprocess.check_output(

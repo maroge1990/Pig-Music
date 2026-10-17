@@ -27,9 +27,6 @@ export function AccountSettings({
   const [sessions, setSessions] = useState<Session[]>([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const [plex, setPlex] = useState<{ configured: boolean; label?: string }>({
-    configured: false,
-  });
   async function load() {
     const preferences = await api<{
       preferences: { scope: string; item_id: string; preferred: string }[];
@@ -45,7 +42,6 @@ export function AccountSettings({
     setSessions(
       (await api<{ sessions: Session[] }>("/v1/me/sessions")).sessions,
     );
-    setPlex(await api("/v1/plex"));
   }
   useEffect(() => {
     void load().catch((e) => setError(e.message));
@@ -194,53 +190,9 @@ export function AccountSettings({
         />
       </section>
       <section className="account-section">
-        <h2>Your Plex account</h2>
-        <p>
-          {plex.configured
-            ? `Connected: ${plex.label}`
-            : "Connect your Plex account to export your personal playlists and favourites."}
-        </p>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const form = e.currentTarget;
-            const d = new FormData(form);
-            void action(
-              () =>
-                api("/v1/plex", {
-                  ...json({ token: d.get("token"), label: d.get("label") }),
-                  method: "PUT",
-                }),
-              "Plex account saved",
-            ).then(() => form.reset());
-          }}
-        >
-          <label>
-            Plex account label
-            <input
-              name="label"
-              required
-              maxLength={128}
-              defaultValue={user.display_name}
-            />
-          </label>
-          <label>
-            Plex token
-            <input
-              name="token"
-              type="password"
-              required
-              maxLength={512}
-              autoComplete="off"
-            />
-          </label>
-          <button type="submit">Save Plex account</button>
-        </form>
-      </section>
-      <section className="account-section">
         <h2>Sign out</h2>
         <button className="secondary-button" onClick={() => void signOut()}>
-          Sign out of Pig Music
+          Sign out of PigMusic
         </button>
       </section>
       {user.role === "owner" && (

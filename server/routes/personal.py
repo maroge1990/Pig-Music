@@ -6,7 +6,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response, Query
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field
 
 from ..library import identifier, normalise
 from ..api_models import (
@@ -23,7 +23,6 @@ from ..api_models import (
     DeletedPlaylistDTO,
     ImportResultDTO,
     ImportPreviewDTO,
-    PlexStatusDTO,
     QualityDTO,
     QualitySavedDTO,
     RemovalPreviewDTO,
@@ -49,7 +48,6 @@ SERVER_CAPABILITIES = [
 from ..user_library import track_dto, SearchChanged
 from ..personal_removal import PersonalRemoval, RemovalChanged
 from ..household_policy import HouseholdPolicy
-from ..plex_accounts import PlexAccounts
 
 
 class TrackInput(BaseModel):
@@ -94,11 +92,6 @@ class QualityPreference(BaseModel):
     preferred: (
         Literal["mp3_128", "mp3_320", "aac_256", "lossless", "native_standard"] | None
     ) = None
-
-
-class PlexAccount(BaseModel):
-    token: SecretStr = Field(min_length=1, max_length=512)
-    label: str = Field(default="My Plex account", max_length=128)
 
 
 class PlaylistName(BaseModel):
@@ -604,19 +597,6 @@ def personal_router(store, artist_jobs, recovery):
             raise HTTPException(404, "Playlist not found")
         except PlaylistConflict as exc:
             raise HTTPException(409, str(exc))
-
-    @router.get("/plex", response_model=PlexStatusDTO)
-    async def plex_status(request: Request):
-        return await run(PlexAccounts(store).status, identity(request))
-
-    @router.put("/plex", response_model=PlexStatusDTO)
-    async def plex_account(body: PlexAccount, request: Request):
-        return await run(
-            PlexAccounts(store).set,
-            identity(request),
-            body.token.get_secret_value(),
-            body.label,
-        )
 
     @router.get("/quality", response_model=QualityDTO)
     async def quality(request: Request):

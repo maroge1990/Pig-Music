@@ -104,7 +104,7 @@ public struct PigBrandSplash: View {
         Image("PigIconFace").resizable().scaledToFit()
       }.frame(width: size, height: size)
     }
-    .accessibilityElement(children: .ignore).accessibilityLabel("Pig Music is loading")
+    .accessibilityElement(children: .ignore).accessibilityLabel("PigMusic is loading")
     .onAppear {
       guard !reduceMotion && !reduceTransparency else { return }
       withAnimation(.easeInOut(duration: 4).repeatForever(autoreverses: true)) { bloom = true }

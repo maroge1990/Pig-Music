@@ -210,14 +210,6 @@ def initialise_owner(store):
                 "UPDATE playlists SET id=?,payload=? WHERE id='pig-favourites'",
                 (renamed, json.dumps(payload)),
             )
-            legacy = conn.execute(
-                "SELECT payload FROM documents WHERE name='plex-playlist:pig-favourites'"
-            ).fetchone()
-            if legacy:
-                conn.execute(
-                    "INSERT OR IGNORE INTO documents VALUES (?,?)",
-                    ("plex-playlist:" + renamed, legacy[0]),
-                )
         for key, payload in conn.execute("SELECT id,payload FROM queue").fetchall():
             value = json.loads(payload)
             if "requested_by" not in value:

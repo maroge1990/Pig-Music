@@ -111,7 +111,6 @@ PERSONAL_READS = [
     "/api/v1/playlists",
     "/api/v1/quality",
     "/api/v1/me/sessions",
-    "/api/v1/plex",
 ]
 
 

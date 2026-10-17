@@ -141,7 +141,7 @@ struct HomeView: View {
   private func message(_ section: HomeSection, _ feed: DiscoveryFeed) -> String {
     if feed.state == .preparing { return "Finding what’s popular…" }
     if feed.state == .noSeeds {
-      return "Recommendations appear once Pig Music has matched artists in your library."
+      return "Recommendations appear once PigMusic has matched artists in your library."
     }
     if feed.unavailable || feed.state == .unavailable {
       return section == .popular

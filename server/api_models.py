@@ -112,14 +112,6 @@ class PlaylistEntry(TrackDTO):
     household_track: TrackDTO | None = None
 
 
-class PlaylistPlexDTO(BaseModel):
-    status: str | None = None
-    available_count: int | None = None
-    pending_count: int | None = None
-    repeated_count: int | None = None
-    updated_at: str | None = None
-
-
 class CancelledRequestDTO(BaseModel):
     cancelled: bool
     continues_for_others: bool
@@ -133,7 +125,6 @@ class PlaylistDTO(BaseModel):
     track_count: int = 0
     available_count: int = 0
     review_count: int = 0
-    plex: PlaylistPlexDTO | None = None
     entries: list[PlaylistEntry] = Field(default_factory=list)
 
 
@@ -384,11 +375,6 @@ class RevokedDTO(BaseModel):
 
 class PasswordChangedDTO(BaseModel):
     changed: bool
-
-
-class PlexStatusDTO(BaseModel):
-    configured: bool
-    label: str | None
 
 
 class QualityOptionDTO(BaseModel):

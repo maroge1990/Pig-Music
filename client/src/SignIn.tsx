@@ -67,7 +67,7 @@ export function SignIn({
       <section className="sign-in-card">
         <div className="account-halo" aria-hidden="true" />
         <img src="/brand/mark.png" alt="" className="account-pig" />
-        <span className="account-wordmark" role="img" aria-label="Pig Music">
+        <span className="account-wordmark" role="img" aria-label="PigMusic">
           <img
             src="/brand/wordmark-light.svg"
             className="light-wordmark"
@@ -81,14 +81,14 @@ export function SignIn({
         </span>
         <h1>
           {joining && setup
-            ? "Join Pig Music"
+            ? "Join PigMusic"
             : setup
               ? "Set up your account"
               : "Your music, together"}
         </h1>
         <p>
           {joining && setup
-            ? `You've been invited to Pig Music on ${location.host}. Choose a password to finish setting up your account.`
+            ? `You've been invited to PigMusic on ${location.host}. Choose a password to finish setting up your account.`
             : setup
               ? "Enter the setup code from your administrator and choose a password."
               : "Sign in to your personal library."}

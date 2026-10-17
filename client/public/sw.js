@@ -1,4 +1,4 @@
-/* Pig Music offline cache: artwork and slow catalogue pages only.
+/* PigMusic offline cache: artwork and slow catalogue pages only.
  *
  * Artwork is cache-first: an image address never changes meaning (revisions
  * and sizes are in the query). Shared catalogue lists are served from cache at

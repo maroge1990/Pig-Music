@@ -133,7 +133,6 @@ class Organisation:
                 self.finish(record, root)
                 results.append(operation)
         self.store.refresh_library()
-        self.recovery.save("plex-refresh-required", True)
         return {"applied": len(results), "operations": results}
 
     def finish(self, record, root):
@@ -322,5 +321,4 @@ class Organisation:
             record["status"] = "undone"
             self.recovery.save("organisation:" + identity, record)
             self.store.refresh_library()
-            self.recovery.save("plex-refresh-required", True)
             return {"status": "undone"}

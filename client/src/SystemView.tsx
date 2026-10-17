@@ -79,7 +79,7 @@ export function SystemStatus({
           </dl>
           <p>
             Browsing uses a local snapshot. Use Scan library to pick up changes
-            made outside Pig Music.
+            made outside PigMusic.
           </p>
         </section>
         <section className="system-panel">
@@ -104,7 +104,7 @@ export function SystemStatus({
           </dl>
           <p>
             Downloads are validated and tagged before publication into your SMB
-            library. Plex playlists update as songs become available.
+            library.
           </p>
         </section>
       </div>

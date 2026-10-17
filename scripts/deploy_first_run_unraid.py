@@ -34,7 +34,7 @@ def main():
     if not re.fullmatch(
         r"ghcr.io/maroge1990/pig-music@sha256:[0-9a-f]{64}", args.image
     ):
-        parser.error("Use the immutable Pig Music registry digest")
+        parser.error("Use the immutable PigMusic registry digest")
     if not re.fullmatch(r"[0-9a-f]{40}", args.revision) or not re.fullmatch(
         r"[a-z0-9-]{6,70}", args.version
     ):
@@ -207,7 +207,7 @@ def main():
                 + json.dumps(TEMPLATE)
                 + "); $x->Repository="
                 + json.dumps(tag)
-                + '; $x->Overview="Pig Music: private household music, playlists and downloads. First open offers administrator setup; copy the installation code from PigMusic Logs and choose your password in the private HTTPS WebUI."; if ($x->asXML('
+                + '; $x->Overview="PigMusic: private household music, playlists and downloads. First open offers administrator setup; copy the installation code from PigMusic Logs and choose your password in the private HTTPS WebUI."; if ($x->asXML('
                 + json.dumps(reviewed)
                 + ")===false) exit(1);"
             )

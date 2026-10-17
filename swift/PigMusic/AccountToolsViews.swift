@@ -130,50 +130,6 @@ struct SessionsView: View {
     }
   }
 }
-struct PlexView: View {
-  let model: AppModel
-  @State private var token = ""
-  @State private var label = "My Plex account"
-  @State private var configured = false
-  @State private var loading = false
-  @State private var message: String?
-  var body: some View {
-    Form {
-      Text(configured ? "Personal Plex account configured" : "No personal Plex account configured")
-      TextField("Account label", text: $label)
-      SecureField("Plex token", text: $token).textInputAutocapitalization(.never)
-        .autocorrectionDisabled()
-      Text(
-        "This token maps your playlists to your Plex account. Global Plex server configuration stays in web Admin."
-      ).font(PigType.footnote)
-      Button("Save mapping") {
-        Task {
-          loading = true
-          defer {
-            loading = false
-            token = ""
-          }
-          let secret = token
-          let name = label
-          do {
-            let result = try await model.performPersonal {
-              try await $0.savePlex(token: secret, label: name)
-            }
-            configured = result.configured
-            message = "Mapping saved."
-          } catch { message = error.localizedDescription }
-        }
-      }.disabled(loading || !model.canMutate || token.isEmpty)
-      if let message { Text(message).font(PigType.footnote) }
-    }.pigCanvas().navigationTitle("Personal Plex").task {
-      do {
-        let value = try await model.readCatalogue { try await $0.plex() }
-        configured = value.configured
-        label = value.label ?? label
-      } catch { message = error.localizedDescription }
-    }
-  }
-}
 struct QualityView: View {
   let model: AppModel
   var scope = "system"
@@ -308,7 +264,7 @@ struct DiagnosticsView: View {
   var body: some View {
     Form {
       Section("This iPhone") {
-        LabeledContent("Pig Music", value: AppVersion.text)
+        LabeledContent("PigMusic", value: AppVersion.text)
         LabeledContent("Crash reports", value: CrashReports.shared.reports().count.formatted())
         if DiagnosticsLog.shared.previousRunEndedUnexpectedly {
           Text("The last run on this iPhone ended unexpectedly.")
@@ -333,7 +289,7 @@ struct DiagnosticsView: View {
         Section("Apple Watch") {
           LabeledContent("Connection", value: watch.link?.activated == true ? "Active" : "Not active")
           LabeledContent("Paired", value: watch.link?.paired == true ? "Yes" : "No")
-          LabeledContent("Pig Music installed", value: watch.link?.installed == true ? "Yes" : "No")
+          LabeledContent("PigMusic installed", value: watch.link?.installed == true ? "Yes" : "No")
           LabeledContent("Nearby", value: watch.link?.reachable == true ? "Yes" : "No")
           if let confirmed = watch.confirmedAt {
             LabeledContent(
@@ -377,7 +333,7 @@ struct DiagnosticsView: View {
     "This server is older than the app. Household songs in playlists and live request progress need a server update."
   private func makeExport() -> URL? {
     var parts = [
-      "Pig Music diagnostics · \(Date().formatted(.iso8601))",
+      "PigMusic diagnostics · \(Date().formatted(.iso8601))",
       "iPhone app \(AppVersion.text) · iOS \(UIDevice.current.systemVersion)",
       server.map { "Server \($0.version) (\($0.revision)), API level \($0.apiLevel)" }
         ?? "Server: \(serverChecked ? "older than this app or unreachable" : "not checked")",

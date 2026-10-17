@@ -186,6 +186,20 @@ def test_album_artist_counts_tracks_with_other_performers_without_duplicates():
     assert composer["track_count"] == 2
 
 
+def test_albums_sort_when_string_and_integer_years_share_an_artist():
+    # "The Band" and "Band" share a sort key; request/mix-cache years are strings.
+    library = build_library(
+        {
+            "tracks": [
+                track(id="a", album_artist="The Band", album="Later", year=2021),
+                track(id="b", album_artist="Band", album="Earlier", year="2019"),
+                track(id="c", album_artist="Band", album="Unknown", year=""),
+            ]
+        }
+    )
+    assert [a["title"] for a in library["albums"]] == ["Unknown", "Earlier", "Later"]
+
+
 def test_soundtracks_are_separate_and_manual_categories_persist(tmp_path):
     snapshot = {
         "tracks": [

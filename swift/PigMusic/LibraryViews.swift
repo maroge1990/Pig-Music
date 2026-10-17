@@ -389,7 +389,6 @@ struct AccountView: View {
         NavigationLink("Password") { PasswordView(model: model) }
         NavigationLink("Devices and sessions") { SessionsView(model: model) }
         NavigationLink("Server quality") { QualityView(model: model) }
-        NavigationLink("Personal Plex") { PlexView(model: model) }
         NavigationLink("Pending edits (\(model.pendingEdits.count))") {
           PendingEditsView(model: model)
         }

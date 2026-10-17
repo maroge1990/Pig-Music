@@ -1,4 +1,4 @@
-# Pig Music: agent guide
+# PigMusic: agent guide
 
 Private household music manager: FastAPI + embedded slskd in one Unraid container, React/Vite web client, Swift iPhone/iPad/Watch apps. Product contract, decisions, architecture and the roadmap live in [blueprint.md](blueprint.md). Deploy/rollback: [docs/operations.md](docs/operations.md). Manual/browser/device verification: [docs/testing.md](docs/testing.md).
 

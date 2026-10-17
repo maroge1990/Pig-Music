@@ -270,22 +270,6 @@ extension NativeService {
         "Password was not changed. Check your current password and use at least 12 characters.")
     }
   }
-  public func plex() async throws -> PlexStatus {
-    switch try await client.plex_status_api_v1_plex_get(.init()) {
-    case .ok(let value): return try LibraryCodec.convert(value.body.json)
-    case .unauthorized: throw NativeFailure.authentication
-    default: throw NativeFailure.unavailable("Plex status is unavailable.")
-    }
-  }
-  public func savePlex(token: String, label: String) async throws -> PlexStatus {
-    switch try await client.plex_account_api_v1_plex_put(
-      .init(body: .json(.init(label: label, token: token))))
-    {
-    case .ok(let value): return try LibraryCodec.convert(value.body.json)
-    case .unauthorized: throw NativeFailure.authentication
-    default: throw NativeFailure.unavailable("Plex mapping was not confirmed.")
-    }
-  }
   public func quality() async throws -> QualitySettings {
     switch try await client.quality_api_v1_quality_get(.init()) {
     case .ok(let value): return try LibraryCodec.convert(value.body.json)

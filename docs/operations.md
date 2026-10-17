@@ -13,10 +13,9 @@ These files live under appdata. They stay out of source control and bundles, and
 | `slskd-connection.json` | Internal API `url`, `api_key`, engine `download_root` mapping |
 | `engine/engine.env`, `engine/slskd.yml` | Engine login/runtime configuration; internal API stays loopback-only |
 | `media-settings.json` | Portrait/remote toggles, optional `fanart_key` and `listenbrainz_token`; the API returns configured flags only |
-| `plex-connection.json` | `url`, owner `token`, `section_id`, `machine_id`, Plex-visible `library_root` |
 | `library-export.json` | Publication `enabled`, expected `library_id`, relative `marker_path`, optional folder settings |
 
-Per-person Plex tokens are encrypted in SQLite with a key derived from the server authentication secret. Back up and restore the whole appdata directory, including that secret. A copy of a live database is not a backup.
+Back up and restore the whole appdata directory, including the server authentication secret. Plex sync is retired (migration 11 drops per-person tokens); delete any leftover `plex-connection.json`, which holds an owner Plex token, by hand. A copy of a live database is not a backup.
 
 ## Prepared mixes
 
@@ -24,7 +23,7 @@ With preloading enabled, the background mix worker prepares current and next-day
 
 Discovery files live under appdata `mix-cache/`, outside the published music library. Admin > Overview > Mix preparation shows usage/readiness, unavailable candidates, preparation issues by person and reclaimable bytes. Refreshing status preserves unsaved setting edits. Configure the budget (initially 50 GB), disk-free reserve (2 GB), preferred quality and rotation timezone (Australia/Melbourne). Those are configurable starting limits, not measured NAS capacity. Docker includes timezone data. Mix preferences, editions, feedback, leases and audio references are in SQLite migration 10.
 
-Active/current and staged-next editions retain their files; retired/hidden editions get a cleanup grace period. Playing an edition renews a six-hour lease over its queue, including across rotation. Explicit pending library requests also retain matching cache files until completion or cancellation; successful promotion publishes an independent validated file. Cleanup cannot delete library files. Saving an edition preserves ordered metadata without permanently retaining discoveries. Explicit playback of an expired saved-edition song uses the normal downloader to refill the temporary cache and creates a six-hour playback lease; it does not require experimental streaming or create library membership. Only songs still in this person's saved mix metadata qualify. Upcoming queue entries can prepare ahead; paused/failed work remains durable. Phone offline downloads and Watch delivery keep the existing durable-library rules. Back up before adopting schema 10; restore a compatible backup when rolling back to an older schema reader.
+Active/current and staged-next editions retain their files; retired/hidden editions get a cleanup grace period. Playing an edition renews a six-hour lease over its queue, including across rotation. Explicit pending library requests also retain matching cache files until completion or cancellation; successful promotion publishes an independent validated file. Cleanup cannot delete library files. Saving an edition preserves ordered metadata without permanently retaining discoveries. Explicit playback of an expired saved-edition song uses the normal downloader to refill the temporary cache and creates a six-hour playback lease; it does not require experimental streaming or create library membership. Only songs still in this person's saved mix metadata qualify. Upcoming queue entries can prepare ahead; paused/failed work remains durable. Phone offline downloads and Watch delivery keep the existing durable-library rules. Back up before adopting schema 10 or 11; restore a compatible backup when rolling back to an older schema reader.
 
 ## Container images
 
@@ -112,6 +111,5 @@ Personal Team profiles expire after seven days; rebuild and reinstall when they 
 - **NAS unavailable:** Cached browsing and settings stay up, while the engine, workspace and downloads wait for the correct marker. Restore the real SMB mount, never an empty folder, then verify storage and the engine before resuming.
 - **External changes missing:** Run Scan library.
 - **Missing artwork or popularity:** Check the configured flags and provider availability. Optional failures hide enrichment and must never block browsing.
-- **Playlist missing in Plex:** Check the person's Plex connection and path mapping, then file publication and indexing. Ownership markers prevent edits to unrelated playlists.
 - **Slow remote listening:** Provider resolution is independent of the library; saved playback is preferred.
 - **Quality mismatch:** Check the actual file format and bitrate and the effective preference. Never bypass complete-file decoding to speed up the queue.

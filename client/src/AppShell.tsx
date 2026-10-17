@@ -132,8 +132,8 @@ export function AppShell() {
 
   useEffect(() => {
     document.title = user
-      ? `${sections.find((s) => s.id === route.section)?.label || "Home"} · Pig Music`
-      : "Pig Music";
+      ? `${sections.find((s) => s.id === route.section)?.label || "Home"} · PigMusic`
+      : "PigMusic";
   }, [user, route.section]);
 
   useEffect(() => {
@@ -244,7 +244,7 @@ export function AppShell() {
         <header className="personal-header">
           <a href="#/home" className="personal-brand">
             <img src="/brand/mark.png" alt="" />
-            <span className="header-wordmark" role="img" aria-label="Pig Music">
+            <span className="header-wordmark" role="img" aria-label="PigMusic">
               <img
                 src="/brand/wordmark-light.svg"
                 className="light-wordmark"
@@ -295,7 +295,7 @@ export function AppShell() {
         {hint && (
           <div className="personal-notice install-hint" role="status">
             <p>
-              Tip: add Pig Music to your Home Screen — tap Share, then Add to
+              Tip: add PigMusic to your Home Screen — tap Share, then Add to
               Home Screen.
             </p>
             <button

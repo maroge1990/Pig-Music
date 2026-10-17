@@ -121,7 +121,7 @@ struct SignInView: View {
               "Sign-in status: " + message)
           }
         }
-      }.navigationTitle("Pig Music").pigCanvas()
+      }.navigationTitle("PigMusic").pigCanvas()
     }
   }
 }

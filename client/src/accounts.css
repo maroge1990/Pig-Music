@@ -737,9 +737,3 @@ main h1[tabindex="-1"]:focus {
   font-size: var(--type-caption);
   color: var(--secondary);
 }
-.plex-note {
-  margin-top: var(--space-24);
-}
-.plex-note .field-help {
-  margin: 0;
-}

@@ -174,8 +174,6 @@ class PersonalRemoval:
             self.recovery.save("library-removal:" + operation["id"], operation)
         finally:
             self.store.refresh_library()
-            if prepared:
-                self.recovery.save("plex-refresh-required", True)
         return {
             "id": operation["id"],
             "removed": len(ids),

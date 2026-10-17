@@ -278,11 +278,6 @@ class Exporter:
             if changed:
                 self.store.refresh_library()
             self.store.cleanup_replacements()
-            if changed:
-                with self.store.connect() as conn:
-                    conn.execute(
-                        "INSERT INTO documents VALUES ('plex-refresh-required','true') ON CONFLICT(name) DO UPDATE SET payload='true'"
-                    )
             self.report(status="completed", files=completed)
         except (OSError, ValueError, KeyError) as exc:
             self.report(status="deferred", error=str(exc)[:180])

@@ -29,6 +29,14 @@ def rows(database):
         }
 
 
+def retired_plex(name):
+    """Plex sync state that migration 11 deletes."""
+    return (
+        name.startswith(("plex-status", "plex-playlist:"))
+        or name == "plex-refresh-required"
+    )
+
+
 def verify_owner_attribution(store, before, owner_id):
     """Validate the deliberate account cutover on a disposable copy only."""
     after = rows(store.directory / "pig-music.sqlite3")
@@ -56,6 +64,8 @@ def verify_owner_attribution(store, before, owner_id):
     assert not previous_queue
     documents = dict(after["documents"])
     for key, raw in before["documents"]:
+        if retired_plex(key):
+            continue
         assert documents[key] == raw
         if key.startswith("artist-job:") and key.count(":") == 1:
             artist_id = key.split(":")[1]
@@ -72,7 +82,6 @@ def verify_owner_attribution(store, before, owner_id):
         "user_preferences",
         "quality_preferences",
         "unassigned_tracks",
-        "plex_accounts",
         "sync_entities",
         "sync_revisions",
         "sqlite_sequence",
@@ -152,6 +161,11 @@ def main():
                 value["sha"]
             ), "Invalid additive display-cache pointer"
             added_images.add(name)
+    # Migration 11 retires Plex sync: its table and state documents are removed.
+    before.pop("plex_accounts", None)
+    before["documents"] = [
+        r for r in before.get("documents", []) if not retired_plex(r[0])
+    ]
     for values in (before, after):
         values["documents"] = [
             r
@@ -170,6 +184,7 @@ def main():
         8,
         9,
         10,
+        11,
     ], "Unexpected migration versions"
     assert all(
         isinstance(r[1], str) and r[1] for r in ledger
@@ -192,7 +207,6 @@ def main():
         "user_preferences",
         "quality_preferences",
         "unassigned_tracks",
-        "plex_accounts",
         "sync_entities",
         "sync_revisions",
         "sqlite_sequence",

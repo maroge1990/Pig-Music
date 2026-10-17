@@ -207,13 +207,6 @@ export function MediaSettings() {
         </>
       )}
       {message && <p role="status">{message}</p>}
-      <section className="plex-note">
-        <h3>Plex</h3>
-        <p className="field-help">
-          Each person connects their own Plex account from{" "}
-          <a href="#/account">Account</a>.
-        </p>
-      </section>
     </section>
   );
 }

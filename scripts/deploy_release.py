@@ -370,7 +370,7 @@ def main():
         retention(unraid, args.retention)
         return
     if not args.image or not IMAGE.fullmatch(args.image):
-        parser.error("Use the immutable Pig Music registry digest")
+        parser.error("Use the immutable PigMusic registry digest")
     if not re.fullmatch(r"[0-9a-f]{40}", args.revision or "") or not re.fullmatch(
         r"[a-z0-9-]{6,70}", args.version or ""
     ):

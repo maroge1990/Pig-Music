@@ -14,7 +14,7 @@ ARG VERSION=dev
 LABEL org.opencontainers.image.source="https://github.com/maroge1990/Pig-Music" \
       org.opencontainers.image.revision="$VCS_REF" \
       org.opencontainers.image.version="$VERSION" \
-      org.opencontainers.image.title="Pig Music"
+      org.opencontainers.image.title="PigMusic"
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg tzdata libicu76 libssl3t64 libstdc++6 libatomic1 && rm -rf /var/lib/apt/lists/*
 COPY --from=soulseek /slskd /opt/slskd
 # Reuse the digest-pinned Node 24 runtime for local yt-dlp EJS challenges.

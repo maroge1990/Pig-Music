@@ -90,7 +90,6 @@ public struct Playlist: Codable, Sendable, Identifiable, Hashable {
   public var revision: Int
   public var favourites: Bool?
   public var trackCount: Int?
-  public var plex: PlaylistPlexStatus?
   public var entries: [PlaylistEntry]?
 }
 

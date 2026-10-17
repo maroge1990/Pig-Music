@@ -35,8 +35,10 @@ def test_headers_errors_and_secret_validation(tmp_path, monkeypatch):
         assert response.headers["strict-transport-security"] == "max-age=31536000"
         assert response.headers["cross-origin-opener-policy"] == "same-origin"
         secret = "fixture secret " * 100
-        for path, body in [("/api/v1/plex", {"token": secret})]:
-            response = client.put(path, json=body)
+        for path, body in [
+            ("/api/v1/me/password", {"current_password": secret, "password": secret})
+        ]:
+            response = client.post(path, json=body)
             assert response.status_code == 422
             assert secret not in response.text
             assert set(response.json()) == {"detail", "code"}

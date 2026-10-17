@@ -18,10 +18,6 @@ public struct AccountSession: Codable, Sendable, Identifiable {
   public let revokedAt: Double?
 }
 public struct AccountSessions: Codable, Sendable { public let sessions: [AccountSession] }
-public struct PlexStatus: Codable, Sendable {
-  public let configured: Bool
-  public let label: String?
-}
 public struct QualityOption: Codable, Sendable, Identifiable {
   public let value: String
   public let label: String
@@ -79,13 +75,6 @@ public struct ArtistAcquisition: Codable, Sendable {
   public let error: String?
 }
 
-public struct PlaylistPlexStatus: Codable, Sendable, Hashable {
-  public var status: String?
-  public var availableCount: Int?
-  public var pendingCount: Int?
-  public var repeatedCount: Int?
-  public var updatedAt: String?
-}
 public struct CancelledRequest: Codable, Sendable {
   public var cancelled: Bool
   public var continuesForOthers: Bool

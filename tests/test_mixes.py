@@ -899,3 +899,25 @@ def test_a_stalled_metadata_provider_cannot_starve_the_next_person(
     monkeypatch.setattr(mixes, "prepare_person", prepare)
     asyncio.run(mixes.prepare_pass(None))
     assert completed == [user]
+
+
+def test_shutdown_cancels_a_pass_that_ignores_the_stop_flag(tmp_path, monkeypatch):
+    import server.mixes as implementation
+
+    app, _ = protected(tmp_path, monkeypatch)
+    mixes = app.state.store.mixes
+
+    async def stuck(client):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(implementation, "SHUTDOWN_SECONDS", 0.05)
+    monkeypatch.setattr(mixes, "prepare_pass", stuck)
+
+    async def run():
+        mixes.stopping = asyncio.Event()
+        mixes.start(None)
+        await asyncio.sleep(0)
+        await asyncio.wait_for(mixes.close(), timeout=2)
+        return mixes.task.cancelled()
+
+    assert asyncio.run(run())

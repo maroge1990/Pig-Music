@@ -18,6 +18,12 @@ def normalise(text: str) -> str:
     return " ".join(re.findall(r"\w+", text))
 
 
+def year_order(value) -> int:
+    # Years arrive as tag integers or request strings ("2019", "2019-05-01", "").
+    found = re.search(r"\d{4}", str(value or ""))
+    return int(found[0]) if found else 0
+
+
 def identifier(*parts) -> str:
     return hashlib.sha256("\x1f".join(str(p) for p in parts).encode()).hexdigest()[:24]
 
@@ -196,7 +202,7 @@ def build_library(
     albums.sort(
         key=lambda a: (
             a["artist"].casefold().removeprefix("the "),
-            a["year"],
+            year_order(a["year"]),
             a["title"].casefold(),
         )
     )
@@ -362,7 +368,7 @@ def build_migration(
         key=lambda a: (
             a["compilation"],
             a["artist"].casefold(),
-            a["year"],
+            year_order(a["year"]),
             a["title"].casefold(),
         )
     )

@@ -269,7 +269,7 @@ import SwiftUI
         result += " " + (message ?? "")
       }
       if link?.activated == true, link?.installed == false {
-        result += " Pig Music isn't on your Watch yet: install it from the Watch app on this iPhone."
+        result += " PigMusic isn't on your Watch yet: install it from the Watch app on this iPhone."
       }
       await publish()
       return result

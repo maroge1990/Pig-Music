@@ -133,7 +133,7 @@ public enum WatchConnectionStatus: Equatable, Sendable {
     case .failed(let error): "Couldn't connect to Apple Watch: \(error)"
     case .notPaired: "No Apple Watch is paired with this iPhone."
     case .notInstalled:
-      "Pig Music isn't on your Watch yet. Install it from the Watch app on this iPhone, then open it once."
+      "PigMusic isn't on your Watch yet. Install it from the Watch app on this iPhone, then open it once."
     case .nearby: "Watch connected"
     case .away: "Watch not nearby · transfers continue when it is"
     }

@@ -90,7 +90,6 @@ class Playlists:
                     "household_track": household,
                 }
             )
-        sync = self.store.read_document("plex-playlist:" + playlist_id)
         return {
             **playlist,
             "revision": playlist.get("revision", 0),
@@ -98,16 +97,6 @@ class Playlists:
             "track_count": len(entries),
             "available_count": sum(e["status"] == "downloaded" for e in entries),
             "review_count": sum(e["status"] == "review" for e in entries),
-            "plex": {
-                k: sync.get(k)
-                for k in (
-                    "status",
-                    "available_count",
-                    "pending_count",
-                    "repeated_count",
-                    "updated_at",
-                )
-            },
         }
 
     def list(self):

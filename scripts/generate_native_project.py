@@ -257,7 +257,7 @@ def generate():
             "TARGETED_DEVICE_FAMILY": "1,2",
             "CODE_SIGN_STYLE": "Automatic",
             "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
-            "INFOPLIST_KEY_CFBundleDisplayName": "Pig Music",
+            "INFOPLIST_KEY_CFBundleDisplayName": "PigMusic",
             "INFOPLIST_KEY_UILaunchStoryboardName": "LaunchScreen",
             "INFOPLIST_KEY_UIApplicationSceneManifest_Generation": "YES",
             "INFOPLIST_KEY_UISupportedInterfaceOrientations": "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight",
@@ -277,7 +277,7 @@ def generate():
             "CODE_SIGN_STYLE": "Automatic",
             "SKIP_INSTALL": "YES",
             "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
-            "INFOPLIST_KEY_CFBundleDisplayName": "Pig Music",
+            "INFOPLIST_KEY_CFBundleDisplayName": "PigMusic",
         }
         watch_configs.append(
             add(

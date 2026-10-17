@@ -44,7 +44,7 @@ test("the library album page shows its cover and a library artist link", () => {
 test("each section sets its own document title", () => {
   const text = read("AppShell.tsx");
   assert.match(text, /document\.title =/);
-  assert.match(text, /· Pig Music/);
+  assert.match(text, /· PigMusic/);
 });
 
 test("quality option labels live only in QualitySelect", () => {

@@ -13,6 +13,7 @@ MIGRATIONS = (
     (8, "0008_device_copies"),
     (9, "0009_native_mutations"),
     (10, "0010_mixes"),
+    (11, "0011_remove_plex"),
 )
 
 

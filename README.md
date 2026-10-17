@@ -1,4 +1,4 @@
-# Pig Music
+# PigMusic
 
 Private household music-library management in one Unraid container: shared settings, a durable download queue and an embedded Soulseek engine. Verified files are published into the existing Synology library that Plex reads. There are web, iPhone/iPad and Apple Watch clients.
 
@@ -18,7 +18,7 @@ Private household music-library management in one Unraid container: shared setti
 - Seven acquisition sources: Soulseek, FreeMp3Cloud, zvu4no, JioSaavn, YouTube, SoundCloud and Monochrome. Each file is validated before publication, and nothing is ever transcoded to reach a quality.
 - System, artist and album quality preferences, with replacement upgrades and downgrades.
 - Native scanning, reviewed naming and tagging, recoverable removal and undo.
-- Reviewed Apple XML imports, ordered playlists, favourites that never download, and Plex playlist export.
+- Reviewed Apple XML imports, ordered playlists, favourites that never download.
 - Native apps with offline downloads, gapless playback and crossfade, and an independent Watch library.
 
 Private runtime data, credentials, caches and exports stay out of Git and deployment bundles. Upstream provenance and licences are under `server/vendor/`.

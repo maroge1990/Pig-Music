@@ -123,7 +123,6 @@ class Recovery:
                 self.begin(conn, record)
             self.finish(record, root)
             self.store.refresh_library()
-            self.save("plex-refresh-required", True)
             return record
 
     def finish(self, record, root):
@@ -191,7 +190,6 @@ class Recovery:
                     if json.loads(payload).get("removal_id") == identity:
                         c.execute("DELETE FROM documents WHERE name=?", (name,))
             self.store.refresh_library()
-            self.save("plex-refresh-required", True)
             return record
 
     @coordinated

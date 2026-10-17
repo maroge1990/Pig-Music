@@ -169,7 +169,7 @@ private struct WatchLibraryView: View {
         if model.manifest.context.account == nil {
           Text("Sign in and open Apple Watch in the phone app to send music.").font(.footnote)
         }
-      }.pigBrandedCanvas().navigationTitle("Pig Music")
+      }.pigBrandedCanvas().navigationTitle("PigMusic")
     }.pigBrandedCanvas()
   }
   private func libraryLink<Destination: View>(
@@ -305,7 +305,7 @@ private struct WatchSongs: View {
   }
 }
 /// The system Now Playing first: large and glanceable, with Digital Crown
-/// volume and the audio output picker (AirPods, Bluetooth). It drives Pig Music
+/// volume and the audio output picker (AirPods, Bluetooth). It drives PigMusic
 /// through the remote commands. Seeking, repeat and errors are one swipe away.
 private struct WatchNowPlaying: View {
   @Bindable var model: WatchModel
@@ -354,7 +354,7 @@ private struct WatchPlaybackDetails: View {
         Text("All").tag(PlaybackRepeat.all)
         Text("One").tag(PlaybackRepeat.one)
       }
-      Slider(value: $model.volume, in: 0...1).accessibilityLabel("Pig Music level")
+      Slider(value: $model.volume, in: 0...1).accessibilityLabel("PigMusic level")
       if let error = model.playback.error ?? model.message {
         Text(error).font(.footnote)
         Button("Retry playback") { Task { await model.retry() } }

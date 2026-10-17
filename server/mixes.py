@@ -20,6 +20,7 @@ from .api_models import TrackDTO
 
 log = logging.getLogger("pig_music.mixes")
 PASS_SECONDS = 240
+SHUTDOWN_SECONDS = 10
 KINDS = {
     "daily": "Daily blend",
     "back": "Back in the mix",
@@ -87,8 +88,18 @@ class Mixes:
 
     async def close(self):
         self.stopping.set()
-        if self.task:
-            await self.task
+        if not self.task:
+            return
+        # Workers poll the stop flag, but a provider call can outlast the
+        # supervisor's 25 s grace; durable cursors make cancellation safe.
+        try:
+            await asyncio.wait_for(asyncio.shield(self.task), timeout=SHUTDOWN_SECONDS)
+        except TimeoutError:
+            self.task.cancel()
+            try:
+                await self.task
+            except asyncio.CancelledError:
+                pass
 
     async def run(self, client):
         background_metadata.set(True)
@@ -156,7 +167,7 @@ class Mixes:
         )
 
     async def candidates(self, client, projection):
-        """Use public artist/tag seeds only; personal listening never leaves Pig Music."""
+        """Use public artist/tag seeds only; personal listening never leaves PigMusic."""
         seeds = await self.home.seeds(client, projection, {"unavailable": False})
         records = []
         for identity, name in seeds[:3]:
@@ -394,8 +405,10 @@ class Mixes:
 
     async def prepare_person(self, client, user, today):
         deadline = time.monotonic() + PASS_SECONDS
-        current = self.edition(user, "daily", today)
-        upcoming = self.edition(user, "daily", today + timedelta(days=1))
+        current = await asyncio.to_thread(self.edition, user, "daily", today)
+        upcoming = await asyncio.to_thread(
+            self.edition, user, "daily", today + timedelta(days=1)
+        )
         if (
             current
             and upcoming
@@ -417,7 +430,7 @@ class Mixes:
             public = None
             for day in (today, today + timedelta(days=1)):
                 kind = "daily" if projection["tracks"] else "popular"
-                if not self.edition(user, kind, day):
+                if not await asyncio.to_thread(self.edition, user, kind, day):
                     if projection["tracks"]:
                         pool, _ = await self.candidates(
                             client, {**projection, "mix_day": str(day)}
@@ -448,18 +461,21 @@ class Mixes:
                         [t for t in pool if song_key(t) not in hidden],
                         30,
                         f"{user}:{day}",
-                        previous=self.exposure(user, day),
+                        previous=await asyncio.to_thread(self.exposure, user, day),
                     )
                     if tracks:
-                        self.stage(user, kind, day, title, reason, tracks)
+                        await asyncio.to_thread(
+                            self.stage, user, kind, day, title, reason, tracks
+                        )
                 await self.prepare_staged(user, day, today, deadline)
             return
         history = await asyncio.to_thread(self.history, user, owned)
         weights = await asyncio.to_thread(self.favourite_weights, user)
         # Give a new person a playable library mix before any external lookup.
-        if not self.edition(user, "back", today):
+        if not await asyncio.to_thread(self.edition, user, "back", today):
             tracks = choose(owned, 30, f"{user}:{today}:back", history)
-            identity = self.stage(
+            identity = await asyncio.to_thread(
+                self.stage,
                 user,
                 "back",
                 today,
@@ -471,7 +487,7 @@ class Mixes:
         for day in (today, today + timedelta(days=1)):
             if self.stopping.is_set():
                 return
-            if not self.edition(user, "daily", day):
+            if not await asyncio.to_thread(self.edition, user, "daily", day):
                 candidates, genre = await self.candidates(
                     client, {**projection, "mix_day": str(day)}
                 )
@@ -486,7 +502,7 @@ class Mixes:
                     not in owned_keys
                 ]
                 salt = f"{user}:{day}"
-                previous = self.exposure(user, day)
+                previous = await asyncio.to_thread(self.exposure, user, day)
                 related = choose(
                     [t for t in discoveries if t["bucket"] != "popular"],
                     9,
@@ -512,7 +528,8 @@ class Mixes:
                 daily = choose(
                     familiar + related + chart, 30, salt, history, previous=previous
                 )
-                self.stage(
+                await asyncio.to_thread(
+                    self.stage,
                     user,
                     "daily",
                     day,
@@ -532,7 +549,8 @@ class Mixes:
                     ),
                     daily,
                 )
-                self.stage(
+                await asyncio.to_thread(
+                    self.stage,
                     user,
                     "back",
                     day,
@@ -562,7 +580,8 @@ class Mixes:
                     history,
                 )
                 if len({t["artist"].casefold() for t in artist_tracks}) > 1:
-                    self.stage(
+                    await asyncio.to_thread(
+                        self.stage,
                         user,
                         "artist",
                         day,
@@ -571,7 +590,8 @@ class Mixes:
                         artist_tracks,
                     )
                 if genre:
-                    self.stage(
+                    await asyncio.to_thread(
+                        self.stage,
                         user,
                         "genre",
                         day,
@@ -589,7 +609,8 @@ class Mixes:
                         ),
                     )
                 if popular_tracks:
-                    self.stage(
+                    await asyncio.to_thread(
+                        self.stage,
                         user,
                         "popular",
                         day,
@@ -601,11 +622,7 @@ class Mixes:
 
     async def prepare_staged(self, user, day, today, deadline=None):
         deadline = deadline if deadline is not None else time.monotonic() + PASS_SECONDS
-        with self.store.connect() as conn:
-            rows = conn.execute(
-                "SELECT id,payload,kind FROM mix_editions WHERE user_id=? AND day=? AND (retired_at IS NULL OR lease_until>?) ORDER BY kind LIKE 'saved:%' DESC,COALESCE(json_extract(payload,'$.worked_at'),0),id",
-                (user, str(day), time.time()),
-            ).fetchall()
+        rows = await asyncio.to_thread(self.pending, user, day)
         for identity, raw, kind in rows:
             payload = json.loads(raw)
             if payload["state"] == "ready" or payload.get("retry_at", 0) > time.time():
@@ -622,8 +639,7 @@ class Mixes:
             payload["tracks"] = [
                 t for t in payload["tracks"] if song_key(t) not in hidden
             ]
-            self.update(identity, payload)
-            prepared = []
+            await asyncio.to_thread(self.update, identity, payload)
             deferred = False
             # Resume across passes/restarts. A repeatedly failing early song
             # cannot prevent later songs from ever getting a download attempt.
@@ -635,28 +651,13 @@ class Mixes:
                 try:
                     await asyncio.to_thread(self.cache.available, track)
                 except FileNotFoundError:
-                    # Explicit library requests always get first use of sources.
-                    with self.store.connect() as conn:
-                        busy = conn.execute(
-                            "SELECT 1 FROM queue WHERE status IN ('queued','searching','downloading','validating') LIMIT 1"
-                        ).fetchone()
-                    if (
-                        busy
-                        or not self.store.download_settings()["enabled"]
-                        or not self.cache.room()
-                    ):
+                    blocked = await asyncio.to_thread(self.blocked)
+                    if blocked:
                         deferred = True
-                        payload["blocked"] = (
-                            "Explicit library downloads take priority"
-                            if busy
-                            else (
-                                "Downloads are paused"
-                                if not self.store.download_settings()["enabled"]
-                                else "Cache budget or disk reserve reached"
-                            )
-                        )
+                        payload["blocked"] = blocked
                         continue
-                    downloader = MixDownloader(
+                    downloader = await asyncio.to_thread(
+                        MixDownloader,
                         self.cache,
                         self.runtime,
                         lambda: self.stopping.is_set() or time.monotonic() >= deadline,
@@ -673,15 +674,14 @@ class Mixes:
                                 or "Preparation deferred: downloads paused or cache space reserved"
                             )
                         if time.monotonic() >= deadline:
-                            self.update(identity, payload)
+                            await asyncio.to_thread(self.update, identity, payload)
                             return
                         payload["cursor"] = position + 1
-                        self.update(identity, payload)
+                        await asyncio.to_thread(self.update, identity, payload)
                         continue
-                prepared.append(track)
                 payload.get("failures", {}).pop(song_key(track), None)
                 payload["cursor"] = position + 1
-                self.update(identity, payload)
+                await asyncio.to_thread(self.update, identity, payload)
             # Successful audio is durable; rebuild readiness after a resumed pass.
             prepared = []
             for track in payload["tracks"]:
@@ -693,7 +693,7 @@ class Mixes:
             payload["cursor"] = 0
             if deferred:
                 payload["retry_at"] = time.time() + 60
-                self.update(identity, payload)
+                await asyncio.to_thread(self.update, identity, payload)
                 continue
             if (
                 len(prepared) == len(payload["tracks"])
@@ -703,12 +703,34 @@ class Mixes:
                     await asyncio.to_thread(self.publish, identity, prepared, today)
                 else:
                     payload["retry_at"] = time.time() + 3600
-                    self.update(identity, payload)
+                    await asyncio.to_thread(self.update, identity, payload)
             else:
                 payload.update(
                     attempts=payload.get("attempts", 0) + 1, retry_at=time.time() + 300
                 )
-                self.update(identity, payload)
+                await asyncio.to_thread(self.update, identity, payload)
+
+    def pending(self, user, day):
+        with self.store.connect() as conn:
+            return conn.execute(
+                "SELECT id,payload,kind FROM mix_editions WHERE user_id=? AND day=? AND (retired_at IS NULL OR lease_until>?) ORDER BY kind LIKE 'saved:%' DESC,COALESCE(json_extract(payload,'$.worked_at'),0),id",
+                (user, str(day), time.time()),
+            ).fetchall()
+
+    def blocked(self):
+        """Why automatic preparation must wait, or None when it may download."""
+        # Explicit library requests always get first use of sources.
+        with self.store.connect() as conn:
+            busy = conn.execute(
+                "SELECT 1 FROM queue WHERE status IN ('queued','searching','downloading','validating') LIMIT 1"
+            ).fetchone()
+        if busy:
+            return "Explicit library downloads take priority"
+        if not self.store.download_settings()["enabled"]:
+            return "Downloads are paused"
+        if not self.cache.room():
+            return "Cache budget or disk reserve reached"
+        return None
 
     def update(self, identity, payload):
         with self.store.connect() as conn:
@@ -931,7 +953,8 @@ class Mixes:
             await asyncio.to_thread(self.cache.available, song)
         except FileNotFoundError:
             deadline = time.monotonic() + 180
-            worker = MixDownloader(
+            worker = await asyncio.to_thread(
+                MixDownloader,
                 self.cache,
                 self.runtime,
                 lambda: self.stopping.is_set() or time.monotonic() >= deadline,

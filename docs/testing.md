@@ -7,7 +7,7 @@ The commands for the three test tiers are in [AGENTS.md](../AGENTS.md#test-cheap
 - Edition and recording conflicts, ambiguous matches, compilation and live context, identical-byte memberships.
 - Edition anchors across scan order and restarts; edition-specific removal, cancellation, exclusions and restore.
 - An idempotent persistent queue; claim cancellation and clear; interrupted publication; full decoding; quality replacement and fallback.
-- Favourites without acquisition; playlist order, duplicates and missing files; Plex ownership.
+- Favourites without acquisition; playlist order, duplicates and missing files.
 - Artist-job cancellation cannot submit work after cancelling.
 - A missing or wrong NAS marker allows reads but creates no workspace or media paths.
 - Default-deny routes, per-person scoping, signed media revocation, and provider rate limits (`tests/test_rate_limits.py`).
