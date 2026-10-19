@@ -80,3 +80,73 @@ def test_catalogue_releases_mark_what_the_person_owns(tmp_path, monkeypatch):
         assert [t["id"] for t in detail["tracks"]] == ["Brat-1", "Brat-2"]
         assert "/private/" not in json.dumps(detail)
     assert all(path.startswith("release-group") for path in calls)
+
+
+NAMESAKE = "11111111-2222-4333-8444-555555555555"
+RELEASE = "99999999-1111-4222-8333-444455556666"
+
+
+def test_known_identities_win_over_names_and_titles(tmp_path, monkeypatch):
+    monkeypatch.delenv("PIG_MUSIC_TEST_LEGACY_API", raising=False)
+    tracks = [
+        song(1, "Brat"),
+        song(2, "Brat"),
+        {**song(1, "Crash"), "musicbrainz_release_id": RELEASE},
+    ]
+    (tmp_path / "library-snapshot.json").write_text(json.dumps({"tracks": tracks}))
+    store = Store(tmp_path)
+    auth = Auth(store)
+    owner = auth.create_owner("mark", "catalogue fixture password")
+    token = auth.login(
+        "mark", "catalogue fixture password", "device", "phone", "ios", "f"
+    )["token"]
+    groups = []
+
+    async def provider(self, client, path, **params):
+        return {"release-group-count": len(groups), "release-groups": groups}
+
+    monkeypatch.setattr(Catalogue, "get", provider)
+    app = create_app(tmp_path)
+    with TestClient(
+        app,
+        base_url="https://private.ts.net",
+        headers={"Authorization": "Bearer " + token},
+    ) as client:
+        app.state.store.user_libraries.add(owner, ["Brat-1", "Brat-2", "Crash-1"])
+        path = f"/api/v1/catalogue/artists/{ARTIST}/releases"
+        # A live album is not the studio album; an edition is.
+        groups[:] = [
+            {"id": GROUP, "title": "Brat (Live)", "primary-type": "Album"},
+            {"id": OTHER, "title": "Brat [Deluxe Edition]", "primary-type": "Album"},
+        ]
+        found = client.get(path, params={"name": "Charli"}).json()["releases"]
+        assert found[0]["saved_album_id"] is None
+        assert found[1]["saved_album_id"] and found[1]["saved_songs"] == 2
+        # A known release must belong to the group the provider describes.
+        groups[:] = [
+            {
+                "id": GROUP,
+                "title": "Crash",
+                "primary-type": "Album",
+                "releases": [{"id": "77777777-1111-4222-8333-444455556666"}],
+            },
+            {
+                "id": OTHER,
+                "title": "Crash (2023 Remaster)",
+                "primary-type": "Album",
+                "releases": [{"id": RELEASE}],
+            },
+        ]
+        found = client.get(path, params={"name": "Charli"}).json()["releases"]
+        assert found[0]["saved_album_id"] is None
+        assert found[1]["saved_album_id"] and found[1]["saved_songs"] == 1
+        # The library Charli is linked to a different catalogue artist: a
+        # namesake's page claims nothing, even when its name matches.
+        artist_id = identifier("artist", normalise("Charli"))
+        app.state.store.write_document(
+            "library-artist:" + artist_id, {"id": NAMESAKE, "name": "Charli"}
+        )
+        found = client.get(path, params={"name": "Charli"}).json()["releases"]
+        assert [r["saved_album_id"] for r in found] == [None, None]
+        linked = f"/api/v1/catalogue/artists/{NAMESAKE}/releases"
+        assert client.get(linked).json()["releases"][1]["saved_album_id"]

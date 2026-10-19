@@ -14,7 +14,18 @@ class Ambiguous(Exception):
 
 
 def cached_identity(store, artist):
-    known = store.read_document("library-artist:" + artist["id"])
+    return _identity(store.read_document("library-artist:" + artist["id"]), artist)
+
+
+def cached_identities(store, artists):
+    """`cached_identity` for many artists with one read: {artist id: identity}."""
+    known = store.read_documents("library-artist:" + a["id"] for a in artists)
+    return {
+        a["id"]: _identity(known.get("library-artist:" + a["id"]), a) for a in artists
+    }
+
+
+def _identity(known, artist):
     if known and normalise(known.get("name", "")) == normalise(artist["name"]):
         try:
             return {"id": mbid(known["id"]), "name": artist["name"]}

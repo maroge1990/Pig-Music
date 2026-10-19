@@ -862,6 +862,19 @@ class Store:
             ).fetchone()
         return json.loads(row[0]) if row else {}
 
+    def read_documents(self, names):
+        """Several documents in one query: {name: payload} for those present."""
+        names = list(dict.fromkeys(names))
+        if not names:
+            return {}
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT documents.name,documents.payload FROM documents "
+                "JOIN json_each(?) wanted ON documents.name=wanted.value",
+                (json.dumps(names),),
+            ).fetchall()
+        return {name: json.loads(payload) for name, payload in rows}
+
     def _cache_covers(self, snapshot_tracks):
         from .library_artwork import cache_covers
 

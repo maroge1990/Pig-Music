@@ -1,13 +1,14 @@
 """Shared provider metadata with personal availability and acquisition controls."""
 
 import asyncio
+import json
 import re
 from uuid import UUID
 import httpx
 from fastapi import APIRouter, Header, HTTPException, Request, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from ..artist_identity import Ambiguous, cached_identity, resolve_artist
+from ..artist_identity import Ambiguous, cached_identities, resolve_artist
 from ..catalogue import release_tracks, credit, edition_rank
 from ..library import normalise
 from ..releases import release_query
@@ -25,11 +26,29 @@ from ..conditional import CONDITIONAL_RESPONSES, conditional_json
 from ..user_library import track_dto
 
 
+# A trailing qualifier that names an edition of the same album. Anything else
+# in brackets ("Live", "Demos", "Remixes") names different recordings.
+EDITION = re.compile(
+    r"\b(deluxe|expanded|edition|remaster(ed)?|anniversary|bonus|special|"
+    r"collector'?s|reissue|explicit|clean|mono|stereo|super)\b",
+    re.I,
+)
+DISTINCT = re.compile(
+    r"\b(live|acoustic|demos?|remix(es)?|instrumentals?|karaoke|sessions?|unplugged)\b",
+    re.I,
+)
+
+
 def title_key(title):
-    """Album titles compare without edition qualifiers: "Brat (Deluxe)" is "brat"."""
-    return normalise(
-        re.sub(r"\s*[\(\[][^\)\]]*[\)\]]\s*$", "", title or "")
-    ) or normalise(title)
+    """Album titles compare without edition qualifiers: "Brat (Deluxe)" is
+    "brat", but "Brat (Live)" stays a different album."""
+    text = title or ""
+    while found := re.search(r"\s*[\(\[]([^\)\]]*)[\)\]]\s*$", text):
+        qualifier = found.group(1)
+        if not EDITION.search(qualifier) or DISTINCT.search(qualifier):
+            break
+        text = text[: found.start()]
+    return normalise(text) or normalise(title)
 
 
 ACTIVE = {"waiting_for_sources", "searching", "downloading", "validating", "importing"}
@@ -85,28 +104,57 @@ def discover_router(store, catalogue, popularity=None, warmer=None, http_client=
         }
 
     def saved_albums(user_id, artist_id, name):
-        """The person's library albums for a catalogue artist, by title key.
+        """The person's library albums for a catalogue artist.
 
-        Library artists match by their resolved identity, or by name when the
-        caller passes one; no catalogue request is made.
+        Library artists linked to a catalogue identity match only that
+        identity. The name the caller passes is a fallback for library
+        artists with no known identity, and only when no library artist is
+        linked to this one. No catalogue request is made.
         """
         projection = store.user_libraries.projection(user_id)
-        wanted = normalise(name)
+        identities = cached_identities(store, projection["artists"])
         artists = [
             a
             for a in projection["artists"]
-            if (cached_identity(store, a) or {}).get("id") == artist_id
-            or (wanted and normalise(a["name"]) == wanted)
+            if (identities[a["id"]] or {}).get("id") == artist_id
         ]
+        wanted = normalise(name)
+        if not artists and wanted:
+            artists = [
+                a
+                for a in projection["artists"]
+                if identities[a["id"]] is None and normalise(a["name"]) == wanted
+            ]
         album_ids = {i for a in artists for i in a.get("album_ids", [])}
-        found = {}
-        for album in projection["albums"]:
-            if (
-                album["id"] in album_ids
-                and album.get("server_state", "in_library") == "in_library"
-            ):
-                found.setdefault(title_key(album["title"]), album)
-        return found
+        return [
+            album
+            for album in projection["albums"]
+            if album["id"] in album_ids
+            and album.get("server_state", "in_library") == "in_library"
+        ]
+
+    def owned_album(saved, group):
+        """The saved album that is this release group, if any.
+
+        A saved album's known release must be one of the group's releases
+        when the provider lists them; otherwise titles decide, ignoring only
+        edition qualifiers.
+        """
+        listed = {r.get("id") for r in group.get("releases") or [] if r.get("id")}
+        wanted = title_key(group.get("title"))
+        for album in saved:
+            releases = {
+                t["musicbrainz_release_id"]
+                for t in album.get("tracks", [])
+                if t.get("musicbrainz_release_id")
+            }
+            if listed and releases:
+                if releases & listed:
+                    return album
+                continue
+            if title_key(album["title"]) == wanted:
+                return album
+        return None
 
     @router.get("/artists/{artist_id}/releases", response_model=CatalogueGroupsDTO)
     async def groups(
@@ -140,8 +188,8 @@ def discover_router(store, catalogue, popularity=None, warmer=None, http_client=
             saved_albums, request.state.user["id"], valid(artist_id), name
         )
 
-        def owned(title):
-            album = saved.get(title_key(title))
+        def owned(group):
+            album = owned_album(saved, group)
             return {
                 "saved_album_id": album["id"] if album else None,
                 "saved_songs": album.get("track_count", 0) if album else 0,
@@ -156,7 +204,7 @@ def discover_router(store, catalogue, popularity=None, warmer=None, http_client=
                     "title": r["title"],
                     "date": r.get("first-release-date") or "",
                     "type": r.get("primary-type") or "Release",
-                    **owned(r["title"]),
+                    **owned(r),
                 }
                 for r in result.get("release-groups", [])
             ],
@@ -245,6 +293,20 @@ def discover_router(store, catalogue, popularity=None, warmer=None, http_client=
 
     RELEASE_INC = "recordings+artist-credits+isrcs"
 
+    def requested_from(user_id, release_id):
+        """This person's unfinished requests from one release (not the whole
+        household queue)."""
+        with store.connect() as conn:
+            rows = conn.execute(
+                "SELECT payload FROM queue WHERE status IN ("
+                + ",".join("?" * len(ACTIVE))
+                + ") AND json_extract(payload,'$.musicbrainz_release_id')=? AND "
+                "EXISTS (SELECT 1 FROM json_each(queue.payload,'$.requested_by') "
+                "WHERE value=?)",
+                (*sorted(ACTIVE), release_id, user_id),
+            ).fetchall()
+        return [json.loads(row[0]) for row in rows]
+
     @router.get(
         "/groups/{group_id}/editions",
         response_model=CatalogueEditionsDTO,
@@ -303,13 +365,7 @@ def discover_router(store, catalogue, popularity=None, warmer=None, http_client=
         user = request.state.user["id"]
         projection = await asyncio.to_thread(store.user_libraries.projection, user)
         personal = {t["id"] for t in projection["tracks"]}
-        active = [
-            j
-            for j in store.queue()["items"]
-            if j.get("status") in ACTIVE
-            and user in j.get("requested_by", [])
-            and j.get("musicbrainz_release_id") == result["id"]
-        ]
+        active = await asyncio.to_thread(requested_from, user, result["id"])
         tracks = []
         for raw in release_tracks(result):
             matched = store.index.match(raw)
