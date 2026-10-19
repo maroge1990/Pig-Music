@@ -4,6 +4,11 @@ export function catalogueCover(kind: "release" | "release-group", id: string) {
   return `/api/catalogue/artwork/${kind}/${encodeURIComponent(id)}`;
 }
 
+/** A catalogue artist's portrait, for search results and artist pages. */
+export function catalogueArtistCover(id: string) {
+  return `/api/catalogue/artists/${encodeURIComponent(id)}/artwork`;
+}
+
 /** The exact address a cover requests at one width; pre-caching uses it too. */
 export function coverUrl(src: string, width: number, revision = 0) {
   if (!src.startsWith("/api/")) return src;

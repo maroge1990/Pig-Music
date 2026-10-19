@@ -24,14 +24,14 @@ struct SearchView: View {
         return
       }
       do {
-        try await Task.sleep(for: .milliseconds(250))
+        try await Task.sleep(for: SearchText.debounce)
         try Task.checkCancellation()
       } catch { return }
       await model.searchSession?.search(query)
     }
     .toolbar {
       Button("Refresh", systemImage: "arrow.clockwise") {
-        Task { await model.searchSession?.search(query) }
+        Task { await model.searchSession?.search(query, force: true) }
       }.disabled(SearchText.clean(query).isEmpty)
     }
   }

@@ -152,3 +152,44 @@ private struct ExpiredSearch: OnlineSearchSource {
     session.tracks.isEmpty && session.household.isEmpty && session.catalogue.isEmpty
       && session.query.isEmpty)
 }
+
+private actor CountingOnline: OnlineSearchSource {
+  var server = 0
+  var catalogue = 0
+  func searchServer(query: String, offset: Int, revision: String?) async throws -> ServerSearchPage
+  {
+    server += 1
+    return try LibraryCodec.decoder().decode(
+      ServerSearchPage.self,
+      from: Data(
+        #"{"tracks":[],"albums":[],"artists":[],"household_tracks":[],"offset":0,"next_offset":null,"total_household_tracks":0,"revision":"server"}"#
+          .utf8))
+  }
+  func catalogueArtists(query: String, offset: Int) async throws -> CatalogueArtistPage {
+    catalogue += 1
+    return try LibraryCodec.decoder().decode(
+      CatalogueArtistPage.self,
+      from: Data(
+        #"{"artists":[{"id":"\#(query)","name":"\#(query)","description":""}],"total":1,"offset":0,"next_offset":null}"#
+          .utf8))
+  }
+  func counts() -> [Int] { [server, catalogue] }
+}
+@MainActor @Test func typeAheadReusesAnswersAndSkipsShortCatalogueQueries() async {
+  #expect(SearchText.debounce >= .milliseconds(300))
+  let online = CountingOnline()
+  let session = SearchSession(cached: DelayedSearch(), online: online)
+  let start = Date()
+  await session.search("R")
+  #expect(await online.counts() == [1, 0])
+  await session.search("Ra")
+  await session.search("Rad")
+  // Backspacing to an earlier query, in any case, reuses its answers.
+  await session.search("ra", now: start.addingTimeInterval(10))
+  #expect(await online.counts() == [3, 2])
+  #expect(session.catalogue.map(\.id) == ["Ra"])
+  // Refresh, and answers older than five minutes, ask again.
+  await session.search("Ra", force: true)
+  await session.search("Rad", now: start.addingTimeInterval(400))
+  #expect(await online.counts() == [5, 4])
+}

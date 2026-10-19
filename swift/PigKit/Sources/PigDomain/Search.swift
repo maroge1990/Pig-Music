@@ -1,8 +1,17 @@
 import Foundation
 
 public enum SearchText {
+  /// Type-ahead waits this long after the last keystroke (at least 300 ms, so
+  /// typing adds no catalogue load).
+  public static let debounce: Duration = .milliseconds(350)
+  /// Catalogue artist searches start at this many characters.
+  public static let catalogueMinimum = 2
   public static func clean(_ query: String) -> String {
     String(query.trimmingCharacters(in: .whitespacesAndNewlines).prefix(150))
+  }
+  /// Answers for the same words share one cache entry.
+  public static func key(_ query: String) -> String {
+    clean(query).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
   }
 }
 public struct LibrarySearchPage: Sendable {

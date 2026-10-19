@@ -533,7 +533,9 @@ main h1[tabindex="-1"]:focus {
 }
 .discover-list a {
   display: grid;
-  gap: 0.125rem;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-12);
   padding: var(--space-12) var(--space-16);
   border: 1px solid var(--border);
   border-radius: var(--radius-compact);
@@ -541,9 +543,25 @@ main h1[tabindex="-1"]:focus {
   color: var(--text);
   text-decoration: none;
 }
-.discover-list a span {
+.discover-list .cover {
+  width: 48px;
+}
+.discover-text {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.discover-text span,
+.discover-owned {
   font-size: var(--type-footnote);
   color: var(--secondary);
+}
+.discover-owned {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  color: var(--success);
+  white-space: nowrap;
 }
 .follow-artist {
   display: flex;

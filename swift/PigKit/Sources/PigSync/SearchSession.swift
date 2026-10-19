@@ -45,6 +45,15 @@ private enum SearchDelivery: Sendable {
   @ObservationIgnored private var generation = 0
   @ObservationIgnored private var localRevision = ""
   @ObservationIgnored private var serverRevision = ""
+  /// First pages of server and catalogue answers by query, reused while
+  /// fresh, so backspacing or retyping sends no request.
+  @ObservationIgnored private var answers: [String: OnlineAnswer] = [:]
+  private struct OnlineAnswer {
+    var time: Date
+    var household: ServerSearchPage?
+    var catalogue: CatalogueArtistPage?
+  }
+  public static let answerLifetime: TimeInterval = 300
 
   public init(
     cached: any CachedSearchSource, online: (any OnlineSearchSource)? = nil,
@@ -75,15 +84,30 @@ private enum SearchDelivery: Sendable {
     localRevision = ""
     serverRevision = ""
   }
-  public func search(_ text: String) async {
+  /// `force` (Refresh) asks the server again instead of reusing an answer.
+  public func search(_ text: String, force: Bool = false, now: Date = Date()) async {
     clear()
     query = SearchText.clean(text)
     guard !query.isEmpty else { return }
     let query = self.query
     let stamp = generation
+    let key = SearchText.key(query)
+    if force { answers[key] = nil }
+    if let answer = answers[key], now.timeIntervalSince(answer.time) > Self.answerLifetime {
+      answers[key] = nil
+    }
+    let reuse = answers[key]
+    if let page = reuse?.household { accept(page, append: false) }
+    if let page = reuse?.catalogue {
+      catalogue = page.artists
+      catalogueNext = page.nextOffset
+    }
+    let wantsCatalogue = query.count >= SearchText.catalogueMinimum
     localLoading = true
-    householdLoading = onlineEnabled
-    catalogueLoading = onlineEnabled && query.count >= 2
+    householdLoading = onlineEnabled && reuse?.household == nil
+    catalogueLoading = onlineEnabled && wantsCatalogue && reuse?.catalogue == nil
+    let askHousehold = householdLoading
+    let askCatalogue = catalogueLoading
     let cached = self.cached
     let online = self.online
     await withTaskGroup(of: SearchDelivery.self) { group in
@@ -95,7 +119,7 @@ private enum SearchDelivery: Sendable {
             .cached, error as? NativeFailure ?? .unavailable(error.localizedDescription))
         }
       }
-      if let online {
+      if let online, askHousehold {
         group.addTask {
           do {
             return .household(try await online.searchServer(query: query, offset: 0, revision: nil))
@@ -104,14 +128,14 @@ private enum SearchDelivery: Sendable {
               .household, error as? NativeFailure ?? .unavailable(error.localizedDescription))
           }
         }
-        if query.count >= 2 {
-          group.addTask {
-            do {
-              return .catalogue(try await online.catalogueArtists(query: query, offset: 0))
-            } catch {
-              return .failure(
-                .catalogue, error as? NativeFailure ?? .unavailable(error.localizedDescription))
-            }
+      }
+      if let online, askCatalogue {
+        group.addTask {
+          do {
+            return .catalogue(try await online.catalogueArtists(query: query, offset: 0))
+          } catch {
+            return .failure(
+              .catalogue, error as? NativeFailure ?? .unavailable(error.localizedDescription))
           }
         }
       }
@@ -127,10 +151,12 @@ private enum SearchDelivery: Sendable {
         case .household(let page):
           accept(page, append: false)
           householdLoading = false
+          remember(key, now: now) { $0.household = page }
         case .catalogue(let page):
           catalogue = page.artists
           catalogueNext = page.nextOffset
           catalogueLoading = false
+          remember(key, now: now) { $0.catalogue = page }
         case .failure(let lane, let failure):
           if failure == .authentication {
             group.cancelAll()
@@ -157,6 +183,17 @@ private enum SearchDelivery: Sendable {
       householdLoading = false
       catalogueLoading = false
     }
+  }
+  private func remember(_ key: String, now: Date, _ update: (inout OnlineAnswer) -> Void) {
+    if answers[key] == nil, answers.count >= 60 {
+      // Drop the oldest answer to stay small.
+      if let oldest = answers.min(by: { $0.value.time < $1.value.time })?.key {
+        answers[oldest] = nil
+      }
+    }
+    var answer = answers[key] ?? OnlineAnswer(time: now)
+    update(&answer)
+    answers[key] = answer
   }
   private func accept(_ page: LibrarySearchPage, append: Bool) {
     tracks = append ? tracks + page.tracks : page.tracks
