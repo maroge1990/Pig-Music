@@ -81,3 +81,25 @@ public struct PersonalMix: Codable, Sendable, Identifiable {
   public let reason: String
   public let tracks: [Track]
 }
+
+/// When Home may fetch catalogue albums ahead of a tap. Prefetching is a
+/// nicety, so it waits for Wi-Fi or wired networks the person hasn't asked to
+/// save data on, and for normal power.
+public struct PrefetchConditions: Sendable, Equatable {
+  public var lowPowerMode = false
+  /// Low Data Mode (`NWPath.isConstrained`).
+  public var lowDataMode = false
+  /// Cellular or a personal hotspot (`NWPath.isExpensive` or a cellular interface).
+  public var cellular = false
+  public var connected = true
+  public init(
+    lowPowerMode: Bool = false, lowDataMode: Bool = false, cellular: Bool = false,
+    connected: Bool = true
+  ) {
+    self.lowPowerMode = lowPowerMode
+    self.lowDataMode = lowDataMode
+    self.cellular = cellular
+    self.connected = connected
+  }
+  public var allowsPrefetch: Bool { connected && !lowPowerMode && !lowDataMode && !cellular }
+}

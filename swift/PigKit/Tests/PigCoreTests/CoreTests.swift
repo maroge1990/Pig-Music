@@ -108,3 +108,11 @@ private actor FailedSource: LibrarySource {
   #expect(try await store.revision() == "valid")
   #expect(try await store.tracks().first?.title == "Kept")
 }
+
+@Test func homePrefetchWaitsForUnconstrainedNetworksAndNormalPower() {
+  #expect(PrefetchConditions().allowsPrefetch)
+  #expect(!PrefetchConditions(lowPowerMode: true).allowsPrefetch)
+  #expect(!PrefetchConditions(lowDataMode: true).allowsPrefetch)
+  #expect(!PrefetchConditions(cellular: true).allowsPrefetch)
+  #expect(!PrefetchConditions(connected: false).allowsPrefetch)
+}

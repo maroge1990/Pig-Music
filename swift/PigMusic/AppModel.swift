@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Network
 import Observation
 import PigAPI
 import PigDomain
@@ -63,6 +64,7 @@ import UIKit
   @ObservationIgnored private var liveTask: Task<Void, Never>?
   @ObservationIgnored private var activeScene = true
   @ObservationIgnored private let defaults: UserDefaults
+  @ObservationIgnored private let network = NetworkConditions()
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
     watch = WatchPhoneController(model: self, defaults: defaults)
@@ -494,10 +496,14 @@ import UIKit
   /// Home's catalogue albums, fetched ahead one at a time with their
   /// recommended edition and its cover, so a tap opens like a library album.
   private func prefetchAlbums(_ albums: [DiscoveryItem]) {
+    // Optional work: not on cellular, Low Data Mode or Low Power Mode.
+    guard network.conditions.allowsPrefetch else { return }
     let stamp = generation
     Task(priority: .utility) { [weak self] in
       for album in albums.prefix(20) {
-        guard let self, generation == stamp, !Task.isCancelled else { return }
+        guard let self, generation == stamp, !Task.isCancelled,
+          network.conditions.allowsPrefetch
+        else { return }
         let key = "editions:\(album.id):0"
         guard peekCatalogue(key: key, as: CatalogueEditions.self) == nil else { continue }
         guard
@@ -1210,3 +1216,26 @@ import UIKit
 }
 
 enum DeviceCopyMark { case pending, ready, failed }
+
+/// Power and network state for optional background work, from `NWPathMonitor`
+/// and Low Power Mode.
+@MainActor final class NetworkConditions {
+  private let monitor = NWPathMonitor()
+  private var path = PrefetchConditions()
+  var conditions: PrefetchConditions {
+    var value = path
+    value.lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
+    return value
+  }
+  init() {
+    monitor.pathUpdateHandler = { [weak self] path in
+      let update = PrefetchConditions(
+        lowDataMode: path.isConstrained,
+        cellular: path.isExpensive || path.usesInterfaceType(.cellular),
+        connected: path.status == .satisfied)
+      Task { @MainActor in self?.path = update }
+    }
+    monitor.start(queue: DispatchQueue(label: "au.com.pig.music.network-path", qos: .utility))
+  }
+  deinit { monitor.cancel() }
+}
