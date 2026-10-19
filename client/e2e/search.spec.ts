@@ -68,3 +68,80 @@ test("search types ahead without a request per keystroke", async ({ page }) => {
   ).toBeVisible();
   expect(asked.filter((a) => a === "catalogue:C")).toEqual([]);
 });
+
+test("signing in as someone else never shows the previous person's search", async ({
+  page,
+}) => {
+  let person: string | null = "pat";
+  const asked: string[] = [];
+  await mockApi(page, {
+    answers: {
+      // The live feed never answers, so no library revision clears anything.
+      "/v1/events": () => new Promise(() => {}),
+      "/v1/me": (route) =>
+        person
+          ? route.fulfill({
+              json: {
+                id: person,
+                username: person,
+                display_name: person,
+                role: "member",
+              },
+            })
+          : route.fulfill({
+              status: 401,
+              json: {
+                detail: "Please sign in to continue.",
+                code: "authentication_required",
+              },
+            }),
+      "/v1/auth/logout": (route) => {
+        person = null;
+        return route.fulfill({ json: {} });
+      },
+      "/v1/auth/login": (route) => {
+        person = JSON.parse(route.request().postData() || "{}").username;
+        return route.fulfill({ json: {} });
+      },
+      "/v1/me/sessions": (route) => route.fulfill({ json: { sessions: [] } }),
+      "/v1/quality": (route) =>
+        route.fulfill({
+          json: { preferences: [], options: [], household_default: "" },
+        }),
+      "/v1/search": (route) => {
+        asked.push(person || "nobody");
+        return route.fulfill({
+          json: {
+            tracks: [
+              {
+                id: `${person}-song`,
+                title: `${person}'s saved song`,
+                artist: "Charli xcx",
+                album: "Brat",
+                album_id: "album-1",
+                duration: 180,
+                server_state: "in_library",
+              },
+            ],
+            household_tracks: [],
+          },
+        });
+      },
+      "/v1/catalogue/artists": (route) =>
+        route.fulfill({
+          json: { artists: [], offset: 0, total: 0, next_offset: null },
+        }),
+    },
+  });
+  await page.goto("/#/search?q=Charli");
+  await expect(page.getByText("pat's saved song")).toBeVisible();
+  await page.goto("/#/account");
+  await page.getByRole("button", { name: "Sign out of PigMusic" }).click();
+  await page.getByLabel("Username").fill("sam");
+  await page.getByLabel("Password").fill("generated e2e password");
+  await page.getByRole("button", { name: /sign in/i }).click();
+  await page.goto("/#/search?q=Charli");
+  await expect(page.getByText("sam's saved song")).toBeVisible();
+  await expect(page.getByText("pat's saved song")).toHaveCount(0);
+  expect(asked).toEqual(["pat", "sam"]);
+});

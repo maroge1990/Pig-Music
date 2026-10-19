@@ -104,9 +104,13 @@ class Warmer:
         return True
 
     def search(self, artist_ids):
-        """A search's likely next taps: essentials for three, all for two."""
-        for index, artist_id in enumerate(artist_ids[:3]):
-            self.submit(artist_id, full=index < 2, priority=SEARCH)
+        """A search's likely next taps: essentials for two, all for the first.
+
+        Type-ahead sends a search at each pause in typing, so this stays small;
+        the rest is prepared when an artist is opened.
+        """
+        for index, artist_id in enumerate(artist_ids[:2]):
+            self.submit(artist_id, full=index < 1, priority=SEARCH)
 
     async def work(self):
         background_metadata.set(True)

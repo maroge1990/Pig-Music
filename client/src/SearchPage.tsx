@@ -1,56 +1,30 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CircleCheck } from "lucide-react";
-import { api } from "./api";
+import { api, currentSession } from "./api";
 import { Cover, catalogueArtistCover } from "./Cover";
 import { discoverUrl } from "./navigation";
 import { go } from "./routes";
 import { SongRow } from "./SongRow";
 import { fromTrack } from "./songs";
 import { warmArtist, whenIdle } from "./prefetch";
+import {
+  answer,
+  remember,
+  type CatalogueArtist,
+  type Local,
+} from "./searchAnswers";
 import type { Album, Artist, Library, Track } from "./types";
 
-type CatalogueArtist = { id: string; name: string; description?: string };
-type Local = { tracks: Track[]; household: Track[] };
 const fold = (value: string) => value.toLocaleLowerCase().normalize("NFKD");
 const clean = (value: string) => value.trim().slice(0, 150);
 
 /** Type-ahead waits this long after the last keystroke (at least 300 ms, so
  * typing adds no catalogue load). */
 export const SEARCH_DEBOUNCE_MS = 350;
+/** Artist pages are prepared only for a query left alone this long, so
+ * passing prefixes ask the catalogue for nothing more. */
+export const WARM_AFTER_MS = 1500;
 const CATALOGUE_MINIMUM = 2;
-const ANSWER_LIFETIME_MS = 5 * 60_000;
-
-/** Answers by query, reused while fresh so backspacing or retyping sends no
- * request. Library answers are dropped when the library changes. */
-const answers = new Map<
-  string,
-  { time: number; local?: Local; catalogue?: CatalogueArtist[] }
->();
-window.addEventListener("music-library-changed", () => {
-  for (const answer of answers.values()) delete answer.local;
-});
-function answer(key: string) {
-  const found = answers.get(key);
-  if (found && Date.now() - found.time > ANSWER_LIFETIME_MS) {
-    answers.delete(key);
-    return undefined;
-  }
-  return found;
-}
-function remember(
-  key: string,
-  update: (entry: {
-    time: number;
-    local?: Local;
-    catalogue?: CatalogueArtist[];
-  }) => void,
-) {
-  if (!answers.has(key) && answers.size >= 60)
-    answers.delete(answers.keys().next().value!);
-  const entry = answers.get(key) || { time: Date.now() };
-  update(entry);
-  answers.set(key, entry);
-}
 
 /** One search: your library first, then the server, then the catalogue. */
 export function SearchPage({
@@ -92,6 +66,17 @@ export function SearchPage({
   const [catalogue, setCatalogue] = useState<CatalogueArtist[] | null>(null);
   const [catalogueFailed, setCatalogueFailed] = useState(false);
   const [error, setError] = useState("");
+  // An account change ends this person's search: what was shown goes too.
+  const [session, setSession] = useState(currentSession);
+  useEffect(() => {
+    const ended = () => {
+      setLocal(null);
+      setCatalogue(null);
+      setSession(currentSession());
+    };
+    window.addEventListener("music-session-cleared", ended);
+    return () => window.removeEventListener("music-session-cleared", ended);
+  }, []);
   useEffect(() => {
     setCatalogueFailed(false);
     setError("");
@@ -102,9 +87,12 @@ export function SearchPage({
       active.length < CATALOGUE_MINIMUM ? [] : (saved?.catalogue ?? null),
     );
     if (!active) return;
-    // A newer query aborts this one's requests.
+    // A newer query, or another person, aborts this one's requests.
     const controller = new AbortController();
     const signal = controller.signal;
+    const asked = currentSession();
+    const current = () => !signal.aborted && asked === currentSession();
+    let warming: ReturnType<typeof setTimeout> | undefined;
     // Local results arrive first; the catalogue can be slower or unavailable.
     if (!saved?.local)
       void api<{ tracks: Track[]; household_tracks: Track[] }>(
@@ -116,11 +104,11 @@ export function SearchPage({
             tracks: found.tracks,
             household: found.household_tracks,
           };
-          remember(key, (entry) => (entry.local = value));
-          if (!signal.aborted) setLocal(value);
+          remember(key, asked, (entry) => (entry.local = value));
+          if (current()) setLocal(value);
         })
         .catch((e) => {
-          if (!signal.aborted) setError(e.message);
+          if (current()) setError(e.message);
         });
     if (active.length >= CATALOGUE_MINIMUM && !saved?.catalogue)
       void api<{ artists: CatalogueArtist[] }>(
@@ -128,24 +116,33 @@ export function SearchPage({
         { signal },
       )
         .then((found) => {
-          remember(key, (entry) => (entry.catalogue = found.artists));
-          if (signal.aborted) return;
+          remember(key, asked, (entry) => (entry.catalogue = found.artists));
+          if (!current()) return;
           setCatalogue(found.artists);
-          // The likely next tap: essentials for three, everything for two.
-          whenIdle(() =>
-            found.artists
-              .slice(0, 3)
-              .forEach((a, i) => warmArtist(a.id, i < 2, a.name)),
+          // The likely next tap, once the query has settled: essentials for
+          // two, everything for the first. A new query cancels it.
+          warming = setTimeout(
+            () =>
+              whenIdle(() => {
+                if (!current()) return;
+                found.artists
+                  .slice(0, 2)
+                  .forEach((a, i) => warmArtist(a.id, i < 1, a.name));
+              }),
+            WARM_AFTER_MS,
           );
         })
         .catch(() => {
-          if (!signal.aborted) {
+          if (current()) {
             setCatalogue([]);
             setCatalogueFailed(true);
           }
         });
-    return () => controller.abort();
-  }, [active]);
+    return () => {
+      controller.abort();
+      clearTimeout(warming);
+    };
+  }, [active, session]);
 
   const needle = fold(active);
   const artists = active

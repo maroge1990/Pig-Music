@@ -67,7 +67,11 @@ test("a previous account's delayed library response cannot enter the next accoun
   clearSessionReads();
   complete(new Response("{}", { status: 401 }));
   await late;
-  assert.deepEqual(events, []);
+  // Only the session changes themselves were announced; no late 401.
+  assert.deepEqual(
+    events.filter((type) => type !== "music-session-cleared"),
+    [],
+  );
 });
 
 test("warmed catalogue data is immediately readable and isolated across sessions", async () => {

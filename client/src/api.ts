@@ -15,6 +15,21 @@ export function peekCatalogue<T>(path: string): T | undefined {
 let libraryRead: Promise<unknown> | undefined;
 const libraryResponses = new Map<string, Response>();
 let sessionGeneration = 0;
+const sessionMaps = new Set<Map<unknown, unknown>>();
+
+/** The signed-in session's number; a read started under an older one must
+ * not be kept. */
+export function currentSession() {
+  return sessionGeneration;
+}
+
+/** A map that belongs to the signed-in person: emptied on every account
+ * change, together with the shared reads. */
+export function sessionMap<K, V>() {
+  const map = new Map<K, V>();
+  sessionMaps.add(map as Map<unknown, unknown>);
+  return map;
+}
 let artworkRevision: number | undefined;
 
 export async function apiFetch(
@@ -147,6 +162,9 @@ export function rememberLibrary(library: unknown) {
 
 window.addEventListener("music-library-changed", () => {
   libraryRead = undefined;
+  // Release lists say which albums this person owns.
+  for (const path of [...cataloguePages.keys()])
+    if (/\/releases(\?|$)/.test(path)) cataloguePages.delete(path);
 });
 
 async function readResponse(
@@ -197,7 +215,9 @@ export function clearSessionReads() {
   libraryResponses.clear();
   librarySnapshot = undefined;
   cataloguePages.clear();
+  for (const map of sessionMaps) map.clear();
   ++sessionGeneration;
+  window.dispatchEvent(new Event("music-session-cleared"));
 }
 
 async function transport(path: string, options?: RequestInit) {

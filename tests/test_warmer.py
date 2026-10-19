@@ -51,7 +51,7 @@ async def drain(w):
     worker.cancel()
 
 
-def test_search_prepares_three_artists_and_two_completely(tmp_path):
+def test_search_prepares_two_artists_and_the_first_completely(tmp_path):
     w, calls, covers = warmer(tmp_path)
 
     async def run():
@@ -59,9 +59,9 @@ def test_search_prepares_three_artists_and_two_completely(tmp_path):
         await drain(w)
 
     asyncio.run(run())
-    assert calls == [(A, True), (B, True), (C, False)]
+    assert calls == [(A, True), (B, False)]
     assert ("release-group", A + "-album") in covers
-    assert w.status()["artists_ready"] == 3
+    assert w.status()["artists_ready"] == 2
 
 
 def test_recently_prepared_artists_are_not_fetched_again(tmp_path):
