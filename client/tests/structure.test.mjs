@@ -131,3 +131,18 @@ test("the interface font is the system stack, not an unshipped face", () => {
   assert.doesNotMatch(read("Base.css"), /\bInter\b/);
   assert.match(read("Base.css"), /system-ui/);
 });
+
+test("every client call and media address is versioned (/api/v1)", () => {
+  // U01-4/R17: unversioned /api/ routes are retired; /api/health is the
+  // container check, not a client call.
+  for (const file of files) {
+    const text = read(file);
+    for (const [found] of text.matchAll(/\/api\/(?!v1\/|health\b)[\w${}-]*/g))
+      assert.fail(`${file} uses unversioned ${found}`);
+    // api() prefixes /api itself, so its paths must start with /v1/.
+    for (const [, path] of text.matchAll(
+      /\bapi(?:<[^()]*>)?\(\s*[`"](\/[^`"]*)/g,
+    ))
+      assert.match(path, /^\/v1\//, `${file} calls api("${path}")`);
+  }
+});

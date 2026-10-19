@@ -1,21 +1,21 @@
 import { useEffect, useState } from "react";
 
 export function catalogueCover(kind: "release" | "release-group", id: string) {
-  return `/api/catalogue/artwork/${kind}/${encodeURIComponent(id)}`;
+  return `/api/v1/catalogue/artwork/${kind}/${encodeURIComponent(id)}`;
 }
 
 /** A catalogue artist's portrait, for search results and artist pages. */
 export function catalogueArtistCover(id: string) {
-  return `/api/catalogue/artists/${encodeURIComponent(id)}/artwork`;
+  return `/api/v1/catalogue/artists/${encodeURIComponent(id)}/artwork`;
 }
 
 /** The exact address a cover requests at one width; pre-caching uses it too. */
 export function coverUrl(src: string, width: number, revision = 0) {
-  if (!src.startsWith("/api/")) return src;
+  if (!src.startsWith("/api/v1/")) return src;
   const url = new URL(src, window.location.origin);
   url.searchParams.set("w", String(width));
   url.searchParams.set("v", "1");
-  if (!src.startsWith("/api/artwork/"))
+  if (!src.startsWith("/api/v1/covers/"))
     url.searchParams.set("r", String(revision));
   return url.pathname + url.search;
 }
@@ -76,7 +76,7 @@ export function Cover({
         <img
           src={image(512)}
           srcSet={
-            src.startsWith("/api/")
+            src.startsWith("/api/v1/")
               ? [128, 256, 512, 1024].map((w) => `${image(w)} ${w}w`).join(", ")
               : undefined
           }

@@ -22,19 +22,19 @@ def main():
         parser.error("Use at least thirty samples for p95")
     results = []
     with httpx.Client(base_url=args.url, timeout=30) as client:
-        library = client.get("/api/library").raise_for_status().json()
+        library = client.get("/api/v1/admin/library").raise_for_status().json()
         artist = next(a for a in library["artists"] if a["id"] == args.artist)
         album = next(a for a in library["albums"] if a["artist_id"] == artist["id"])
         paths = [
             ("Health", "/api/health"),
-            ("Library summary", "/api/library"),
+            ("Library summary", "/api/v1/admin/library"),
             ("Artist detail", "/api/artists/" + artist["id"]),
             ("Album detail", "/api/albums/" + album["id"]),
-            ("Queue", "/api/queue"),
+            ("Queue", "/api/v1/admin/queue"),
             ("Playlists", "/api/playlists"),
             ("Local search", "/api/search?q=" + artist["name"].split()[0]),
-            ("Migration inventory", "/api/migration"),
-            ("Organisation review", "/api/library/organisation"),
+            ("Migration inventory", "/api/v1/admin/migration"),
+            ("Organisation review", "/api/v1/admin/library/organisation"),
         ]
         for name, path in paths:
             client.get(path).raise_for_status()

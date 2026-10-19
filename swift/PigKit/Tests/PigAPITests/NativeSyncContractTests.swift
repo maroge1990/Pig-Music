@@ -99,7 +99,7 @@ final class NativeSyncContractTests: XCTestCase {
     XCTAssertEqual(shared.serverState, "household_available")
     // Household songs stream without being added; playing never adds them.
     let householdURL = try await service.resolve(shared)
-    XCTAssertTrue(householdURL.path.hasPrefix("/api/playback/files/"))
+    XCTAssertTrue(householdURL.path.hasPrefix("/api/v1/playback/files/"))
     try await coordinator.refresh()
     let beforeAdd = try await store.count(.tracks)
     XCTAssertEqual(beforeAdd, 2)

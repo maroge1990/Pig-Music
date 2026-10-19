@@ -92,9 +92,9 @@ def test_member_cannot_see_unscoped_legacy_routes(tmp_path, monkeypatch):
             if path.startswith(
                 (
                     "/api/v1/playback/",
-                    "/api/playback/files/",
-                    "/api/artwork/",
-                    "/api/library-artwork/",
+                    "/api/v1/playback/files/",
+                    "/api/v1/covers/",
+                    "/api/v1/library-artwork/",
                 )
             ):
                 assert client.request(method, path, json={}).status_code == 404
@@ -112,7 +112,9 @@ def test_member_cannot_see_unscoped_legacy_routes(tmp_path, monkeypatch):
 
 def test_route_audit_detects_an_unprotected_api(tmp_path, monkeypatch):
     app, _ = protected(tmp_path, monkeypatch)
-    route = next(r for r in app.routes if getattr(r, "path", "") == "/api/library")
+    route = next(
+        r for r in app.routes if getattr(r, "path", "") == "/api/v1/admin/library"
+    )
     route.dependant.dependencies = []
     with pytest.raises(RuntimeError, match="missing its default-deny guard"):
         audit_routes(app, app.state.security.current_user)
@@ -202,22 +204,22 @@ def test_cookie_mutations_require_header_and_https(tmp_path, monkeypatch):
             == 200
         )
         client.headers.pop("X-Pig-Request")
-        assert client.post("/api/queue/clear", json={}).status_code == 403
+        assert client.post("/api/v1/admin/queue/clear", json={}).status_code == 403
         assert (
             client.post(
-                "/api/queue/clear", json={}, headers={"X-Pig-Request": "1"}
+                "/api/v1/admin/queue/clear", json={}, headers={"X-Pig-Request": "1"}
             ).status_code
             == 200
         )
         assert (
             client.post(
-                "/api/queue/clear",
+                "/api/v1/admin/queue/clear",
                 json={},
                 headers={"X-Pig-Request": "1", "Origin": "https://evil.example"},
             ).status_code
             == 403
         )
-        assert client.get("/api/library").status_code == 200
+        assert client.get("/api/v1/admin/library").status_code == 200
 
 
 def test_secret_is_atomic_private_persistent_and_rejects_symlinks(tmp_path):
@@ -292,12 +294,14 @@ def test_members_can_stream_a_catalogue_song_by_its_recording(tmp_path, monkeypa
         headers={"Authorization": "Bearer " + token, "X-Pig-Request": "1"},
     ) as client:
         played = client.post(
-            "/api/playback/catalogue",
+            "/api/v1/remote-playback/catalogue",
             json={"release_id": release, "recording_id": recording},
         )
         assert played.status_code == 200
         assert played.json()["url"] == "https://aac.saavncdn.com/song.mp4"
-        missing = client.post("/api/playback/catalogue", json={"release_id": release})
+        missing = client.post(
+            "/api/v1/remote-playback/catalogue", json={"release_id": release}
+        )
         assert missing.status_code == 422
 
 
@@ -341,7 +345,7 @@ def test_relayed_remote_audio_uses_a_signed_link_bound_to_its_listener(
         assert played.status_code == 200, played.text
         assert played.json()["source"] == "Remote · zvu4no"
         url = played.json()["url"]
-        assert url.startswith("/api/playback/remote/") and "sig=" in url
+        assert url.startswith("/api/v1/remote-playback/streams/") and "sig=" in url
         response = client.get(url, headers={"Range": "bytes=0-6"})
         assert response.status_code == 206 and response.content == b"relayed"
         assert client.get(url + "x").status_code == 403

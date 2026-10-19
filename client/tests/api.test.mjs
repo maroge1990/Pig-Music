@@ -16,10 +16,19 @@ test("library conditional reads reuse the body on 304 and replace it on change",
   };
   const { apiFetch } = await import("../src/api.ts");
   globalThis.setInterval = originalInterval;
-  assert.equal((await (await apiFetch("/api/library")).json()).revision, "one");
-  assert.equal((await (await apiFetch("/api/library")).json()).revision, "one");
+  assert.equal(
+    (await (await apiFetch("/api/v1/library")).json()).revision,
+    "one",
+  );
+  assert.equal(
+    (await (await apiFetch("/api/v1/library")).json()).revision,
+    "one",
+  );
   assert.equal(calls[1].options.headers.get("If-None-Match"), '"one"');
-  assert.equal((await (await apiFetch("/api/library")).json()).revision, "two");
+  assert.equal(
+    (await (await apiFetch("/api/v1/library")).json()).revision,
+    "two",
+  );
 });
 
 test("a previous account's delayed library response cannot enter the next account cache", async () => {
@@ -88,4 +97,10 @@ test("warmed catalogue data is immediately readable and isolated across sessions
   complete(Response.json({ songs: [], albums: [] }));
   await late;
   assert.equal(peekCatalogue(path), undefined);
+});
+
+test("the transport refuses an unversioned API path", async () => {
+  const { apiFetch } = await import("../src/api.ts");
+  await assert.rejects(() => apiFetch("/api/queue"), /unversioned/i);
+  await assert.rejects(() => apiFetch("/api/library"), /unversioned/i);
 });

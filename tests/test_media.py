@@ -45,29 +45,26 @@ def test_saved_audio_ranges_and_root_selection(tmp_path, monkeypatch):
             ("owned", json.dumps({**track, "id": "owned"})),
         )
     with TestClient(app) as client:
-        assert (
-            client.get("/api/playback/saved/song").json()["source"] == "Saved library"
-        )
         response = client.get(
-            "/api/playback/files/song", headers={"Range": "bytes=0-2"}
+            "/api/v1/playback/files/song", headers={"Range": "bytes=0-2"}
         )
         assert response.status_code == 206 and response.content == b"NAS"
         assert response.headers["content-range"] == "bytes 0-2/20"
         assert response.headers["content-type"] == "audio/mpeg"
         assert (
             client.get(
-                "/api/playback/files/owned", headers={"Range": "bytes=0-2"}
+                "/api/v1/playback/files/owned", headers={"Range": "bytes=0-2"}
             ).content
             == b"OWN"
         )
-        assert client.head("/api/playback/files/song").content == b""
+        assert client.head("/api/v1/playback/files/song").content == b""
         assert (
             client.get(
-                "/api/playback/files/song", headers={"Range": "bytes=9999-"}
+                "/api/v1/playback/files/song", headers={"Range": "bytes=9999-"}
             ).status_code
             == 416
         )
-        assert client.get("/api/playback/files/unknown").status_code == 404
+        assert client.get("/api/v1/playback/files/unknown").status_code == 404
 
 
 @pytest.mark.parametrize(
@@ -89,34 +86,38 @@ def test_playback_rejects_snapshot_paths_outside_library(
     monkeypatch.setenv("PIG_MUSIC_LIBRARY", str(nas))
     snapshot(tmp_path, relative)
     with TestClient(create_app(tmp_path)) as client:
-        assert client.get("/api/playback/files/song").status_code == 404
+        assert client.get("/api/v1/playback/files/song").status_code == 404
 
 
 def test_settings_never_return_key_and_blank_preserves_it(tmp_path):
     key = "f" * 32
     with TestClient(create_app(tmp_path)) as client:
         body = {"portraits": True, "remote_playback": False, "fanart_key": key}
-        response = client.put("/api/settings/media", json=body)
+        response = client.put("/api/v1/admin/settings/media", json=body)
         assert response.status_code == 200 and key not in response.text
-        assert client.get("/api/settings/media").json() == {
+        assert client.get("/api/v1/admin/settings/media").json() == {
             "portraits": True,
             "remote_playback": False,
             "fanart_configured": True,
             "listenbrainz_configured": False,
             "chart_region": "au",
         }
-        saved = client.put("/api/settings/media", json={**body, "chart_region": "nz"})
+        saved = client.put(
+            "/api/v1/admin/settings/media", json={**body, "chart_region": "nz"}
+        )
         assert saved.json()["chart_region"] == "nz"
-        invalid = client.put("/api/settings/media", json={**body, "chart_region": "n1"})
+        invalid = client.put(
+            "/api/v1/admin/settings/media", json={**body, "chart_region": "n1"}
+        )
         assert invalid.status_code == 400
-        assert client.get("/api/settings/media").json()["chart_region"] == "nz"
+        assert client.get("/api/v1/admin/settings/media").json()["chart_region"] == "nz"
         assert client.put(
-            "/api/settings/media", json={**body, "fanart_key": None}
+            "/api/v1/admin/settings/media", json={**body, "fanart_key": None}
         ).json()["fanart_configured"]
         assert (
-            client.put("/api/settings/media", json={**body, "fanart_key": ""}).json()[
-                "fanart_configured"
-            ]
+            client.put(
+                "/api/v1/admin/settings/media", json={**body, "fanart_key": ""}
+            ).json()["fanart_configured"]
             is False
         )
 

@@ -30,7 +30,7 @@ export function OwnerAlbumTools({ id, title }: { id: string; title: string }) {
   const [category, setCategory] = useState("");
   const [message, setMessage] = useState("");
   useEffect(() => {
-    void api<{ category: string }>("/albums/" + id)
+    void api<{ category: string }>("/v1/admin/albums/" + id)
       .then((a) => setCategory(a.category))
       .catch(() => setCategory(""));
   }, [id]);
@@ -43,7 +43,7 @@ export function OwnerAlbumTools({ id, title }: { id: string; title: string }) {
             value={category}
             onChange={(e) => {
               const value = e.target.value;
-              void api("/albums/" + id + "/category", {
+              void api("/v1/admin/albums/" + id + "/category", {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ category: value }),

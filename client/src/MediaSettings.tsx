@@ -23,7 +23,7 @@ export function MediaSettings() {
   const [message, setMessage] = useState("");
   useEffect(() => {
     let active = true;
-    void apiFetch("/api/settings/media")
+    void apiFetch("/api/v1/admin/settings/media")
       .then((r) => {
         if (!r.ok) throw new Error("Media settings unavailable.");
         return r.json();
@@ -43,7 +43,7 @@ export function MediaSettings() {
     setBusy(true);
     setMessage("");
     try {
-      const response = await apiFetch("/api/settings/media", {
+      const response = await apiFetch("/api/v1/admin/settings/media", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

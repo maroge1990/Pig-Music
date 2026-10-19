@@ -207,7 +207,7 @@ class Artwork:
         ids = list(artist["album_ids"]) or [artist["cover_album_id"]]
         for album_id in ids:
             album = albums.get(album_id)
-            if album and (album.get("cover_url") or "").startswith("/api/artwork/"):
+            if album and (album.get("cover_url") or "").startswith("/api/v1/covers/"):
                 return self.store.cover_dir / album["cover_url"].rsplit("/", 1)[-1]
         for album_id in ids[:3]:
             if album_id in albums:

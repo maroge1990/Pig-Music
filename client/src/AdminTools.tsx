@@ -88,22 +88,24 @@ export function AdminTools({ route }: { route: Route }) {
   const queueSignature = useRef("");
 
   const loadLibrary = () =>
-    api<Library>("/library")
+    api<Library>("/v1/admin/library")
       .then(setLibrary)
       .catch((e) => setError(e.message));
 
   useEffect(() => {
     void loadLibrary();
-    api<Migration>("/migration")
+    api<Migration>("/v1/admin/migration")
       .then(setMigration)
       .catch((e) => setError(e.message));
-    api<DownloadSettings>("/settings/downloads")
+    api<DownloadSettings>("/v1/admin/settings/downloads")
       .then(setDownloadSettings)
       .catch((e) => setError(e.message));
-    api<{ configured: boolean; connected: boolean }>("/settings/soulseek")
+    api<{ configured: boolean; connected: boolean }>(
+      "/v1/admin/settings/soulseek",
+    )
       .then(setSoulseekHealth)
       .catch(() => {});
-    api<{ public_origin: string | null }>("/admin/access")
+    api<{ public_origin: string | null }>("/v1/admin/access")
       .then((v) => setPublicOrigin(v.public_origin))
       .catch(() => setPublicOrigin(null));
   }, []);
@@ -157,7 +159,7 @@ export function AdminTools({ route }: { route: Route }) {
       try {
         const q =
           incoming ||
-          (await api<Queue>("/queue", { signal: controller.signal }));
+          (await api<Queue>("/v1/admin/queue", { signal: controller.signal }));
         if (controller.signal.aborted) return;
         setQueue(q);
         updateArtworkRevision(q.artwork_revision);
@@ -212,7 +214,7 @@ export function AdminTools({ route }: { route: Route }) {
 
     try {
       setMigration(
-        await api<Migration>("/migration/selection", {
+        await api<Migration>("/v1/admin/migration/selection", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ track_ids: ids, selected }),
@@ -232,7 +234,7 @@ export function AdminTools({ route }: { route: Route }) {
 
     try {
       setMigration(
-        await api<Migration>("/migration/decision", {
+        await api<Migration>("/v1/admin/migration/decision", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ track_id, decision }),
@@ -253,7 +255,7 @@ export function AdminTools({ route }: { route: Route }) {
         created: number;
         existing: number;
         skipped: number;
-      }>("/migration/submit", { method: "POST" });
+      }>("/v1/admin/migration/submit", { method: "POST" });
 
       setReviewOpen(false);
       setToast(
@@ -302,7 +304,7 @@ export function AdminTools({ route }: { route: Route }) {
 
     try {
       setMigration(
-        await api<Migration>("/migration/import", {
+        await api<Migration>("/v1/admin/migration/import", {
           method: "POST",
           headers: { "Content-Type": "application/xml" },
           body: file,
@@ -687,7 +689,9 @@ export function AdminTools({ route }: { route: Route }) {
   const queueAction = async (id: string, action: string) => {
     setBusy(true);
     try {
-      setQueue(await api<Queue>(`/queue/${id}/${action}`, { method: "POST" }));
+      setQueue(
+        await api<Queue>(`/v1/admin/queue/${id}/${action}`, { method: "POST" }),
+      );
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -699,7 +703,7 @@ export function AdminTools({ route }: { route: Route }) {
     setBusy(true);
     try {
       setDownloadSettings(
-        await api<DownloadSettings>("/settings/downloads", {
+        await api<DownloadSettings>("/v1/admin/settings/downloads", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(downloadSettings),
@@ -729,9 +733,12 @@ export function AdminTools({ route }: { route: Route }) {
     setBusy(true);
     try {
       setQueue(
-        await api<Queue>(`/queue/clear${finished ? "?finished=true" : ""}`, {
-          method: "POST",
-        }),
+        await api<Queue>(
+          `/v1/admin/queue/clear${finished ? "?finished=true" : ""}`,
+          {
+            method: "POST",
+          },
+        ),
       );
       setToast(
         finished

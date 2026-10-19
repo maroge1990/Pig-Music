@@ -29,7 +29,7 @@ export function AdminGlance({
     last_pass_finished: number | null;
   } | null>(null);
   useEffect(() => {
-    void api<NonNullable<typeof warm>>("/warmer")
+    void api<NonNullable<typeof warm>>("/v1/admin/warmer")
       .then(setWarm)
       .catch(() => setWarm(null));
     void api<{ people: { disabled?: boolean }[] }>("/v1/people")

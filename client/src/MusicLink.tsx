@@ -42,7 +42,7 @@ export function MusicLink({
       return;
     }
     const results = await apiFetch(
-      "/api/catalogue/artists?q=" + encodeURIComponent(artist),
+      "/api/v1/catalogue/artists?q=" + encodeURIComponent(artist),
     ).then((r) => r.json());
     const exact = results.artists.filter(
       (a: { name: string }) =>

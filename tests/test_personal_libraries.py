@@ -283,19 +283,20 @@ def test_member_artwork_is_limited_to_personal_library(tmp_path, monkeypatch):
     assert target
     # Attach the local master to the household album, then grant personal membership.
     album = store.library["albums"][0]
-    album["cover_url"] = "/api/artwork/" + sha + ".jpg"
+    album["cover_url"] = "/api/v1/covers/" + sha + ".jpg"
     with TestClient(
         app,
         base_url="https://private.ts.net",
         headers={"Authorization": "Bearer " + token},
     ) as client:
         album = store.library["albums"][0]
-        album["cover_url"] = "/api/artwork/" + sha + ".jpg"
+        album["cover_url"] = "/api/v1/covers/" + sha + ".jpg"
         path = album["cover_url"]
         assert client.get(path).status_code == 404
         assert client.get(path + "/metadata").status_code == 404
         assert (
-            client.get("/api/library-artwork/albums/" + album["id"]).status_code == 404
+            client.get("/api/v1/library-artwork/albums/" + album["id"]).status_code
+            == 404
         )
         store.user_libraries.add(member, [track["id"]])
         assert client.get(path).status_code == 200

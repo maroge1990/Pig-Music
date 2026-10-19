@@ -43,7 +43,7 @@ type Releases = { releases: { id: string }[] };
  * popular list; "full" adds the album list and every visible cover.
  */
 export function warmArtist(id: string, full = false, name = "") {
-  const base = `/api/catalogue/artists/${id}`;
+  const base = `/api/v1/catalogue/artists/${id}`;
   warm([
     `${base}/background?r=0&w=1024`,
     `${base}/background?r=0&w=512`,

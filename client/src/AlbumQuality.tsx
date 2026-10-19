@@ -16,7 +16,7 @@ export function AlbumQuality({
   const [effective, setEffective] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const path = `/api/${kind === "album" ? "albums" : "artists"}/${id}/quality`;
+  const path = `/api/v1/admin/${kind === "album" ? "albums" : "artists"}/${id}/quality`;
   useEffect(() => {
     const controller = new AbortController();
     void apiFetch(path, { signal: controller.signal })

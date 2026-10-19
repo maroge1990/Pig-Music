@@ -146,7 +146,7 @@ function HomeSection({ kind }: { kind: "popular" | "recommended" }) {
                     artist={collection === "artists"}
                     src={
                       collection === "artists"
-                        ? `/api/catalogue/artists/${item.id}/artwork`
+                        ? `/api/v1/catalogue/artists/${item.id}/artwork`
                         : catalogueCover("release-group", item.id)
                     }
                   />

@@ -37,12 +37,12 @@ final class ArtworkTransport: Sendable {
     case artist(UUID), background(UUID), release(UUID), releaseGroup(UUID)
     var path: String {
       switch self {
-      case .artist(let id): "/api/catalogue/artists/" + id.uuidString.lowercased() + "/artwork"
+      case .artist(let id): "/api/v1/catalogue/artists/" + id.uuidString.lowercased() + "/artwork"
       case .background(let id):
-        "/api/catalogue/artists/" + id.uuidString.lowercased() + "/background"
-      case .release(let id): "/api/catalogue/artwork/release/" + id.uuidString.lowercased()
+        "/api/v1/catalogue/artists/" + id.uuidString.lowercased() + "/background"
+      case .release(let id): "/api/v1/catalogue/artwork/release/" + id.uuidString.lowercased()
       case .releaseGroup(let id):
-        "/api/catalogue/artwork/release-group/" + id.uuidString.lowercased()
+        "/api/v1/catalogue/artwork/release-group/" + id.uuidString.lowercased()
       }
     }
   }
@@ -59,7 +59,7 @@ final class ArtworkTransport: Sendable {
       let location = response.value(forHTTPHeaderField: "Location"),
       let target = URL(string: location, relativeTo: parts.url!)?.absoluteURL,
       target.scheme == origin.scheme, target.host == origin.host, target.port == origin.port,
-      target.path.hasPrefix("/api/artwork/"), target.path.hasSuffix(".jpg")
+      target.path.hasPrefix("/api/v1/covers/"), target.path.hasSuffix(".jpg")
     else { throw ArtworkFailure.unavailable }
     let sha = String(target.lastPathComponent.dropLast(4))
     guard (try? ArtworkRequest(sha: sha, width: artwork.width)) != nil else {
@@ -71,7 +71,7 @@ final class ArtworkTransport: Sendable {
   func logo(artist id: UUID) async throws -> Data {
     let origin = try ServerAddress.validate(server.absoluteString)
     var parts = URLComponents(url: origin, resolvingAgainstBaseURL: false)!
-    parts.path = "/api/catalogue/artists/" + id.uuidString.lowercased() + "/logo"
+    parts.path = "/api/v1/catalogue/artists/" + id.uuidString.lowercased() + "/logo"
     let url = parts.url!
     let (bytes, response) = try await send(url)
     defer { bytes.task.cancel() }

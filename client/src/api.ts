@@ -21,6 +21,9 @@ export async function apiFetch(
   path: string,
   options?: RequestInit,
 ): Promise<Response> {
+  // U01-4: only the versioned API exists; an old path is a client bug.
+  if (!path.startsWith("/api/v1/"))
+    throw new Error(`Unversioned API path ${path.split("?")[0]}`);
   const method = options?.method?.toUpperCase() || "GET";
   const headers = new Headers(options?.headers);
   if (method !== "GET" && method !== "HEAD") headers.set("X-Pig-Request", "1");
@@ -64,7 +67,7 @@ function readOnlyPost(path: string, options?: RequestInit) {
   return (
     options?.method?.toUpperCase() === "POST" &&
     (path === "/api/v1/library/lookup" ||
-      path === "/api/playback/catalogue" ||
+      path === "/api/v1/remote-playback/catalogue" ||
       path === "/api/v1/remote-playback" ||
       /^\/api\/v1\/playback\/[^/]+\/url$/.test(path))
   );
@@ -151,7 +154,7 @@ async function readResponse(
   options?: RequestInit,
 ): Promise<Response> {
   if (
-    !["/api/library", "/api/v1/library"].includes(path) ||
+    !["/api/v1/admin/library", "/api/v1/library"].includes(path) ||
     (options?.method && options.method !== "GET")
   )
     return transport(path, options);

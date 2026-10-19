@@ -12,7 +12,7 @@ from ..image_cache import SIZES, variant
 def artwork_router(store, image_slots, enrichment, image_response):
     router = APIRouter()
 
-    @router.get("/api/artwork/{filename}/metadata")
+    @router.get("/api/v1/covers/{filename}/metadata")
     async def artwork_metadata(request: Request, filename: str):
         sha = filename.removesuffix(".jpg")
         if filename != sha + ".jpg" or not store.covers.path(sha):
@@ -30,7 +30,7 @@ def artwork_router(store, image_slots, enrichment, image_response):
             value = await asyncio.to_thread(store.covers.metadata, sha)
         return JSONResponse(value, headers=headers)
 
-    @router.get("/api/artwork/{filename}")
+    @router.get("/api/v1/covers/{filename}")
     async def cached_artwork(
         request: Request, filename: str, w: int = 0, soft: bool = False, v: int = 1
     ):

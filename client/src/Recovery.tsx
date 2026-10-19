@@ -25,7 +25,9 @@ export function RemoveFromServer({
     setBusy(true);
     setError("");
     try {
-      const r = await apiFetch(`/api/${kind}/${id}/remove`, { method: "POST" });
+      const r = await apiFetch(`/api/v1/admin/${kind}/${id}/remove`, {
+        method: "POST",
+      });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.detail || "Removal stopped.");
       window.dispatchEvent(new Event("music-library-changed"));

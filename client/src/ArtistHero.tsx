@@ -15,7 +15,7 @@ export function ArtistHero({
   back?: { label: string; go: () => void };
 }) {
   const [revision, setRevision] = useState(0);
-  const base = `/api/${discovered ? "catalogue/" : ""}artists/${artist.id}`;
+  const base = `/api/v1/${discovered ? "catalogue/" : ""}artists/${artist.id}`;
   const background = `${base}/background?r=${revision}`;
   const logoSrc = `${base}/logo?r=${revision}`;
   // The address that last loaded; a cached image can load before effects run.

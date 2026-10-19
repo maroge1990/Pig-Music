@@ -105,7 +105,7 @@ export async function mockApi(
     if (path === "/v1/artwork/cover-1")
       return route.fulfill({ contentType: "image/svg+xml", body: photo });
     if (
-      /^\/(catalogue\/)?artists\/[^/]+\/(background|logo)$/.test(path) &&
+      /^\/v1\/(catalogue\/)?artists\/[^/]+\/(background|logo)$/.test(path) &&
       path.endsWith("background")
     )
       return route.fulfill({ contentType: "image/svg+xml", body: photo });

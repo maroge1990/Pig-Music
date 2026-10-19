@@ -113,7 +113,7 @@ def test_server_fetched_cover_is_addressable_by_hash(tmp_path):
     store, owner, _ = fixture(tmp_path)
     sha = "a" * 64
     album = store.library["albums"][0]
-    album["cover_sha"], album["cover_url"] = None, f"/api/artwork/{sha}.jpg"
+    album["cover_sha"], album["cover_url"] = None, f"/api/v1/covers/{sha}.jpg"
     store.library_revision += "-changed"
     sync = NativeSync(store)
     track = sync.page(owner, "tracks", limit=1)["items"][0]
@@ -122,6 +122,6 @@ def test_server_fetched_cover_is_addressable_by_hash(tmp_path):
     personal = store.user_libraries.projection(owner)["tracks"][0]
     assert personal["album_id"] == album["id"] and personal["cover_sha"] == sha
     assert "cover_url" not in album["tracks"][0]  # household data untouched
-    album["cover_url"] = "/api/library-artwork/albums/" + album["id"]
+    album["cover_url"] = "/api/v1/library-artwork/albums/" + album["id"]
     store.library_revision += "-changed"
     assert NativeSync(store).page(owner, "albums")["items"][0]["cover_sha"] is None

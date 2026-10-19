@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 export function Organisation({ notify }: { notify: (s: string) => void }) {
   const [history, setHistory] = useState<{ id: string; title: string }[]>([]);
   useEffect(() => {
-    void apiFetch("/api/library/organisation/history")
+    void apiFetch("/api/v1/admin/library/organisation/history")
       .then((r) => r.json())
       .then(setHistory);
   }, []);
@@ -24,7 +24,7 @@ export function Organisation({ notify }: { notify: (s: string) => void }) {
   async function review() {
     setBusy(true);
     try {
-      const r = await apiFetch("/api/library/organisation");
+      const r = await apiFetch("/api/v1/admin/library/organisation");
       const d = await r.json();
       if (!r.ok) throw new Error("Library review unavailable.");
       setItems(d.items);
@@ -44,7 +44,7 @@ export function Organisation({ notify }: { notify: (s: string) => void }) {
       return;
     setBusy(true);
     try {
-      const r = await apiFetch("/api/library/organisation", {
+      const r = await apiFetch("/api/v1/admin/library/organisation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ track_ids: selected, tags }),
@@ -55,7 +55,7 @@ export function Organisation({ notify }: { notify: (s: string) => void }) {
       window.dispatchEvent(new Event("music-library-changed"));
       await review();
       setHistory(
-        await apiFetch("/api/library/organisation/history").then((r) =>
+        await apiFetch("/api/v1/admin/library/organisation/history").then((r) =>
           r.json(),
         ),
       );
@@ -147,9 +147,12 @@ export function Organisation({ notify }: { notify: (s: string) => void }) {
             disabled={busy}
             onClick={() => {
               setBusy(true);
-              void apiFetch("/api/library/organisation/" + item.id + "/undo", {
-                method: "POST",
-              })
+              void apiFetch(
+                "/api/v1/admin/library/organisation/" + item.id + "/undo",
+                {
+                  method: "POST",
+                },
+              )
                 .then((r) => {
                   if (!r.ok)
                     throw new Error("Undo stopped; original retained.");

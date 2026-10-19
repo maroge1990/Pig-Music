@@ -52,17 +52,14 @@ def test_cold_images_release_http_connections_while_provider_is_blocked(tmp_path
         original = app.state.http
         app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(provider))
         try:
-            library = client.get("/api/library").json()
+            library = client.get("/api/v1/admin/library").json()
             start = time.monotonic()
             for album in library["albums"]:
                 assert client.get(album["cover_url"]).status_code == 404
             assert entered.wait(1)
             assert not release.is_set()
-            assert client.get("/api/queue").status_code == 200
-            assert (
-                client.get("/api/albums/" + library["albums"][0]["id"]).status_code
-                == 200
-            )
+            assert client.get("/api/v1/admin/queue").status_code == 200
+            assert client.get("/api/v1/admin/library/scan").status_code == 200
             assert time.monotonic() - start < 2
             assert app.state.enrichment.queue.qsize() <= 128
         finally:
@@ -104,7 +101,7 @@ def test_hash_variants_and_alias_cache_policy(tmp_path):
     Image.new("RGB", (1024, 768), "purple").save(stream, "PNG")
     sha = app.state.store.covers.save(stream.getvalue())
     with TestClient(app) as client:
-        base = "/api/artwork/" + sha + ".jpg"
+        base = "/api/v1/covers/" + sha + ".jpg"
         original = client.get(base)
         assert (
             original.headers["cache-control"] == "public, max-age=31536000, immutable"
@@ -124,38 +121,41 @@ def test_hash_variants_and_alias_cache_policy(tmp_path):
         assert client.get(base).content == original.content
         alias = tmp_path / "covers" / "legacy.jpg"
         alias.write_bytes(original.content)
-        result = client.get("/api/artwork/legacy.jpg", follow_redirects=False)
+        result = client.get("/api/v1/covers/legacy.jpg", follow_redirects=False)
         assert result.headers["cache-control"] == "no-cache"
-        assert result.headers["location"].startswith("/api/artwork/")
+        assert result.headers["location"].startswith("/api/v1/covers/")
         (tmp_path / "covers" / "escape.jpg").symlink_to(
             tmp_path / "library-snapshot.json"
         )
-        assert client.get("/api/artwork/escape.jpg").status_code == 404
+        assert client.get("/api/v1/covers/escape.jpg").status_code == 404
 
 
 def test_library_compression_validator_and_playlist_invalidation(tmp_path):
     seed(tmp_path, 100)
     app = create_app(tmp_path)
     with TestClient(app) as client:
-        result = client.get("/api/library", headers={"Accept-Encoding": "gzip"})
+        result = client.get(
+            "/api/v1/admin/library", headers={"Accept-Encoding": "gzip"}
+        )
         assert result.headers["content-encoding"] == "gzip"
         assert result.headers["cache-control"] == "private, no-cache"
         etag = result.headers["etag"]
         assert (
             client.get(
-                "/api/library", headers={"If-None-Match": etag.removeprefix("W/")}
+                "/api/v1/admin/library",
+                headers={"If-None-Match": etag.removeprefix("W/")},
             ).status_code
             == 304
         )
         assert (
             client.get(
-                "/api/library", headers={"If-None-Match": '"other", ' + etag}
+                "/api/v1/admin/library", headers={"If-None-Match": '"other", ' + etag}
             ).status_code
             == 304
         )
         with app.state.store.connect() as conn:
             conn.execute("INSERT INTO playlists(id,payload) VALUES ('test','{}')")
-        changed = client.get("/api/library", headers={"If-None-Match": etag})
+        changed = client.get("/api/v1/admin/library", headers={"If-None-Match": etag})
         assert changed.status_code == 200
         assert changed.json()["playlist_count"] == 1
         assert changed.headers["etag"] != etag
@@ -280,6 +280,6 @@ def test_corrupt_legacy_provider_cache_does_not_block_library_startup(tmp_path):
     restarted = Store(tmp_path)
     assert restarted.library["stats"]["tracks"] == 1
     assert restarted.library["albums"][0]["cover_url"].startswith(
-        "/api/library-artwork/"
+        "/api/v1/library-artwork/"
     )
     assert cached.read_bytes() == b"corrupt cached picture"

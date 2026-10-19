@@ -16,7 +16,7 @@ export function LibraryScan({ refresh }: { refresh: () => void }) {
     let active = true;
     let previous = "";
     const update = () =>
-      apiFetch("/api/library/scan")
+      apiFetch("/api/v1/admin/library/scan")
         .then((r) => r.json())
         .then((v) => {
           if (!active) return;
@@ -46,7 +46,9 @@ export function LibraryScan({ refresh }: { refresh: () => void }) {
   async function start() {
     setError("");
     try {
-      const r = await apiFetch("/api/library/scan", { method: "POST" });
+      const r = await apiFetch("/api/v1/admin/library/scan", {
+        method: "POST",
+      });
       const value = await r.json();
       if (!r.ok) throw new Error(value.detail || "Scan unavailable.");
       setScan(value);

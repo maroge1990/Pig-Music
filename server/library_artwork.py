@@ -34,7 +34,7 @@ def cache_covers(store, snapshot_tracks):
             if len(hashes) == 1:
                 album["cover_sha"] = next(iter(hashes))
         target = store.covers.path(album.get("cover_sha"))
-        album["cover_url"] = "/api/artwork/" + target.name if target else None
+        album["cover_url"] = "/api/v1/covers/" + target.name if target else None
     albums = {a["id"]: a for a in store.library["albums"]}
     # Prefer any available own-album cover, rather than only the first album.
     for artist in store.library["artists"]:
@@ -54,9 +54,9 @@ def cache_covers(store, snapshot_tracks):
                 store.cover_dir / (identifier("catalogue-cover", album["id"]) + ".jpg"),
             )
             album["cover_url"] = (
-                "/api/artwork/" + cached.name
+                "/api/v1/covers/" + cached.name
                 if cached
-                else "/api/library-artwork/albums/" + album["id"]
+                else "/api/v1/library-artwork/albums/" + album["id"]
             )
     config = media_settings(store)
     from .portraits import portrait_target
@@ -68,7 +68,7 @@ def cache_covers(store, snapshot_tracks):
                     albums[a]["cover_url"]
                     for a in (artist["album_ids"] or [artist["cover_album_id"]])
                     if a in albums
-                    and (albums[a].get("cover_url") or "").startswith("/api/artwork/")
+                    and (albums[a].get("cover_url") or "").startswith("/api/v1/covers/")
                 ),
                 None,
             )
@@ -80,16 +80,16 @@ def cache_covers(store, snapshot_tracks):
         )
         artist["fallback_cover_url"] = artist["cover_url"]
         if portrait:
-            artist["cover_url"] = "/api/artwork/" + portrait.name
+            artist["cover_url"] = "/api/v1/covers/" + portrait.name
         elif config["portraits"] or not artist["cover_url"]:
             artist["cover_url"] = (
-                "/api/library-artwork/artists/" + artist["id"] + "?portraits=1"
+                "/api/v1/library-artwork/artists/" + artist["id"] + "?portraits=1"
             )
     # Optional image metadata is read from a small sidecar, never decoded here.
     for item in [*store.library["albums"], *store.library["artists"]]:
         url = item.get("cover_url", "") or ""
-        if url.startswith("/api/artwork/"):
-            sha = url.removeprefix("/api/artwork/").removesuffix(".jpg")
+        if url.startswith("/api/v1/covers/"):
+            sha = url.removeprefix("/api/v1/covers/").removesuffix(".jpg")
             metadata = store.covers.presentation(sha)
             if metadata:
                 item["artwork_metadata"] = metadata

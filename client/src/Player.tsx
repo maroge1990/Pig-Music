@@ -226,7 +226,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (s.state === "server" && s.server) return resolveSaved(s.server.id);
     if (s.saved) return resolveSaved(s.saved.id);
     if (s.release_id && (s.track_id || s.recording_id)) {
-      const response = await apiFetch("/api/playback/catalogue", {
+      const response = await apiFetch("/api/v1/remote-playback/catalogue", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

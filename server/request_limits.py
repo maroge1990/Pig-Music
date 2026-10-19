@@ -11,7 +11,7 @@ from starlette.responses import JSONResponse
 STREAMED_UPLOADS = {
     "/api/v1/imports/apple",
     "/api/v1/imports/apple/preview",
-    "/api/migration/import",
+    "/api/v1/admin/migration/import",
 }
 
 

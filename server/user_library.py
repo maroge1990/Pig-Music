@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 
 from .library import identifier, normalise
 from .media import public_settings
+from .paths import versioned
 from .quality import LABELS as QUALITY_LABELS
 from .lifecycle import coordinated
 from .playlists import MAX_PLAYLIST_ENTRIES
@@ -81,7 +82,7 @@ def stored_cover_sha(item):
     if item.get("cover_sha"):
         return item["cover_sha"]
     match = re.fullmatch(
-        r"/api/artwork/([0-9a-f]{64})\.jpg", item.get("cover_url") or ""
+        r"/api/(?:v1/covers|artwork)/([0-9a-f]{64})\.jpg", item.get("cover_url") or ""
     )
     return match[1] if match else None
 
@@ -190,6 +191,8 @@ def track_dto(track):
     ).hexdigest()
     return {
         **{key: value for key, value in track.items() if key in TRACK_FIELDS},
+        # Stored rows may predate /api/v1 addresses.
+        "cover_url": versioned(track.get("cover_url")),
         "source_sha": track.get("sha256"),
         "source_revision": source_revision,
         "server_state": track.get("server_state")

@@ -248,30 +248,34 @@ def test_unknown_or_owned_track_cannot_be_selected(tmp_path):
     app = create_app(tmp_path)
     with TestClient(app) as client:
         imported = client.post(
-            "/api/migration/import", content=apple_export([track(id="owned")])
+            "/api/v1/admin/migration/import", content=apple_export([track(id="owned")])
         )
         assert imported.status_code == 200
         owned = imported.json()["albums"][0]["tracks"][0]["id"]
         for invalid_id in (owned, "not-a-track"):
             response = client.post(
-                "/api/migration/selection",
+                "/api/v1/admin/migration/selection",
                 json={"track_ids": [invalid_id], "selected": True},
             )
             assert response.status_code == 400
-        assert client.get("/api/migration/plan").json()["track_count"] == 0
+        assert client.get("/api/v1/admin/migration/plan").json()["track_count"] == 0
         assert client.get("/api/health").json()["downloads_enabled"] is False
 
 
 def test_invalid_import_preserves_review_and_cross_origin_writes_rejected(tmp_path):
     app = create_app(tmp_path)
     with TestClient(app) as client:
-        response = client.post("/api/migration/import", content=apple_export([track()]))
+        response = client.post(
+            "/api/v1/admin/migration/import", content=apple_export([track()])
+        )
         assert response.status_code == 200
-        failed = client.post("/api/migration/import", content=b"not an Apple export")
+        failed = client.post(
+            "/api/v1/admin/migration/import", content=b"not an Apple export"
+        )
         assert failed.status_code == 400
-        assert client.get("/api/migration").json()["stats"]["tracks"] == 1
+        assert client.get("/api/v1/admin/migration").json()["stats"]["tracks"] == 1
         forbidden = client.post(
-            "/api/migration/selection",
+            "/api/v1/admin/migration/selection",
             headers={"Origin": "https://unrelated.example"},
             json={"track_ids": [], "selected": True},
         )
@@ -294,9 +298,10 @@ def test_search_includes_compilation_only_artists(tmp_path):
         )
     )
     with TestClient(create_app(tmp_path)) as client:
-        result = client.get("/api/search", params={"q": "Artist B"}).json()
-        assert result["artists"][0]["compilation_only"] is True
-        assert result["tracks"][0]["album"] == "Summer"
+        result = client.get("/api/v1/admin/library").json()
+        artist = next(a for a in result["artists"] if a["name"] == "Artist B")
+        assert artist["compilation_only"] is True
+        assert [a["title"] for a in result["albums"]] == ["Summer"]
 
 
 def test_owner_examples_classify_into_their_own_sections():

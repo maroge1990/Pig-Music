@@ -1,6 +1,7 @@
 import json
 from fastapi.testclient import TestClient
 from server.app import create_app
+from server.auth import Auth
 from server.store import Store
 from server.playlists import Playlists
 
@@ -64,54 +65,59 @@ def test_tag_only_song_and_discovered_song_share_membership_without_merging_edit
 # HTTP layer
 
 
-def test_saved_song_favourites_and_playlist_create_never_queue_downloads(tmp_path):
-    track = {
-        "id": "saved",
-        "title": "Song",
-        "artist": "Artist",
-        "album_artist": "Artist",
-        "album": "Album",
-        "duration": 100,
-    }
+def signed_in(tmp_path, monkeypatch, track):
+    """The owner on the versioned API, with one household song."""
+    monkeypatch.delenv("PIG_MUSIC_TEST_LEGACY_API", raising=False)
     (tmp_path / "library-snapshot.json").write_text(json.dumps({"tracks": [track]}))
-    with TestClient(create_app(tmp_path)) as client:
-        result = client.post("/api/favourites", json={"saved_id": "saved"}).json()
-        assert result == {"favourited": False}
-        assert client.get("/api/playlists").json() == []
+    auth = Auth(Store(tmp_path))
+    auth.create_owner("mark", "membership fixture password")
+    token = auth.login(
+        "mark", "membership fixture password", "device", "phone", "ios", "f"
+    )["token"]
+    return TestClient(
+        create_app(tmp_path),
+        base_url="https://private.ts.net",
+        headers={"Authorization": "Bearer " + token},
+    )
+
+
+SONG = {"title": "Song", "artist": "Artist", "album": "Album", "album_artist": "Artist"}
+
+
+def test_saved_song_favourites_and_playlist_create_never_queue_downloads(
+    tmp_path, monkeypatch
+):
+    track = {**SONG, "id": "saved", "duration": 100}
+    with signed_in(tmp_path, monkeypatch, track) as client:
+        result = client.post("/api/v1/favourites", json={"track": SONG}).json()
+        assert result["favourited"] is False
         assert client.post(
-            "/api/favourites", json={"saved_id": "saved", "favourite": True}
+            "/api/v1/favourites", json={"track": SONG, "favourite": True}
         ).json()["favourited"]
-        p = client.post("/api/playlists", json={"name": "New playlist"}).json()
+        p = client.post("/api/v1/playlists", json={"name": "New playlist"}).json()
+        added = client.post(f"/api/v1/playlists/{p['id']}/songs", json=SONG).json()
+        assert added["track_count"] == 1
+        assert client.get("/api/v1/admin/queue").json()["items"] == []
+        # Only song identity is accepted: no file paths.
         assert (
             client.post(
-                "/api/playlists/" + p["id"] + "/songs", json={"saved_id": "saved"}
-            ).json()["track_count"]
-            == 1
-        )
-        assert client.get("/api/queue").json()["items"] == []
-        assert (
-            client.post(
-                "/api/favourites", json={"relative_path": "/etc/passwd"}
+                "/api/v1/favourites", json={"track": {"relative_path": "/etc/passwd"}}
             ).status_code
-            == 400
+            == 422
         )
 
 
-def test_batched_membership_endpoint_is_removed(tmp_path):
-    track = {
-        "id": "song",
-        "title": "Song",
-        "artist": "Artist",
-        "album": "Album",
-        "album_artist": "Artist",
-    }
-    (tmp_path / "library-snapshot.json").write_text(json.dumps({"tracks": [track]}))
-    app = create_app(tmp_path)
-    with TestClient(app) as client:
+def test_batched_membership_endpoint_is_removed(tmp_path, monkeypatch):
+    with signed_in(tmp_path, monkeypatch, {**SONG, "id": "song"}) as client:
         assert client.post(
-            "/api/favourites", json={"saved_id": "song", "favourite": True}
+            "/api/v1/favourites", json={"track": SONG, "favourite": True}
         ).json()["favourited"]
         result = client.post("/api/membership", json={"songs": [{"saved_id": "song"}]})
         assert result.status_code in {404, 405}
-        assert client.get("/api/queue").json()["items"] == []
-        assert client.get("/api/playlists/pig-favourites").json()["track_count"] == 1
+        assert client.get("/api/v1/admin/queue").json()["items"] == []
+        favourites = next(
+            p
+            for p in client.get("/api/v1/playlists").json()["playlists"]
+            if p["id"].startswith("pig-favourites")
+        )
+        assert favourites["track_count"] == 1

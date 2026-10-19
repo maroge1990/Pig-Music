@@ -12,6 +12,7 @@ import uuid
 import httpx
 from zoneinfo import ZoneInfo
 
+from .paths import versioned
 from .artist_identity import cached_identity
 from .catalogue import background_metadata, credit
 from .home import release_choice
@@ -1300,9 +1301,9 @@ class Mixes:
                 "library_track_id": library_id,
                 "available": True,
                 "cover_url": (
-                    f"/api/catalogue/artwork/release/{track['musicbrainz_release_id']}"
+                    f"/api/v1/catalogue/artwork/release/{track['musicbrainz_release_id']}"
                     if track.get("musicbrainz_release_id")
-                    else track.get("cover_url")
+                    else versioned(track.get("cover_url"))
                 ),
             }
         )

@@ -58,7 +58,9 @@ def measure(size):
             assert (
                 startup_seconds < 30
             ), f"Metadata startup exceeded 30 seconds: {startup_seconds:.2f}"
-            result = client.get("/api/library", headers={"Accept-Encoding": "gzip"})
+            result = client.get(
+                "/api/v1/admin/library", headers={"Accept-Encoding": "gzip"}
+            )
             assert result.status_code == 200, result.text
             assert result.json()["stats"]["tracks"] == size
             assert result.headers["content-encoding"] == "gzip"
@@ -66,7 +68,9 @@ def measure(size):
             times = []
             for _ in range(30):
                 start = time.perf_counter()
-                response = client.get("/api/library", headers={"If-None-Match": etag})
+                response = client.get(
+                    "/api/v1/admin/library", headers={"If-None-Match": etag}
+                )
                 times.append((time.perf_counter() - start) * 1000)
                 assert response.status_code == 304 and not response.content
             peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss

@@ -22,7 +22,7 @@ def test_missing_mount_keeps_ui_available_and_no_nas_paths_created(
     with TestClient(create_app(data)) as client:
         health = client.get("/api/health").json()
         assert health["status"] == "ok" and health["storage_available"] is False
-        assert client.get("/api/library").status_code == 200
+        assert client.get("/api/v1/admin/library").status_code == 200
         assert not nas.exists()
 
 

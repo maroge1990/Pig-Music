@@ -27,7 +27,7 @@ PUBLIC = frozenset(
 )
 PERSONAL_ACCOUNT_PREFIXES = ("/api/v1/me", "/api/v1/auth/logout")
 # Paths an audio element may open with a signed, expiring query instead of a session.
-SIGNED_PREFIXES = ("/api/playback/files/", "/api/playback/remote/")
+SIGNED_PREFIXES = ("/api/v1/playback/files/", "/api/v1/remote-playback/streams/")
 
 
 def secret_file(directory):
@@ -126,7 +126,7 @@ class Security:
         # household projection and server administration remain owner-only.
         scoped = "personal-library" in getattr(request.scope.get("route"), "tags", [])
         media_path = request.url.path.startswith(
-            "/api/playback/files/"
+            "/api/v1/playback/files/"
         ) or request.url.path.startswith("/api/v1/playback/")
         media_path = media_path or request.url.path.startswith("/api/v1/tracks/")
         if media_path:
@@ -137,7 +137,7 @@ class Security:
                 try:
                     if not (
                         request.url.path.startswith(
-                            ("/api/playback/files/", "/api/v1/playback/")
+                            ("/api/v1/playback/files/", "/api/v1/playback/")
                         )
                         or request.url.path == f"/api/v1/tracks/{track_id}/file"
                     ):
@@ -152,7 +152,7 @@ class Security:
             # Device copies stay limited to the member's own library.
             streaming = (
                 request.url.path.startswith(
-                    ("/api/playback/files/", "/api/v1/playback/")
+                    ("/api/v1/playback/files/", "/api/v1/playback/")
                 )
                 or request.url.path == f"/api/v1/tracks/{track_id}/file"
             )
@@ -164,15 +164,15 @@ class Security:
                 raise HTTPException(404, "Track not found")
             scoped = True
         if person["role"] != "owner" and request.url.path.startswith(
-            ("/api/artwork/", "/api/library-artwork/", "/api/v1/artwork/")
+            ("/api/v1/covers/", "/api/v1/library-artwork/", "/api/v1/artwork/")
         ):
             access = await asyncio.to_thread(
                 self.auth.store.user_libraries.artwork_access, person["id"]
             )
             path = request.url.path.removesuffix("/metadata")
             if path.startswith("/api/v1/artwork/"):
-                path = path.replace("/api/v1/artwork/", "/api/artwork/") + ".jpg"
-            if path.startswith("/api/library-artwork/"):
+                path = path.replace("/api/v1/artwork/", "/api/v1/covers/") + ".jpg"
+            if path.startswith("/api/v1/library-artwork/"):
                 kind, item_id = request.path_params.get(
                     "kind"
                 ), request.path_params.get("item_id")

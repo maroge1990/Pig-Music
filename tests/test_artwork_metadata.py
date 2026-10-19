@@ -64,17 +64,18 @@ def test_metadata_projection_endpoint_and_conditional_cache(tmp_path):
     store.refresh_library()
     assert store.summary()["albums"][0]["artwork_metadata"]["sha"] == sha
     with TestClient(app) as client:
-        result = client.get("/api/artwork/" + sha + ".jpg/metadata")
+        result = client.get("/api/v1/covers/" + sha + ".jpg/metadata")
         assert result.status_code == 200
         assert result.json() == store.covers.presentation(sha)
         assert "immutable" in result.headers["cache-control"]
         assert (
             client.get(
-                "/api/artwork/" + sha + ".jpg/metadata",
+                "/api/v1/covers/" + sha + ".jpg/metadata",
                 headers={"If-None-Match": result.headers["etag"]},
             ).status_code
             == 304
         )
         assert (
-            client.get("/api/artwork/" + "0" * 64 + ".jpg/metadata").status_code == 404
+            client.get("/api/v1/covers/" + "0" * 64 + ".jpg/metadata").status_code
+            == 404
         )

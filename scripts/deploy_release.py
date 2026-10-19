@@ -272,7 +272,7 @@ class Release:
             health = self.private("/api/health")
             assert health["https"] is True and health["storage_available"]
             assert self.private("/api/v1/setup/owner") == {"setup_required": False}
-            assert self.http.get("/api/library").status_code in {401, 403}
+            assert self.http.get("/api/v1/admin/library").status_code in {401, 403}
             self.verify_container(live, candidate)
             print("Release is live:", self.version, "; backup:", self.backup)
             print("Rollback container:", self.previous, flush=True)

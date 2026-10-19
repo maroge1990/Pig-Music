@@ -20,7 +20,7 @@ export function ArtistAcquisition({
   useEffect(() => {
     let active = true;
     const update = () =>
-      apiFetch(`/api/catalogue/artists/${id}/acquisition`)
+      apiFetch(`/api/v1/admin/catalogue/artists/${id}/acquisition`)
         // A failed answer keeps the current settings rather than replacing them.
         .then((r) =>
           r.ok ? r.json() : Promise.reject(new Error(r.statusText)),
@@ -55,15 +55,18 @@ export function ArtistAcquisition({
   async function save(request = false) {
     setBusy(true);
     try {
-      const r = await apiFetch(`/api/catalogue/artists/${id}/acquisition`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          kinds: state.kinds,
-          monitor: state.monitor,
-          request,
-        }),
-      });
+      const r = await apiFetch(
+        `/api/v1/admin/catalogue/artists/${id}/acquisition`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            kinds: state.kinds,
+            monitor: state.monitor,
+            request,
+          }),
+        },
+      );
       const d = await r.json();
       if (!r.ok) throw new Error(d.detail || "Artist request unavailable.");
       editing.current = false;

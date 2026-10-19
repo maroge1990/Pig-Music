@@ -13,7 +13,6 @@ from fastapi.responses import (
     FileResponse,
     Response,
     RedirectResponse,
-    StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
@@ -25,7 +24,6 @@ from .security import Security, audit_routes
 from .request_limits import JsonBodyLimit
 from .transport import public_origin
 from .enrichment import Enrichment
-from .change_feed import ChangeFeed
 from .image_cache import public_image
 from .routes.artwork import artwork_router
 from .device_copies import DeviceCopies
@@ -35,7 +33,7 @@ from .portraits import portrait_target
 from .artist_backgrounds import background_target
 from pydantic import BaseModel, Field
 
-from .library import normalise, identifier
+from .library import identifier
 from .fanart import Fanart, best as best_fanart, download as fanart_download
 from .storage import download_root
 from .store import Store
@@ -127,8 +125,6 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             "soulseek": Soulseek(store).health(),
         }
 
-    change_feed = ChangeFeed(feed_queue, feed_health)
-
     @asynccontextmanager
     async def lifespan(app):
         nonlocal scan_task
@@ -152,7 +148,6 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         ) as client:
             app.state.http = client
             enrichment.start()
-            change_feed.start()
             await asyncio.to_thread(recovery.recover)
             await asyncio.to_thread(organisation.recover)
             downloader = Downloader(store, runtime=source_runtime)
@@ -185,7 +180,6 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 preload_task.cancel()
                 await warmer.close()
                 await enrichment.close()
-                await change_feed.close()
                 maintenance_task.cancel()
                 await task
                 await export_task
@@ -259,7 +253,6 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     app.state.store = store
     app.state.source_runtime = source_runtime
     app.state.enrichment = enrichment
-    app.state.change_feed = change_feed
     app.add_middleware(GZipMiddleware, minimum_size=1000)
     app.add_middleware(JsonBodyLimit)
 
@@ -294,7 +287,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             response.headers["Strict-Transport-Security"] = "max-age=31536000"
 
         if request.url.path.startswith("/api/") and not request.url.path.startswith(
-            ("/api/artwork/", "/api/library-artwork/")
+            ("/api/v1/covers/", "/api/v1/library-artwork/")
         ):
             response.headers.setdefault("Cache-Control", "no-store")
         if request.url.path.startswith("/assets/") and response.status_code in {
@@ -366,7 +359,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             "library_stats": store.library["stats"],
         }
 
-    @app.post("/api/albums/{album_id}/remove")
+    @app.post("/api/v1/admin/albums/{album_id}/remove")
     async def remove_album(album_id: str):
         album = store.albums_by_id.get(album_id)
         if not album:
@@ -383,7 +376,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 )
         return {"removed": count}
 
-    @app.post("/api/artists/{artist_id}/remove")
+    @app.post("/api/v1/admin/artists/{artist_id}/remove")
     async def remove_artist(artist_id: str):
         artist = store.artists_by_id.get(artist_id)
         if not artist:
@@ -409,7 +402,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         track_ids: list[str] = Field(max_length=5000)
         tags: bool = False
 
-    @app.get("/api/library/organisation/history")
+    @app.get("/api/v1/admin/library/organisation/history")
     def organisation_history():
         return [
             {"id": r["id"], "title": r["track"]["title"], "status": r["status"]}
@@ -417,7 +410,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             if r["status"] in {"completed", "undoing"}
         ]
 
-    @app.post("/api/library/organisation/{identity}/undo")
+    @app.post("/api/v1/admin/library/organisation/{identity}/undo")
     async def undo_organisation(identity: str):
         if scan_task and not scan_task.done():
             raise HTTPException(
@@ -436,11 +429,11 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         finally:
             scanner.lock.release()
 
-    @app.get("/api/library/organisation")
+    @app.get("/api/v1/admin/library/organisation")
     async def organisation_plan():
         return await asyncio.to_thread(organisation.plan)
 
-    @app.post("/api/library/organisation")
+    @app.post("/api/v1/admin/library/organisation")
     async def organisation_apply(body: OrganiseRequest):
         if scan_task and not scan_task.done():
             raise HTTPException(
@@ -469,7 +462,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         finally:
             scanner.lock.release()
 
-    @app.get("/api/library/trash")
+    @app.get("/api/v1/admin/library/trash")
     def removed_music():
         return [
             {
@@ -481,7 +474,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             if record["status"] != "restored"
         ]
 
-    @app.post("/api/tracks/{track_id}/remove")
+    @app.post("/api/v1/admin/tracks/{track_id}/remove")
     async def remove_song(track_id: str):
         try:
             record = await asyncio.to_thread(recovery.remove, track_id)
@@ -492,7 +485,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 "Removal stopped; check the library mount and file. Existing recovery data is retained.",
             )
 
-    @app.post("/api/library/trash/{identity}/restore")
+    @app.post("/api/v1/admin/library/trash/{identity}/restore")
     async def restore_song(identity: str):
         try:
             record = await asyncio.to_thread(recovery.restore, identity)
@@ -503,7 +496,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 "Restore stopped; check the library mount and destination. Recoverable music is retained.",
             )
 
-    @app.get("/api/library")
+    @app.get("/api/v1/admin/library")
     def library(request: Request):
         # Playlist count/settings are part of the response, so they enter the validator.
         with store.library_lock:
@@ -537,25 +530,15 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             return Response(status_code=304, headers=headers)
         return Response(payload, media_type="application/json", headers=headers)
 
-    @app.get("/api/events")
-    async def events():
-        if len(change_feed.listeners) >= 32:
-            raise HTTPException(503, "Too many change-feed connections.")
-        return StreamingResponse(
-            change_feed.stream(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
-        )
-
-    @app.get("/api/library/scan")
+    @app.get("/api/v1/admin/library/scan")
     def scan_status():
         return scanner.status()
 
-    @app.get("/api/library/export-plan")
+    @app.get("/api/v1/admin/library/export-plan")
     def export_plan():
         return exporter.plan()
 
-    @app.post("/api/library/scan")
+    @app.post("/api/v1/admin/library/scan")
     async def scan_library():
         nonlocal scan_task
         if scan_task and not scan_task.done():
@@ -565,10 +548,6 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         scanner.report(status="scanning", files=0)
         scan_task = asyncio.create_task(asyncio.to_thread(scanner.run))
         return scanner.status()
-
-    @app.get("/api/playlists")
-    def playlist_list():
-        return playlists.list()
 
     class PlaylistName(BaseModel):
         name: str = Field(min_length=1, max_length=100)
@@ -623,39 +602,6 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             }
         }
 
-    @app.post("/api/playlists")
-    def create_playlist(body: PlaylistName):
-        try:
-            return playlists.create(body.name)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
-
-    @app.post("/api/playlists/{playlist_id}/songs")
-    async def add_playlist_song(playlist_id: str, body: SongReference):
-        track = await resolve_song(body)
-        try:
-            return playlists.add(playlist_id, track)
-        except ValueError as exc:
-            raise HTTPException(404, str(exc)) from exc
-
-    @app.post("/api/favourites")
-    async def favourite_song(body: SongReference):
-        return playlists.favourite(await resolve_song(body), body.favourite)
-
-    @app.get("/api/playlists/{playlist_id}")
-    def playlist_detail(playlist_id: str):
-        try:
-            return playlists.detail(playlist_id)
-        except ValueError as exc:
-            raise HTTPException(404, str(exc)) from exc
-
-    @app.post("/api/playlists/{playlist_id}/review")
-    def playlist_review(playlist_id: str):
-        try:
-            return playlists.review(playlist_id)
-        except ValueError as exc:
-            raise HTTPException(404, str(exc)) from exc
-
     async def image_response(target, w=0, soft=False):
         if not target or not target.is_file():
             return Response(status_code=404, headers={"Cache-Control": "no-store"})
@@ -666,7 +612,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             # Alias requests revalidate; redirect only to immutable local bytes.
             suffix = f"?w={w}&soft={int(soft)}" if w else ""
             return RedirectResponse(
-                "/api/artwork/" + target.name + suffix,
+                "/api/v1/covers/" + target.name + suffix,
                 headers={"Cache-Control": "no-cache"},
             )
 
@@ -695,7 +641,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 return target
         return await artwork.artist(app.state.http, item)
 
-    @app.get("/api/library-artwork/{kind}/{item_id}")
+    @app.get("/api/v1/library-artwork/{kind}/{item_id}")
     async def library_artwork(kind: str, item_id: str, request: Request, w: int = 0):
         if kind not in {"albums", "artists"}:
             raise HTTPException(404, "Artwork not found.")
@@ -720,7 +666,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 target = portrait
             if not target:
                 fallback = item.get("fallback_cover_url") or item.get("cover_url") or ""
-                if fallback.startswith("/api/artwork/"):
+                if fallback.startswith("/api/v1/covers/"):
                     target = store.cover_dir / fallback.split("/")[-1].split("?")[0]
                 elif item.get("cover_album_id") in store.albums_by_id:
                     # Album art fetched lazily under its own alias.
@@ -730,14 +676,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         )
         return await image_response(target, w)
 
-    @app.get("/api/albums/{album_id}")
-    def album(album_id: str):
-        match = store.albums_by_id.get(album_id)
-        if match is None:
-            raise HTTPException(404, "Album not found.")
-        return match
-
-    @app.get("/api/catalogue/artwork/{kind}/{item_id}", tags=["personal-library"])
+    @app.get("/api/v1/catalogue/artwork/{kind}/{item_id}", tags=["personal-library"])
     async def catalogue_artwork(kind: str, item_id: str, w: int = 0):
         if kind not in {"release", "release-group"}:
             raise HTTPException(404, "Artwork not found.")
@@ -775,72 +714,29 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             # Optional enrichment; the placeholder cover remains.
             return None
 
-    @app.get("/api/artists/{artist_id}")
-    def artist(artist_id: str):
-        match = store.artists_by_id.get(artist_id)
-        if match is None:
-            raise HTTPException(404, "Artist not found.")
-        return {
-            **match,
-            "albums": [
-                store.albums_by_id[album_id]
-                for album_id in match["album_ids"]
-                if album_id in store.albums_by_id
-            ],
-            "compilation_tracks": [
-                {**t, "album_id": a["id"]}
-                for a in store.library["albums"]
-                if a["category"] != "album"
-                for t in a["tracks"]
-                if normalise(t["artist"]) == normalise(match["name"])
-            ],
-        }
-
     class Category(BaseModel):
         category: str
 
-    @app.put("/api/albums/{album_id}/category")
+    @app.get("/api/v1/admin/albums/{album_id}")
+    def household_album(album_id: str):
+        """A household album with its tracks, for owner tools."""
+        match = store.albums_by_id.get(album_id)
+        if match is None:
+            raise HTTPException(404, "Album not found.")
+        return match
+
+    @app.put("/api/v1/admin/albums/{album_id}/category")
     def category(album_id: str, body: Category):
         try:
             return store.categorise(album_id, body.category)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
-    @app.get("/api/search")
-    def search(q: str = ""):
-        query = normalise(q)[:200]
-        if not query:
-            return {"artists": [], "albums": [], "tracks": [], "available": []}
-        artists = [
-            a for a in store.library["artists"] if query in normalise(a["name"])
-        ][:12]
-        albums = [
-            a
-            for a in store.summary()["albums"]
-            if query in normalise(a["title"] + " " + a["artist"])
-        ][:12]
-        tracks = [track for text, track in store.index.search_tracks if query in text][
-            :20
-        ]
-        available = [
-            {**t, "migration_album_id": a["id"], "cover_url": a["cover_url"]}
-            for a in store.migration()["albums"]
-            for t in a["tracks"]
-            if t["status"] != "downloaded"
-            and query in normalise(t["title"] + " " + t["artist"])
-        ][:20]
-        return {
-            "artists": artists,
-            "albums": albums,
-            "tracks": tracks,
-            "available": available,
-        }
-
-    @app.get("/api/migration")
+    @app.get("/api/v1/admin/migration")
     def migration():
         return store.migration()
 
-    @app.post("/api/migration/import")
+    @app.post("/api/v1/admin/migration/import")
     async def import_export(request: Request):
         chunks, size = [], 0
         async for chunk in request.stream():
@@ -857,14 +753,14 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         track_ids: list[str] = Field(max_length=5000)
         selected: bool
 
-    @app.post("/api/migration/selection")
+    @app.post("/api/v1/admin/migration/selection")
     def selection(body: Selection):
         try:
             return store.update_selection(body.track_ids, body.selected)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
-    @app.get("/api/migration/plan")
+    @app.get("/api/v1/admin/migration/plan")
     def plan():
         return Response(
             json.dumps(store.plan(), indent=2, ensure_ascii=False),
@@ -878,21 +774,21 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         track_id: str = Field(max_length=128)
         decision: str
 
-    @app.post("/api/migration/decision")
+    @app.post("/api/v1/admin/migration/decision")
     def decide(body: Decision):
         try:
             return store.decide(body.track_id, body.decision)
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
-    @app.post("/api/migration/submit")
+    @app.post("/api/v1/admin/migration/submit")
     def submit():
         try:
             return store.submit_migration()
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
 
-    @app.get("/api/queue")
+    @app.get("/api/v1/admin/queue")
     def queue():
         return {
             **store.queue(),
@@ -900,22 +796,22 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             "media": public_settings(store),
         }
 
-    @app.post("/api/queue/clear")
+    @app.post("/api/v1/admin/queue/clear")
     def clear_queue(finished: bool = False):
         return store.clear_queue(finished_only=finished)
 
     app.include_router(download_sources_router(source_runtime))
 
-    @app.get("/api/settings/downloads")
+    @app.get("/api/v1/admin/settings/downloads")
     def download_settings():
         return store.download_settings()
 
-    @app.get("/api/admin/access")
+    @app.get("/api/v1/admin/access")
     def admin_access():
         # Owner-only by default: members only reach routes tagged personal-library.
         return {"public_origin": https_origin or None}
 
-    @app.get("/api/settings/soulseek")
+    @app.get("/api/v1/admin/settings/soulseek")
     async def soulseek_health():
         return await asyncio.to_thread(Soulseek(store).health)
 
@@ -928,21 +824,21 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         fallback_minutes: int = Field(default=10, ge=1, le=60)
         recheck_hours: int = Field(default=24, ge=1, le=168)
 
-    @app.put("/api/settings/downloads")
+    @app.put("/api/v1/admin/settings/downloads")
     def save_download_settings(body: DownloadSettings):
         try:
             return store.save_download_settings(body.model_dump())
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 
-    @app.post("/api/queue/{request_id}/retry")
+    @app.post("/api/v1/admin/queue/{request_id}/retry")
     def retry(request_id: str):
         try:
             return store.retry_request(request_id)
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
 
-    @app.post("/api/queue/{request_id}/cancel")
+    @app.post("/api/v1/admin/queue/{request_id}/cancel")
     def cancel(request_id: str):
         try:
             return store.cancel_request(request_id)
@@ -992,7 +888,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
 
     warmer.cover = warm_cover
 
-    @app.get("/api/warmer")
+    @app.get("/api/v1/admin/warmer")
     def warmer_status():
         return warmer.status()
 
@@ -1013,7 +909,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                     if signature in seen:
                         continue
                     if not (item.get("cover_url") or "").startswith(
-                        "/api/library-artwork/"
+                        "/api/v1/library-artwork/"
                     ):
                         seen.add(signature)
                         continue
@@ -1042,30 +938,17 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             raise HTTPException(404, "File unavailable")
         return {
             "url": security.sign_url(
-                "/api/playback/files/" + track_id,
+                "/api/v1/playback/files/" + track_id,
                 request.state.user,
                 request.state.session,
             ),
             "expires_in": 6 * 3600,
         }
 
-    @app.get("/api/playback/saved/{track_id}")
-    def playback_saved(track_id: str):
-        try:
-            track_file(store, track_id)
-        except FileNotFoundError:
-            raise HTTPException(404, "This saved file is unavailable on the server.")
-        track, _ = saved_track(store, track_id)
-        return {
-            **track,
-            "url": "/api/playback/files/" + track_id,
-            "source": "Saved library",
-        }
-
     @app.get("/api/v1/tracks/{track_id}/file", tags=["personal-library"])
     @app.head("/api/v1/tracks/{track_id}/file", tags=["personal-library"])
-    @app.get("/api/playback/files/{track_id}")
-    @app.head("/api/playback/files/{track_id}")
+    @app.get("/api/v1/playback/files/{track_id}")
+    @app.head("/api/v1/playback/files/{track_id}")
     def playback_file(track_id: str, request: Request):
         try:
             target = (
@@ -1096,7 +979,20 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         # Popularity and Home feeds know the recording, not the release track.
         recording_id: str | None = Field(None, max_length=64)
 
-    @app.post("/api/playback/catalogue", tags=["personal-library"])
+    def playback_saved(track_id: str):
+        """A catalogue song you already have plays from its saved file."""
+        try:
+            track_file(store, track_id)
+        except FileNotFoundError:
+            raise HTTPException(404, "This saved file is unavailable on the server.")
+        track, _ = saved_track(store, track_id)
+        return {
+            **track,
+            "url": "/api/v1/playback/files/" + track_id,
+            "source": "Saved library",
+        }
+
+    @app.post("/api/v1/remote-playback/catalogue", tags=["personal-library"])
     async def playback_catalogue(body: PlaybackRequest, request: Request):
         if not body.track_id and not body.recording_id:
             raise HTTPException(422, "Choose a song to play.")
@@ -1146,8 +1042,8 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             return {"preparing": len(queued)}
         return {"preparing": len(queued) + remote_audio.prepare(app.state.http, others)}
 
-    @app.get("/api/playback/remote/{token}", tags=["personal-library"])
-    @app.head("/api/playback/remote/{token}", tags=["personal-library"])
+    @app.get("/api/v1/remote-playback/streams/{token}", tags=["personal-library"])
+    @app.head("/api/v1/remote-playback/streams/{token}", tags=["personal-library"])
     def playback_relayed(token: str, request: Request):
         found = remote_audio.relay(token, request.state.user["id"])
         if not found:
@@ -1189,7 +1085,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                     "id": cached_id,
                     "history_track_id": cached_id,
                     "url": security.sign_url(
-                        "/api/playback/files/" + cached_id,
+                        "/api/v1/playback/files/" + cached_id,
                         request.state.user,
                         request.state.session,
                     ),
@@ -1216,7 +1112,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 "No reliable remote stream matched this release. You can still download it.",
             )
         url = found.get("url") or security.sign_url(
-            "/api/playback/remote/" + found["relay"],
+            "/api/v1/remote-playback/streams/" + found["relay"],
             request.state.user,
             request.state.session,
         )

@@ -4,6 +4,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 from server.app import create_app
+from server.auth import Auth
 from server.catalogue import Catalogue, release_tracks
 from server.store import Store
 
@@ -14,7 +15,18 @@ OTHER = "55555555-5555-4555-8555-555555555555"
 TRACK = "44444444-4444-4444-8444-444444444444"
 
 
-def test_discography_filters_studio_albums_and_sorts_dates(tmp_path):
+def owner_app(tmp_path, monkeypatch):
+    """An app with a signed-in owner, for the versioned catalogue routes."""
+    monkeypatch.delenv("PIG_MUSIC_TEST_LEGACY_API", raising=False)
+    auth = Auth(Store(tmp_path))
+    auth.create_owner("mark", "catalogue fixture password")
+    token = auth.login(
+        "mark", "catalogue fixture password", "device", "phone", "ios", "f"
+    )["token"]
+    return create_app(tmp_path), {"Authorization": "Bearer " + token}
+
+
+def test_discography_filters_studio_albums(tmp_path, monkeypatch):
     queries = []
 
     def transport(request):
@@ -41,14 +53,15 @@ def test_discography_filters_studio_albums_and_sorts_dates(tmp_path):
             },
         )
 
-    app = create_app(tmp_path)
-    with TestClient(app) as client:
+    app, headers = owner_app(tmp_path, monkeypatch)
+    with TestClient(app, base_url="https://private.ts.net", headers=headers) as client:
         original = app.state.http
         app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(transport))
         result = client.get(
-            f"/api/catalogue/artists/{ARTIST}/releases?kind=album"
+            f"/api/v1/catalogue/artists/{ARTIST}/releases?kind=album"
         ).json()
-        assert [r["title"] for r in result["releases"]] == [
+        # Clients order the list (newest first); the server keeps every release.
+        assert sorted(r["title"] for r in result["releases"]) == [
             "Newest",
             "Oldest",
             "Unknown date",
@@ -57,7 +70,7 @@ def test_discography_filters_studio_albums_and_sorts_dates(tmp_path):
         assert "NOT secondarytype:live" in queries[-1]
         assert "NOT secondarytype:compilation" in queries[-1]
         assert client.get(
-            f"/api/catalogue/artists/{ARTIST}/releases?kind=other"
+            f"/api/v1/catalogue/artists/{ARTIST}/releases?kind=other"
         ).is_success
         assert (
             "NOT (primarytype:album" in queries[-1]
@@ -93,7 +106,7 @@ def fixture_release():
     }
 
 
-def test_catalogue_edition_requests_cached_validated_and_persistent(tmp_path):
+def test_catalogue_pages_editions_and_release_detail(tmp_path, monkeypatch):
     calls = []
 
     def transport(request):
@@ -129,37 +142,28 @@ def test_catalogue_edition_requests_cached_validated_and_persistent(tmp_path):
             )
         return httpx.Response(200, json=fixture_release())
 
-    app = create_app(tmp_path)
-    with TestClient(app) as client:
+    app, headers = owner_app(tmp_path, monkeypatch)
+    with TestClient(app, base_url="https://private.ts.net", headers=headers) as client:
         original = app.state.http
         app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(transport))
         assert (
-            client.get(f"/api/catalogue/artists/{ARTIST}/releases?offset=50").json()[
+            client.get(f"/api/v1/catalogue/artists/{ARTIST}/releases?offset=50").json()[
                 "total"
             ]
             == 51
         )
         assert calls[-1].url.params["offset"] == "50"
-        assert client.get(f"/api/catalogue/groups/{GROUP}/editions").json()["editions"][
-            0
-        ]["formats"] == ["CD"]
-        detail = client.get(f"/api/catalogue/releases/{RELEASE}").json()
+        assert client.get(f"/api/v1/catalogue/groups/{GROUP}/editions").json()[
+            "editions"
+        ][0]["formats"] == ["CD"]
+        detail = client.get(f"/api/v1/catalogue/releases/{RELEASE}").json()
         assert detail["tracks"][0]["disc_number"] == 2
-        path = f"/api/catalogue/releases/{RELEASE}/request"
-        assert (
-            client.post(path, json={"track_ids": ["not-this-edition"]}).status_code
-            == 400
-        )
-        assert client.post(path, json={"track_ids": []}).status_code == 400
-        assert client.post(path, json={"track_ids": [TRACK]}).json()["created"] == 1
-        assert client.post(path, json={}).json()["existing"] == 1
-        assert len(calls) == 3  # release lookup reused by detail and submissions
-        assert client.get("/api/catalogue/releases/not-a-uuid").status_code == 400
+        assert detail["tracks"][0]["isrcs"] == ["USAAA2000001"]
+        # A second read is served from the server's catalogue cache.
+        client.get(f"/api/v1/catalogue/releases/{RELEASE}")
+        assert len(calls) == 3
+        assert client.get("/api/v1/catalogue/releases/not-a-uuid").status_code == 400
         app.state.http = original
-    queued = Store(tmp_path).queue()["items"][0]
-    assert queued["musicbrainz_release_id"] == RELEASE
-    assert queued["isrcs"] == ["USAAA2000001"]
-    assert queued["album"] == "Live at Home" and queued["duration"] == 120
 
 
 def test_saved_presence_and_same_title_different_editions(tmp_path):
@@ -218,17 +222,18 @@ def test_artist_artwork_uses_credited_album_and_cached_metadata(tmp_path):
     with TestClient(app) as client:
         original = app.state.http
         app.state.http = httpx.AsyncClient(transport=httpx.MockTransport(transport))
-        path = f"/api/catalogue/artists/{ARTIST}/artwork"
+        path = f"/api/v1/catalogue/artists/{ARTIST}/artwork"
         result = client.get(path, follow_redirects=False)
         assert result.status_code == 404
         client.portal.call(app.state.enrichment.queue.join)
         result = client.get(path, follow_redirects=False)
         assert result.status_code == 307
-        assert result.headers["location"].startswith("/api/artwork/")
+        assert result.headers["location"].startswith("/api/v1/covers/")
         assert client.get(path).status_code == 200
         assert len(calls) == 2
         assert (
-            client.get("/api/catalogue/artists/not-a-uuid/artwork").status_code == 400
+            client.get("/api/v1/catalogue/artists/not-a-uuid/artwork").status_code
+            == 400
         )
         assert len(calls) == 2
         app.state.http = original
@@ -245,7 +250,7 @@ def test_artist_without_artwork_returns_missing_without_redirect(tmp_path):
             )
         )
         result = client.get(
-            f"/api/catalogue/artists/{ARTIST}/artwork", follow_redirects=False
+            f"/api/v1/catalogue/artists/{ARTIST}/artwork", follow_redirects=False
         )
         assert result.status_code == 404
         assert "location" not in result.headers

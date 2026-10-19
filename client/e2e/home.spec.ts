@@ -101,7 +101,7 @@ for (const appearance of ["light", "dark"]) {
           route.fulfill({ json: { mixes, preparing: false } }),
         "/v1/playback/mix%3Aedition-0%3A0/url": (route) =>
           route.fulfill({
-            json: { url: "/api/playback/files/prepared", expires_in: 21600 },
+            json: { url: "/api/v1/playback/files/prepared", expires_in: 21600 },
           }),
         "/playback/files/prepared": (route) =>
           route.fulfill({
@@ -202,10 +202,10 @@ test("Radio starts from Home, refills before it runs out and reports skips", asy
   });
   await page.route("**/api/v1/playback/*/url", (route) =>
     route.fulfill({
-      json: { url: "/api/playback/files/prepared", expires_in: 21600 },
+      json: { url: "/api/v1/playback/files/prepared", expires_in: 21600 },
     }),
   );
-  await page.route("**/api/playback/files/prepared", (route) =>
+  await page.route("**/api/v1/playback/files/prepared", (route) =>
     route.fulfill({
       status: 200,
       contentType: "audio/mpeg",

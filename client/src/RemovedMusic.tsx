@@ -6,7 +6,7 @@ export function RemovedMusic({ notify }: { notify: (s: string) => void }) {
   >([]);
   const [busy, setBusy] = useState(false);
   const refresh = () =>
-    apiFetch("/api/library/trash")
+    apiFetch("/api/v1/admin/library/trash")
       .then((r) => r.json())
       .then(setItems);
   useEffect(() => {
@@ -15,9 +15,12 @@ export function RemovedMusic({ notify }: { notify: (s: string) => void }) {
   async function restore(id: string) {
     setBusy(true);
     try {
-      const r = await apiFetch("/api/library/trash/" + id + "/restore", {
-        method: "POST",
-      });
+      const r = await apiFetch(
+        "/api/v1/admin/library/trash/" + id + "/restore",
+        {
+          method: "POST",
+        },
+      );
       if (!r.ok) throw new Error("Restore stopped. Check the library folder.");
       await refresh();
       window.dispatchEvent(new Event("music-library-changed"));

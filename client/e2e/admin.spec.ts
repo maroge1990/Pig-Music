@@ -23,7 +23,7 @@ test("the owner's Admin overview shows the numbers to act on", async ({
   await mockApi(page, {
     role: "owner",
     answers: {
-      "/queue": (route) => route.fulfill({ json: queue }),
+      "/v1/admin/queue": (route) => route.fulfill({ json: queue }),
       "/v1/people": (route) =>
         route.fulfill({
           json: {
@@ -87,7 +87,7 @@ test("the owner's Admin overview shows the numbers to act on", async ({
         }),
       "/v1/admin/mixes/people/u2": (route) =>
         route.fulfill({ json: { person: "Sam", editions: [] } }),
-      "/warmer": (route) =>
+      "/v1/admin/warmer": (route) =>
         route.fulfill({
           json: {
             artists_ready: 12,
@@ -176,7 +176,7 @@ test("Admin follows the shell's event stream without a timer", async ({
   await mockApi(page, {
     role: "owner",
     answers: {
-      "/queue": (route) => {
+      "/v1/admin/queue": (route) => {
         queueCalls += 1;
         queueAsked();
         return route.fulfill({ json: queue });
@@ -195,7 +195,7 @@ test("Admin follows the shell's event stream without a timer", async ({
       "/v1/people": (route) => route.fulfill({ json: { people: [] } }),
       "/v1/admin/unassigned": (route) =>
         route.fulfill({ json: { albums: [], next_offset: null } }),
-      "/warmer": (route) =>
+      "/v1/admin/warmer": (route) =>
         route.fulfill({
           json: { artists_ready: 0, covers_prepared: 0, queued: 0 },
         }),

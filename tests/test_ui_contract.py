@@ -92,14 +92,14 @@ def household(tmp_path, monkeypatch):
 
 # Reads behind the Admin section; members must be refused every one.
 ADMIN_READS = [
-    "/api/library",
-    "/api/migration",
-    "/api/queue",
-    "/api/settings/downloads",
-    "/api/settings/soulseek",
-    "/api/admin/access",
-    "/api/settings/media",
-    "/api/library/trash",
+    "/api/v1/admin/library",
+    "/api/v1/admin/migration",
+    "/api/v1/admin/queue",
+    "/api/v1/admin/settings/downloads",
+    "/api/v1/admin/settings/soulseek",
+    "/api/v1/admin/access",
+    "/api/v1/admin/settings/media",
+    "/api/v1/admin/library/trash",
     "/api/v1/people",
     "/api/v1/people/activity",
     "/api/v1/admin/unassigned",
@@ -121,20 +121,20 @@ def test_admin_section_is_owner_only_through_web_sessions(tmp_path, monkeypatch)
         sign_in(client, "mark")
         for path in ADMIN_READS:
             assert client.get(path).status_code == 200, path
-        settings = client.get("/api/settings/downloads").json()
+        settings = client.get("/api/v1/admin/settings/downloads").json()
         assert (
-            client.put("/api/settings/downloads", headers=WRITE, json=settings)
+            client.put("/api/v1/admin/settings/downloads", headers=WRITE, json=settings)
         ).status_code == 200
         assert (
-            client.put("/api/settings/media", headers=WRITE, json=media)
+            client.put("/api/v1/admin/settings/media", headers=WRITE, json=media)
         ).status_code == 200
         # Browser writes without the request header are refused for everyone.
-        assert client.put("/api/settings/media", json=media).status_code == 403
+        assert client.put("/api/v1/admin/settings/media", json=media).status_code == 403
         sign_in(client, "member")
         for path in ADMIN_READS:
             assert client.get(path).status_code == 403, path
         assert (
-            client.put("/api/settings/media", headers=WRITE, json=media)
+            client.put("/api/v1/admin/settings/media", headers=WRITE, json=media)
         ).status_code == 403
 
 
@@ -157,13 +157,13 @@ def test_admin_access_reports_public_origin_to_owner_only(tmp_path, monkeypatch)
     monkeypatch.setenv("PIG_MUSIC_PUBLIC_ORIGIN", "https://music.example.test")
     app = household(tmp_path, monkeypatch)
     with TestClient(app, base_url="https://music.example.test") as client:
-        assert client.get("/api/admin/access").status_code == 401
+        assert client.get("/api/v1/admin/access").status_code == 401
         sign_in(client, "mark")
-        assert client.get("/api/admin/access").json() == {
+        assert client.get("/api/v1/admin/access").json() == {
             "public_origin": "https://music.example.test"
         }
         sign_in(client, "member")
-        assert client.get("/api/admin/access").status_code == 403
+        assert client.get("/api/v1/admin/access").status_code == 403
 
 
 def test_admin_access_without_configured_origin(tmp_path, monkeypatch):
@@ -171,7 +171,7 @@ def test_admin_access_without_configured_origin(tmp_path, monkeypatch):
     app = household(tmp_path, monkeypatch)
     with TestClient(app, base_url="https://private.ts.net") as client:
         sign_in(client, "mark")
-        assert client.get("/api/admin/access").json() == {"public_origin": None}
+        assert client.get("/api/v1/admin/access").json() == {"public_origin": None}
 
 
 def test_interface_uses_the_system_typeface_and_a_static_sign_in():

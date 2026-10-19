@@ -121,7 +121,7 @@ private final class AliasProtocol: URLProtocol, @unchecked Sendable {
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
   override func startLoading() {
     Self.requests.append(request)
-    let alias = request.url!.path.hasPrefix("/api/catalogue/")
+    let alias = request.url!.path.hasPrefix("/api/v1/catalogue/")
     client?.urlProtocol(
       self,
       didReceive: HTTPURLResponse(
@@ -146,13 +146,13 @@ private final class AliasProtocol: URLProtocol, @unchecked Sendable {
     let sha = String(repeating: "b", count: 64)
     let release = UUID()
     AliasProtocol.requests = []
-    AliasProtocol.location = "/api/artwork/\(sha).jpg?w=256&soft=0"
+    AliasProtocol.location = "/api/v1/covers/\(sha).jpg?w=256&soft=0"
     let request = try ArtworkRequest(sha: String(repeating: "c", count: 64))
     let bytes = try await transport().fetch(request, alias: .release(release))
     #expect(bytes == Data([7, 8, 9]))
     #expect(
       AliasProtocol.requests.map(\.url!.path) == [
-        "/api/catalogue/artwork/release/" + release.uuidString.lowercased(),
+        "/api/v1/catalogue/artwork/release/" + release.uuidString.lowercased(),
         "/api/v1/artwork/" + sha,
       ])
     #expect(
@@ -160,8 +160,8 @@ private final class AliasProtocol: URLProtocol, @unchecked Sendable {
         $0.value(forHTTPHeaderField: "Authorization") == "Bearer disposable-device-token"
       })
     for location in [
-      "https://cdn.invalid/api/artwork/\(sha).jpg", "/api/other/\(sha).jpg",
-      "/api/artwork/not-a-hash.jpg",
+      "https://cdn.invalid/api/v1/covers/\(sha).jpg", "/api/other/\(sha).jpg",
+      "/api/v1/covers/not-a-hash.jpg",
     ] {
       AliasProtocol.requests = []
       AliasProtocol.location = location

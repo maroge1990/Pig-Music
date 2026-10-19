@@ -94,7 +94,7 @@ struct HomeTests {
     #expect(content.mixesPreparing == true)
     #expect(await transport.paths == ["/api/v1/home/mixes"])
     let playback = HomeTransport(
-      json: #"{"url":"/api/playback/files/mix:edition:0?sig=fixture","expires_in":21600}"#)
+      json: #"{"url":"/api/v1/playback/files/mix:edition:0?sig=fixture","expires_in":21600}"#)
     _ = try await service(playback).resolve(track)
     #expect(await playback.paths.count == 1)
     #expect(await playback.paths.first?.contains("/api/v1/playback/") == true)
@@ -134,7 +134,7 @@ struct HomeTests {
   @Test func savedMixPlaybackKeepsItsQualifiedListenIdentity() async throws {
     let transport = HomeTransport(
       json:
-        #"{"url":"/api/playback/files/mix:restored:0?sig=fixture","history_track_id":"mix:restored:0"}"#
+        #"{"url":"/api/v1/playback/files/mix:restored:0?sig=fixture","history_track_id":"mix:restored:0"}"#
     )
     let api = service(transport)
     let track = try LibraryCodec.decoder().decode(

@@ -422,7 +422,7 @@ export function CatalogueBrowser({
             album_count: 0,
             track_count: 0,
             compilation_only: false,
-            cover_url: `/api/catalogue/artists/${artist.id}/artwork`,
+            cover_url: `/api/v1/catalogue/artists/${artist.id}/artwork`,
           }}
         />
       )}

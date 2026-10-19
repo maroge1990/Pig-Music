@@ -59,7 +59,8 @@ def test_member_catalogue_is_scoped_and_contract_published(tmp_path, monkeypatch
             ).status_code
             == 422
         )
-        assert client.get("/api/catalogue/artists").status_code == 403
+        # Owner administration stays closed to members.
+        assert client.get("/api/v1/admin/queue").status_code == 403
         contract = client.get("/api/v1/openapi.json")
         assert contract.status_code == 200
         assert contract.json()["openapi"] == "3.0.3"
