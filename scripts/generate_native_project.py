@@ -12,6 +12,12 @@ SWIFT = ROOT / "swift"
 # template). Kept here so the "Update to recommended settings" prompt stops.
 # The project's own Swift settings below take precedence.
 XCODE_VERSION = "2710"
+
+# Privacy descriptions live in the iPhone target's build settings (Xcode's
+# generated Info.plist), not in PigMusic/Info.plist; tests check both agree.
+IPHONE_INFO = {
+    "INFOPLIST_KEY_NSLocalNetworkUsageDescription": "PigMusic connects to your private music server to browse and play your library.",
+}
 RECOMMENDED = {
     "ALWAYS_SEARCH_USER_PATHS": "NO",
     "ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS": "YES",
@@ -326,6 +332,7 @@ def generate():
             "INFOPLIST_KEY_UIApplicationSceneManifest_Generation": "YES",
             "INFOPLIST_KEY_UISupportedInterfaceOrientations": "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight",
             "INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad": "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight",
+            **IPHONE_INFO,
         }
         watch_settings = {
             "PRODUCT_NAME": "$(TARGET_NAME)",
