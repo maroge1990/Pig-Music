@@ -77,14 +77,14 @@ async def admin_journey(tmp_path):
     async def connected():
         return False
 
-    async def messages(username, password):
+    async def messages(username, password, admin=True, count=4):
         token = auth.login(username, password, "device", "fixture", "ios", "f")["token"]
         user, session = auth.authenticate(token)
         request = SimpleNamespace(
             state=SimpleNamespace(user=user, session=session), is_disconnected=connected
         )
-        response = await endpoint(request)
-        found = [await anext(response.body_iterator) for _ in range(4)]
+        response = await endpoint(request, admin=admin)
+        found = [await anext(response.body_iterator) for _ in range(count)]
         await response.body_iterator.aclose()
         return found
 
@@ -92,8 +92,15 @@ async def admin_journey(tmp_path):
     assert not any("event: admin" in m for m in member_messages)
     assert not any("soulseek" in m for m in member_messages)
     assert calls == []
+    # The owner's iPhone (no Admin) does not subscribe and costs nothing.
+    native = await messages("mark", "native fixture password", admin=False, count=3)
+    assert not any("event: admin" in m for m in native)
+    assert calls == []
     owner_messages = await messages("mark", "native fixture password")
     admin = next(m for m in owner_messages if m.startswith("event: admin"))
     assert '"q1"' in admin and '"scanning"' in admin
     assert '"soulseek":{"configured":true,"connected":false}' in admin
-    assert calls
+    assert calls == [1]
+    # A second Admin page within the interval shares the same snapshot.
+    await messages("mark", "native fixture password")
+    assert calls == [1]

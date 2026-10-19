@@ -13027,7 +13027,20 @@
     },
     "/api/v1/events": {
       "get": {
+        "description": "Live updates. Owners add `admin=true` to also receive the household\nqueue and scan (`admin` events); other clients never pay for them.",
         "operationId": "events_api_v1_events_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "admin",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Admin",
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -13105,7 +13118,7 @@
                 }
               }
             },
-            "description": "Request error"
+            "description": "Validation Error"
           },
           "429": {
             "content": {

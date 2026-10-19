@@ -60,7 +60,8 @@ export function AppShell() {
   // Remounts the sign-in form when an invite link opens in an existing tab.
   const [invites, setInvites] = useState(0);
   const nav = useFixedHeight("--mobile-nav-height", !!user);
-  useServerEvents(!!user);
+  // Only an owner on the Admin section subscribes to the household queue.
+  useServerEvents(!!user, user?.role === "owner" && route.section === "admin");
   const downloading = useActiveDownloads(!!user);
 
   useEffect(() => {
@@ -355,10 +356,11 @@ const initials = (name: string) =>
     .join("");
 
 /** One change feed for every section: library revisions, download progress
- * and, for the owner, Admin state (`music-admin-state`). While the feed is
+ * and, for an owner on the Admin section, Admin state (`music-admin-state`;
+ * the server computes it only for those streams). While the feed is
  * disconnected, one slow poll stands in for it, and only while the page is
  * visible (`music-admin-poll` asks Admin to fetch). */
-function useServerEvents(active: boolean) {
+function useServerEvents(active: boolean, admin: boolean) {
   useEffect(() => {
     if (!active) return;
     const changed = () => {
@@ -368,7 +370,9 @@ function useServerEvents(active: boolean) {
     };
     const requests = () =>
       window.dispatchEvent(new Event("music-requests-changed"));
-    const events = new EventSource("/api/v1/events");
+    const events = new EventSource(
+      admin ? "/api/v1/events?admin=true" : "/api/v1/events",
+    );
     events.addEventListener("revision", changed);
     events.addEventListener("queue", requests);
     events.addEventListener("revoked", () =>
@@ -405,7 +409,7 @@ function useServerEvents(active: boolean) {
       clearInterval(fallback);
       document.removeEventListener("visibilitychange", visible);
     };
-  }, [active]);
+  }, [active, admin]);
 }
 
 /** Count of this person's queued or in-progress requests, for the nav badge. */

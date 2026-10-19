@@ -17,6 +17,8 @@ def native_router(store, auth, health_snapshot=None, admin_snapshot=None):
     router = APIRouter(prefix="/api/v1", tags=["personal-library"])
     sync = NativeSync(store)
     connections = {}
+    shared_admin = Shared(admin_snapshot, 1.5)
+    shared_health = Shared(health_snapshot, 15)
 
     async def page(request, kind, cursor, limit):
         try:
@@ -58,7 +60,9 @@ def native_router(store, auth, health_snapshot=None, admin_snapshot=None):
             raise HTTPException(410, str(exc))
 
     @router.get("/events")
-    async def events(request: Request):
+    async def events(request: Request, admin: bool = False):
+        """Live updates. Owners add `admin=true` to also receive the household
+        queue and scan (`admin` events); other clients never pay for them."""
         session = request.state.session
         key, user_id = session["public_id"], request.state.user["id"]
         if connections.get(key, 0) >= 4:
@@ -66,14 +70,11 @@ def native_router(store, auth, health_snapshot=None, admin_snapshot=None):
         # Reserve before returning the response; release even if the generator is cancelled.
         connections[key] = connections.get(key, 0) + 1
 
-        owner = request.state.user.get("role") == "owner" and admin_snapshot
+        owner = admin and request.state.user.get("role") == "owner" and admin_snapshot
 
         async def stream():
             previous = {}
             heartbeat = time.monotonic()
-            health_checked = 0.0
-            health = {}
-            soulseek = None
             try:
                 while not await request.is_disconnected():
                     # Revoked sessions cannot keep receiving events indefinitely.
@@ -89,20 +90,22 @@ def native_router(store, auth, health_snapshot=None, admin_snapshot=None):
                         store.user_libraries.projection, user_id
                     )
                     queue = await asyncio.to_thread(store.user_libraries.queue, user_id)
-                    if health_snapshot and time.monotonic() - health_checked >= 15:
-                        status = await asyncio.to_thread(health_snapshot)
-                        health = {"storage_available": status["storage_available"]}
-                        soulseek = status.get("soulseek")
-                        health_checked = time.monotonic()
+                    # Every connection shares one health check and one Admin
+                    # snapshot per interval, however many are open.
+                    status = await shared_health.get() or {}
                     state = {
                         "revision": {"revision": summary["revision"]},
                         "queue": queue,
-                        "health": health,
+                        "health": (
+                            {"storage_available": status["storage_available"]}
+                            if status
+                            else {}
+                        ),
                     }
                     if owner:
                         state["admin"] = {
-                            **await asyncio.to_thread(admin_snapshot),
-                            "soulseek": soulseek,
+                            **await shared_admin.get(),
+                            "soulseek": status.get("soulseek"),
                         }
                     for kind, value in state.items():
                         if previous.get(kind) != value:
@@ -124,3 +127,22 @@ def native_router(store, auth, health_snapshot=None, admin_snapshot=None):
         )
 
     return router
+
+
+class Shared:
+    """One `produce()` result shared by every caller for `seconds`: the work is
+    done at most once per interval, not once per open connection."""
+
+    def __init__(self, produce, seconds):
+        self.produce, self.seconds = produce, seconds
+        self.value, self.at = None, None
+        self.lock = asyncio.Lock()
+
+    async def get(self):
+        if self.produce is None:
+            return None
+        async with self.lock:
+            if self.at is None or time.monotonic() - self.at >= self.seconds:
+                self.value = await asyncio.to_thread(self.produce)
+                self.at = time.monotonic()
+            return self.value
