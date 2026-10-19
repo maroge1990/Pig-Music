@@ -46,6 +46,7 @@ import UIKit
   var artistCount = 0
   /// Album category shown in Library ("album", "musical", "soundtrack", "compilation").
   var albumCategory = "album"
+  @ObservationIgnored private var reloadGate = LibraryReloadGate()
   var albumCategoryCounts: [String: Int] = [:]
   var loadingMore = false
   @ObservationIgnored private var flushingHistory = false
@@ -381,8 +382,9 @@ import UIKit
       // Reloading redraws every open page and list, so it waits for a real
       // change. Reconnecting the live updates syncs often with none. Covers
       // reload only when the sync changed one.
-      if (try? await store?.revision()) != before {
-        homeLibraryChanged()
+      let libraryChanged = (try? await store?.revision()) != before
+      if libraryChanged { homeLibraryChanged() }
+      if reloadGate.afterSync(libraryChanged: libraryChanged) {
         try await loadCache(
           artworkChanged: (try? await store?.artworkRevision()) != artworkBefore)
       }
@@ -451,6 +453,11 @@ import UIKit
       // The cached library carries on quietly; the next foreground or pull retries.
       DiagnosticsLog.shared.record("sync", "refresh failed: \(error.localizedDescription)")
       message = nil
+    }
+    // A category chosen during this sync, changed or failed, loads now;
+    // `syncing` stays set until this finishes, so a later choice joins it.
+    while generation == stamp, reloadGate.takePending() {
+      do { try await loadCache() } catch { message = error.userMessage }
     }
   }
   /// Reloads the lists from the local library. `artworkChanged` also redraws
@@ -917,7 +924,11 @@ import UIKit
     albumCategory = category
     albums = []
     albumCount = albumCategoryCounts[category] ?? 0
-    guard !syncing else { return }  // The sync's own reload uses the new category.
+    guard !syncing else {
+      // Loaded when the sync finishes, whether or not it changes the library.
+      reloadGate.viewChangedDuringSync()
+      return
+    }
     do { try await loadCache() } catch { message = error.userMessage }
   }
   func more(_ collection: LibraryCollection) async {
@@ -1140,6 +1151,7 @@ import UIKit
     artistCount = 0
     albumCategory = "album"
     albumCategoryCounts = [:]
+    reloadGate = LibraryReloadGate()
     syncing = false
     loadingMore = false
     defaults.removeObject(forKey: "pig.connection")

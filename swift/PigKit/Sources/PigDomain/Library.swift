@@ -208,3 +208,24 @@ extension String {
     return order == .orderedSame ? compare(other) : order
   }
 }
+
+/// Whether the on-screen library must reload around a sync. A sync reloads
+/// only when it changed the library, so a view change made while one runs
+/// (choosing another album category, say) is remembered here and loaded once
+/// the sync has finished, changed or not.
+public struct LibraryReloadGate: Sendable {
+  private var viewChanged = false
+  public init() {}
+  /// The visible lists changed what they show while a sync held the library.
+  public mutating func viewChangedDuringSync() { viewChanged = true }
+  /// After a sync: whether to reload now. Consumes any pending view change.
+  public mutating func afterSync(libraryChanged: Bool) -> Bool {
+    defer { viewChanged = false }
+    return libraryChanged || viewChanged
+  }
+  /// A view change still waiting for its reload (consumed).
+  public mutating func takePending() -> Bool {
+    defer { viewChanged = false }
+    return viewChanged
+  }
+}

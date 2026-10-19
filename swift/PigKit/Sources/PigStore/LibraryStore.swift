@@ -384,30 +384,33 @@ public actor LibraryStore {
       if artworkChanged { try Self.touchArtwork(db) }
     }
   }
-  /// Whether applying `delta` would change any cover the library draws.
+  /// Whether applying `delta` would change any cover the library draws. One
+  /// query per kind reads every stored cover reference the delta touches.
   private static func coversChange(_ delta: LibraryDelta, db: Database) throws -> Bool {
     if !delta.deletes.albums.isEmpty { return true }
-    func differs(_ table: String, _ key: String, _ id: String, _ value: String?) throws -> Bool {
-      let row = try Row.fetchOne(
+    func differs(_ table: String, _ key: String, _ values: [(id: String, value: String?)])
+      throws -> Bool
+    {
+      guard !values.isEmpty else { return false }
+      let list = String(decoding: try JSONEncoder().encode(values.map(\.id)), as: UTF8.self)
+      var stored: [String: String?] = [:]
+      let rows = try Row.fetchCursor(
         db,
-        sql: "SELECT json_extract(CAST(payload AS TEXT),'$.\(key)') AS v FROM \(table) WHERE id=?",
-        arguments: [id])
-      guard let row else { return value != nil }
-      return (row["v"] as String?) != value
+        sql:
+          "SELECT \(table).id, json_extract(CAST(\(table).payload AS TEXT),'$.\(key)') FROM \(table) JOIN json_each(?) ids ON \(table).id=ids.value",
+        arguments: [list])
+      while let row = try rows.next() {
+        stored.updateValue(row[1] as String?, forKey: row[0] as String)
+      }
+      return values.contains { id, value in
+        guard let current = stored[id] else { return value != nil }
+        return current != value
+      }
     }
-    for album in delta.upserts.albums
-    where try differs("albums", "cover_sha", album.id, album.coverSha) {
-      return true
-    }
-    for track in delta.upserts.tracks
-    where try differs("tracks", "cover_sha", track.id, track.coverSha) {
-      return true
-    }
-    for artist in delta.upserts.artists
-    where try differs("artists", "cover_album_id", artist.id, artist.coverAlbumId) {
-      return true
-    }
-    return false
+    return try differs("albums", "cover_sha", delta.upserts.albums.map { ($0.id, $0.coverSha) })
+      || differs("tracks", "cover_sha", delta.upserts.tracks.map { ($0.id, $0.coverSha) })
+      || differs(
+        "artists", "cover_album_id", delta.upserts.artists.map { ($0.id, $0.coverAlbumId) })
   }
   /// Every cover reference in the library, for comparing a full replacement.
   private static func coverDigest(_ db: Database) throws -> [String] {

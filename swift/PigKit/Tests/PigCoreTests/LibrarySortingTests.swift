@@ -1,5 +1,5 @@
 import Foundation
-import PigDomain
+@testable import PigDomain
 import PigStore
 import Testing
 
@@ -78,6 +78,26 @@ struct ArtworkRevisionTests {
         #"{"revision":"\#(revision)","upserts":{\#(upserts)},"deletes":{"tracks":[],"albums":[\#(deletedAlbums)],"artists":[],"playlists":[]}}"#
           .utf8))
   }
+  @Test func largeMetadataDeltasCompareCoversInOnePass() async throws {
+    let store = try LibraryStore(path: ":memory:")
+    func tracks(_ title: String, last: String) -> String {
+      (0..<500).map { index in
+        #"{"id":"t\#(index)","title":"\#(title)","artist":"A","cover_sha":"\#(index == 499 ? last : "same")"}"#
+      }.joined(separator: ",")
+    }
+    func apply(_ revision: String, _ list: String) async throws {
+      try await store.apply(
+        delta(revision, upserts: #""tracks":[\#(list)],"albums":[],"artists":[],"playlists":[]"#))
+    }
+    try await apply("one", tracks("Song", last: "same"))
+    let first = try #require(try await store.artworkRevision())
+    // 500 renamed songs, covers untouched: no redraw.
+    try await apply("two", tracks("Renamed", last: "same"))
+    #expect(try await store.artworkRevision() == first)
+    // Only the last of them changes its cover: found all the same.
+    try await apply("three", tracks("Renamed", last: "other"))
+    #expect(try await store.artworkRevision() != first)
+  }
   @Test func onlyCoverChangesMoveTheArtworkRevision() async throws {
     let store = try LibraryStore(path: ":memory:")
     #expect(try await store.artworkRevision() == nil)
@@ -129,5 +149,45 @@ struct ArtworkRevisionTests {
     song.coverSha = "ccc"
     try await store.replace(LibrarySnapshot(revision: "nine", tracks: [song]))
     #expect(try await store.artworkRevision() != fifth)
+  }
+}
+
+struct LibraryReloadGateTests {
+  /// Choosing Soundtracks during a sync that brings no change still loads
+  /// Soundtracks once the sync ends (it used to stay empty).
+  @Test func aCategoryChosenDuringAnUnchangedSyncLoadsAfterIt() async throws {
+    let store = try LibraryStore(path: ":memory:")
+    var album = Album(id: "score", title: "Score", artist: "Composer")
+    album.category = "soundtrack"
+    try await store.replace(LibrarySnapshot(revision: "one", albums: [album]))
+    var gate = LibraryReloadGate()
+    var shown: [Album] = []
+    var category = "album"
+    func reloadIfNeeded(libraryChanged: Bool) async throws {
+      if gate.afterSync(libraryChanged: libraryChanged) {
+        shown = try await store.albums(category: category)
+      }
+    }
+    // The sync starts; the person picks Soundtracks while it runs.
+    category = "soundtrack"
+    shown = []
+    gate.viewChangedDuringSync()
+    try await reloadIfNeeded(libraryChanged: false)
+    #expect(shown.map(\.id) == ["score"])
+    // Later unchanged syncs do not reload again.
+    shown = []
+    try await reloadIfNeeded(libraryChanged: false)
+    #expect(shown.isEmpty)
+    let leftOver = gate.takePending()
+    #expect(!leftOver)
+  }
+  @Test func aFailedSyncStillLeavesTheChoiceToLoad() {
+    var gate = LibraryReloadGate()
+    gate.viewChangedDuringSync()
+    // The sync threw before its reload: the pending choice is still there.
+    let pending = gate.takePending()
+    let again = gate.takePending()
+    let changed = gate.afterSync(libraryChanged: true)
+    #expect(pending && !again && changed)
   }
 }
