@@ -1081,7 +1081,10 @@ class Store:
                     "SELECT payload FROM documents WHERE name LIKE 'excluded:%'"
                 )
             ]
-            for track in tracks:
+            from .user_library import request_scope
+
+            scopes = request_scope(tracks)
+            for track, scope in zip(tracks, scopes):
                 if any(same_song(old, track) for old in exclusions):
                     skipped += 1
                     continue
@@ -1111,6 +1114,7 @@ class Store:
                 }
                 if user_id:
                     payload["requested_by"] = [user_id]
+                    payload["request_scope"] = {user_id: scope}
                 payload["quality_profile"] = preferred or settings["profile"]
                 payload["quality_policy"] = self.quality_policy(
                     payload, preferred, conn=conn
@@ -1142,8 +1146,19 @@ class Store:
                     if user_id:
                         previous = json.loads(prior[1])
                         beneficiaries = previous.get("requested_by", [])
-                        if user_id not in beneficiaries:
-                            previous["requested_by"] = [*beneficiaries, user_id]
+                        scopes_by_user = previous.get("request_scope") or {}
+                        if (
+                            user_id not in beneficiaries
+                            or user_id not in scopes_by_user
+                        ):
+                            previous["requested_by"] = [
+                                *beneficiaries,
+                                *([] if user_id in beneficiaries else [user_id]),
+                            ]
+                            previous["request_scope"] = {
+                                **scopes_by_user,
+                                user_id: scopes_by_user.get(user_id, scope),
+                            }
                             conn.execute(
                                 "UPDATE queue SET payload=? WHERE id=?",
                                 (json.dumps(previous), key),

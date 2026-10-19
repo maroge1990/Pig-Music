@@ -69,6 +69,222 @@ def _quality(item):
     return QUALITY_LABELS.get(profile, codec or None)
 
 
+_ACTIVE = ("waiting_for_sources", "searching", "downloading", "validating", "importing")
+_ACTIVE_SQL = "(" + ",".join(f"'{s}'" for s in _ACTIVE) + ")"
+_MINE = "EXISTS (SELECT 1 FROM json_each(queue.payload,'$.requested_by') WHERE value=?)"
+_PRESENTED = TRACK_FIELDS | {
+    "source",
+    "effective_quality",
+    "bitrate_kbps",
+    "status",
+    "created_at",
+    "updated_at",
+    "progress",
+    "quality_profile",
+    "received_bytes",
+    "total_bytes",
+    "error",
+}
+
+
+def _job(key, raw, status, created, updated):
+    return {
+        "id": key,
+        **json.loads(raw),
+        "status": status,
+        "created_at": created,
+        "updated_at": updated,
+    }
+
+
+def _present(job):
+    """A queue job as its requester sees it: no paths, no provider errors."""
+    job = {k: v for k, v in job.items() if k in _PRESENTED}
+    active = job["status"] in _ACTIVE
+    job["server_state"] = (
+        "requested"
+        if active
+        else (
+            "in_library"
+            if job["status"] == "completed"
+            else "failed" if job["status"] == "failed" else "not_in_library"
+        )
+    )
+    total = job.get("total_bytes") or 0
+    job["request_progress"] = (
+        min(1, (job.get("received_bytes") or 0) / total) if active and total else None
+    )
+    if job.get("error"):
+        job["error"] = "Acquisition failed. Retry or ask your administrator."
+    return job
+
+
+def request_scope(tracks):
+    """What each track of one request belongs to: its album when the request
+    asked for two or more songs of that release, otherwise the song alone.
+
+    Recorded per requester on the queue job, so Downloads groups by what was
+    asked for rather than by tags.
+    """
+    counts = defaultdict(int)
+    keys = []
+    for track in tracks:
+        album = normalise(track.get("album") or "")
+        key = (
+            (
+                normalise(track.get("album_artist") or track.get("artist") or ""),
+                album,
+                track.get("musicbrainz_release_id") or "",
+            )
+            if album
+            else None
+        )
+        keys.append(key)
+        if key:
+            counts[key] += 1
+    return [["album", *key] if key and counts[key] > 1 else ["song"] for key in keys]
+
+
+def _phase(item):
+    status = item["status"]
+    if status in {"searching", "downloading", "validating", "importing"}:
+        return "active"
+    if status == "waiting_for_sources":
+        return "waiting"
+    return "done" if status in {"completed", "downloaded"} else "failed"
+
+
+# Which of two jobs for the same song to show: the most advanced, then newest.
+_RETRY_RANK = {"active": 0, "waiting": 1, "done": 2, "failed": 3}
+
+
+def _group(jobs, user_id):
+    """Jobs by request group: {key: {slot: job}}.
+
+    Albums are keyed by artist, title and release. A job without a release
+    joins the album's only known release; with several, it stays apart. A
+    song requested on its own joins an album request only as a repeat of a
+    song that album request already has.
+    """
+    albums, songs = [], []
+    for job in jobs:
+        scope = (job.get("request_scope") or {}).get(user_id)
+        if scope is None:
+            # Requests made before scopes were recorded: their tags decide.
+            album = normalise(job.get("album") or "")
+            scope = (
+                [
+                    "album",
+                    normalise(job.get("album_artist") or job.get("artist") or ""),
+                    album,
+                    job.get("musicbrainz_release_id") or "",
+                ]
+                if album
+                else ["song"]
+            )
+        (albums if scope[0] == "album" else songs).append((tuple(scope), job))
+    releases = defaultdict(set)
+    for scope, _ in albums:
+        if scope[3]:
+            releases[scope[:3]].add(scope[3])
+
+    def album_key(base, release):
+        if not release and len(releases[base]) == 1:
+            release = next(iter(releases[base]))
+        return (*base, release)
+
+    groups = {}
+    for scope, job in albums:
+        _place(groups.setdefault(album_key(scope[:3], scope[3]), {}), job)
+    for _, job in songs:
+        album = normalise(job.get("album") or "")
+        if album:
+            base = (
+                "album",
+                normalise(job.get("album_artist") or job.get("artist") or ""),
+                album,
+            )
+            key = album_key(base, job.get("musicbrainz_release_id") or "")
+            if key in groups and _place(groups[key], job, join_only=True):
+                continue
+        _place(groups.setdefault(("song", job["id"]), {}), job)
+    return groups
+
+
+def _place(group, job, join_only=False):
+    """Put `job` in its song slot, collapsing repeats. A repeat names the same
+    song and position and no different recording. With `join_only`, only a
+    repeat is placed. Returns whether the job was placed."""
+    title = (
+        normalise(job.get("title", "")),
+        job.get("disc_number") or 1,
+        job.get("track_number") or 0,
+    )
+    recording = job.get("musicbrainz_recording_id")
+    for slot, current in group.items():
+        other = current.get("musicbrainz_recording_id")
+        if slot[0] != title or (recording and other and recording != other):
+            continue
+        if (_RETRY_RANK[_phase(job)], -_stamp(job)) < (
+            _RETRY_RANK[_phase(current)],
+            -_stamp(current),
+        ):
+            group[slot] = job
+        return True
+    if join_only:
+        return False
+    group[(title, job["id"])] = job
+    return True
+
+
+def _group_summary(key, slots):
+    songs = sorted(
+        (_present(job) for job in slots.values()),
+        key=lambda i: (
+            i.get("disc_number") or 1,
+            i.get("track_number") or 0,
+            i.get("title", ""),
+        ),
+    )
+    phases = [_phase(i) for i in songs]
+    first = songs[0]
+    done = phases.count("done")
+    partial = sum(
+        i.get("request_progress") or 0 for i, p in zip(songs, phases) if p == "active"
+    )
+    album = key[0] == "album"
+    # Unfinished work first; a group is done only when every song is.
+    state = next((p for p in ("active", "waiting", "failed") if p in phases), "done")
+    return {
+        "id": identifier("request-group", *key),
+        "kind": "album" if album else "song",
+        "title": first.get("album") if album else first.get("title", ""),
+        "artist": first.get("album_artist") or first.get("artist", ""),
+        "release_id": (
+            (key[3] or None) if album else first.get("musicbrainz_release_id")
+        ),
+        "state": state,
+        "songs": len(songs),
+        "done": done,
+        "active": phases.count("active"),
+        "waiting": phases.count("waiting"),
+        "failed": phases.count("failed"),
+        "progress": (done + partial) / len(songs),
+        "requested_at": min(_text(i.get("created_at")) for i in songs),
+        "updated_at": max(_text(i.get("updated_at")) for i in songs),
+        "items": [
+            {
+                **i,
+                "created_at": _text(i.get("created_at")),
+                "updated_at": _text(i.get("updated_at")),
+                "source": i.get("source"),
+                "quality": _quality(i),
+            }
+            for i in songs
+        ],
+    }
+
+
 class SearchChanged(ValueError):
     pass
 
@@ -714,189 +930,67 @@ class UserLibrary:
     def queue(self, user_id, offset=0, limit=200):
         if offset < 0 or not 1 <= limit <= 200:
             raise ValueError("Invalid request page bounds")
-        where = "EXISTS (SELECT 1 FROM json_each(queue.payload,'$.requested_by') WHERE value=?)"
         with self.store.connect() as conn:
             total = conn.execute(
-                "SELECT count(*) FROM queue WHERE " + where, (user_id,)
+                "SELECT count(*) FROM queue WHERE " + _MINE, (user_id,)
             ).fetchone()[0]
             in_progress = conn.execute(
-                "SELECT count(*) FROM queue WHERE status IN ('waiting_for_sources','searching','downloading','validating','importing') AND "
-                + where,
+                "SELECT count(*) FROM queue WHERE status IN "
+                + _ACTIVE_SQL
+                + " AND "
+                + _MINE,
                 (user_id,),
             ).fetchone()[0]
             records = conn.execute(
                 "SELECT id,payload,status,created_at,updated_at FROM queue WHERE "
-                + where
-                + " ORDER BY CASE WHEN status IN ('waiting_for_sources','searching','downloading','validating','importing') THEN 0 ELSE 1 END,created_at DESC,id LIMIT ? OFFSET ?",
+                + _MINE
+                + " ORDER BY CASE WHEN status IN "
+                + _ACTIVE_SQL
+                + " THEN 0 ELSE 1 END,created_at DESC,id LIMIT ? OFFSET ?",
                 (user_id, limit, offset),
             ).fetchall()
-        result = {
+        return {
             "library_revision": self.store.library_revision,
             "downloads_enabled": self.store.download_settings()["enabled"],
             "total": total,
             "active": in_progress,
             "offset": offset,
             "next_offset": offset + limit if offset + limit < total else None,
-            "items": [],
+            "items": [_present(_job(*record)) for record in records],
         }
-        allowed = TRACK_FIELDS | {
-            "source",
-            "effective_quality",
-            "bitrate_kbps",
-            "status",
-            "created_at",
-            "updated_at",
-            "progress",
-            "quality_profile",
-            "received_bytes",
-            "total_bytes",
-            "error",
-        }
-        for key, raw, status, created, updated in records:
-            job = {
-                "id": key,
-                **json.loads(raw),
-                "status": status,
-                "created_at": created,
-                "updated_at": updated,
-            }
-            result["items"].append({k: v for k, v in job.items() if k in allowed})
-        for job in result["items"]:
-            active = job["status"] in {
-                "waiting_for_sources",
-                "searching",
-                "downloading",
-                "validating",
-                "importing",
-            }
-            job["server_state"] = (
-                "requested"
-                if active
-                else (
-                    "in_library"
-                    if job["status"] == "completed"
-                    else "failed" if job["status"] == "failed" else "not_in_library"
-                )
-            )
-            total = job.get("total_bytes") or 0
-            job["request_progress"] = (
-                min(1, (job.get("received_bytes") or 0) / total)
-                if active and total
-                else None
-            )
-            if job.get("error"):
-                job["error"] = "Acquisition failed. Retry or ask your administrator."
-        return result
 
     def request_groups(self, user_id, offset=0, limit=50):
         """This person's requests, one entry per album request (a single song
         stands alone), newest first with unfinished ones on top.
 
-        A song requested again after a failure appears once: the most
-        advanced, then the newest, of its jobs.
+        What was requested comes from the request itself (`request_scope`,
+        recorded when it was submitted); album metadata alone does not make a
+        song an album request. Distinct releases stay distinct groups. A song
+        asked for again after a failure appears once (the most advanced, then
+        newest, of its jobs) unless the jobs name different recordings.
         """
         if offset < 0 or not 1 <= limit <= 100:
             raise ValueError("Invalid request page bounds")
-        everything = self.queue(user_id, 0, 200)
-        items = list(everything["items"])
-        while len(items) < everything["total"]:
-            more = self.queue(user_id, len(items), 200)["items"]
-            if not more:
-                break
-            items += more
-        rank = {"active": 0, "waiting": 1, "done": 2, "failed": 3}
-
-        def phase(item):
-            status = item["status"]
-            if status in {"searching", "downloading", "validating", "importing"}:
-                return "active"
-            if status == "waiting_for_sources":
-                return "waiting"
-            return "done" if status in {"completed", "downloaded"} else "failed"
-
-        groups = {}
-        for item in items:
-            artist = item.get("album_artist") or item.get("artist", "")
-            album = item.get("album") or ""
-            key = (
-                ("album", normalise(artist), normalise(album))
-                if album
-                else ("song", item["id"])
-            )
-            group = groups.setdefault(key, {"key": key, "songs": {}})
-            song = (
-                normalise(item.get("title", "")),
-                item.get("disc_number") or 1,
-                item.get("track_number") or 0,
-            )
-            current = group["songs"].get(song)
-            if current is None or (rank[phase(item)], -_stamp(item)) < (
-                rank[phase(current)],
-                -_stamp(current),
-            ):
-                group["songs"][song] = item
-        result = []
-        for group in groups.values():
-            songs = sorted(
-                group["songs"].values(),
-                key=lambda i: (
-                    i.get("disc_number") or 1,
-                    i.get("track_number") or 0,
-                    i.get("title", ""),
-                ),
-            )
-            phases = [phase(i) for i in songs]
-            first = songs[0]
-            done = phases.count("done")
-            partial = sum(
-                i.get("request_progress") or 0
-                for i, p in zip(songs, phases)
-                if p == "active"
-            )
-            album = group["key"][0] == "album"
-            result.append(
-                {
-                    "id": identifier("request-group", *group["key"]),
-                    "kind": "album" if album else "song",
-                    "title": first.get("album") if album else first.get("title", ""),
-                    "artist": first.get("album_artist") or first.get("artist", ""),
-                    "release_id": next(
-                        (
-                            i["musicbrainz_release_id"]
-                            for i in songs
-                            if i.get("musicbrainz_release_id")
-                        ),
-                        None,
-                    ),
-                    "state": min(phases, key=rank.get),
-                    "songs": len(songs),
-                    "done": done,
-                    "active": phases.count("active"),
-                    "waiting": phases.count("waiting"),
-                    "failed": phases.count("failed"),
-                    "progress": (done + partial) / len(songs),
-                    "requested_at": min(_text(i.get("created_at")) for i in songs),
-                    "updated_at": max(_text(i.get("updated_at")) for i in songs),
-                    "items": [
-                        {
-                            **i,
-                            "created_at": _text(i.get("created_at")),
-                            "updated_at": _text(i.get("updated_at")),
-                            "source": i.get("source"),
-                            "quality": _quality(i),
-                        }
-                        for i in songs
-                    ],
-                }
-            )
+        # One read: counts, pages and groups all come from the same snapshot.
+        with self.store.connect() as conn:
+            records = conn.execute(
+                "SELECT id,payload,status,created_at,updated_at FROM queue WHERE "
+                + _MINE,
+                (user_id,),
+            ).fetchall()
+        downloads_enabled = self.store.download_settings()["enabled"]
+        jobs = [_job(*record) for record in records]
+        result = [
+            _group_summary(key, songs) for key, songs in _group(jobs, user_id).items()
+        ]
         result.sort(key=lambda g: g["updated_at"], reverse=True)
         result.sort(key=lambda g: g["state"] not in {"active", "waiting"})
         return {
             "total": len(result),
-            "active": everything["active"],
+            "active": sum(job["status"] in _ACTIVE for job in jobs),
             "offset": offset,
             "next_offset": offset + limit if offset + limit < len(result) else None,
-            "downloads_enabled": everything["downloads_enabled"],
+            "downloads_enabled": downloads_enabled,
             "groups": result[offset : offset + limit],
         }
 
