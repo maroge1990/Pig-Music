@@ -375,8 +375,12 @@ import UIKit
       let before = try? await store?.revision()
       try await sync.refresh()
       guard generation == stamp else { return }
-      if (try? await store?.revision()) != before { homeLibraryChanged() }
-      try await loadCache()
+      // Reloading redraws every open page, list and cover, so it waits for a
+      // real change. Reconnecting the live updates syncs often with none.
+      if (try? await store?.revision()) != before {
+        homeLibraryChanged()
+        try await loadCache()
+      }
       let revisions = await player.cachedRevisions()
       guard generation == stamp else { return }
       var invalid = false
