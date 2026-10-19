@@ -35,7 +35,8 @@ PigMusic is a private household music-library manager with one container, one in
   - the native contract and AAC device copies;
   - the 12 October artwork and layout fixes;
   - the 14 October native fixes and features (N14A–D, W02, HH; see the roadmap);
-  - the 15–16 October audit fixes (AUD1–10; see the roadmap).
+  - the 15–16 October audit fixes (AUD1–10; see the roadmap);
+  - committed locally, not pushed: iPhone sync efficiency (EFF1), Admin on the shared event stream (R18), library vs catalogue artist pages, request-centred Downloads, type-ahead Search and identifiable devices (R12–R15), the versioned API with legacy routes retired (U01-4/R17, so release the server with a rebuilt iPhone app) and Xcode's recommended settings (XPROJ).
 
   Schema migrations 7–9 are additive. Back up appdata before releasing, because rolling the image back does not reverse a migration.
 - **Implemented locally, not released:** personalised mixes and their managed discovery cache, the first web/iOS Home shelf, edition saves, song/edition hiding, qualified listens, safe library promotion and cache reacquisition for saved-edition playback. Adds additive migration **10**. ListenBrainz plus Apple charts are the first-release baseline; wider provider comparison is an improvement, not a release prerequisite. Deterministic week-long freshness and a 50k-track mix scale gate pass locally; real-source native-quality cache transfer, restart and cleanup also passed. Owner listening/artwork review, physical-device acceptance and exact Linux-image checks remain open. Ten mix kinds plus an endless personal radio (MX3/MX4, migration **12**) share one horizontal Home row; cover motifs reuse the five generated Pig-Branding colour roles. iPhone/iPad target iOS/iPadOS **26+**.
@@ -50,7 +51,7 @@ Order is deliberate. Add entries with a stable ID and a gate. Reorder here; don'
 
 | # | ID | Work | Status | Gate |
 | --- | --- | --- | --- | --- |
-| 1 | PUSH | Push the local iPhone fixes on `main` (library reload only on real sync changes; retry dropped connections; short network messages) | Committed locally, not pushed | Owner's go-ahead after a device check; a push publishes the GHCR `main` image |
+| 1 | PUSH | Push local `main`: the 19 Oct iPhone fixes (library reload only on real sync changes; retry dropped connections; short network messages) and the 19 Oct agent deliveries (EFF1, R18, R12–R15, U01-4/R17, XPROJ) | Committed locally, not pushed | Owner's go-ahead after a device check; a push publishes the GHCR `main` image |
 | 2 | REL | Release `main` to Unraid, including mixes, radio and the 19 Oct fixes (FB19) | Planned | `deploy_unraid.py --image` exact-image verification, then `deploy_release.py --apply`; back up first (migrations 7–12) |
 | 3 | NET | Cloudflare Tunnel for `music.markrogers.au` | Owner step | Steps and rollback in [internet access](docs/internet-access.md); cellular sign-in, invite and lockout checks |
 | 4 | V01/N08 | Physical iPhone, iPad and Watch Ultra 3 acceptance of everything in **Delivered** | Unverified | Device journeys in [testing](docs/testing.md#native-device-acceptance); simulator results don't count |
