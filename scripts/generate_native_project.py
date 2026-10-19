@@ -8,6 +8,68 @@ ROOT = Path(__file__).resolve().parents[1]
 SWIFT = ROOT / "swift"
 
 
+# Xcode's recommended project settings (Xcode 27.1, Base_ProjectSettings
+# template). Kept here so the "Update to recommended settings" prompt stops.
+# The project's own Swift settings below take precedence.
+XCODE_VERSION = "2710"
+RECOMMENDED = {
+    "ALWAYS_SEARCH_USER_PATHS": "NO",
+    "ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS": "YES",
+    "CLANG_ANALYZER_NONNULL": "YES",
+    "CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION": "YES_AGGRESSIVE",
+    "CLANG_CXX_LANGUAGE_STANDARD": "gnu++20",
+    "CLANG_ENABLE_MODULES": "YES",
+    "CLANG_ENABLE_OBJC_ARC": "YES",
+    "CLANG_ENABLE_OBJC_WEAK": "YES",
+    "CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING": "YES",
+    "CLANG_WARN_BOOL_CONVERSION": "YES",
+    "CLANG_WARN_COMMA": "YES",
+    "CLANG_WARN_CONSTANT_CONVERSION": "YES",
+    "CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS": "YES",
+    "CLANG_WARN_DIRECT_OBJC_ISA_USAGE": "YES_ERROR",
+    "CLANG_WARN_DOCUMENTATION_COMMENTS": "YES",
+    "CLANG_WARN_EMPTY_BODY": "YES",
+    "CLANG_WARN_ENUM_CONVERSION": "YES",
+    "CLANG_WARN_INFINITE_RECURSION": "YES",
+    "CLANG_WARN_INT_CONVERSION": "YES",
+    "CLANG_WARN_NON_LITERAL_NULL_CONVERSION": "YES",
+    "CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF": "YES",
+    "CLANG_WARN_OBJC_LITERAL_CONVERSION": "YES",
+    "CLANG_WARN_OBJC_ROOT_CLASS": "YES_ERROR",
+    "CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER": "YES",
+    "CLANG_WARN_RANGE_LOOP_ANALYSIS": "YES",
+    "CLANG_WARN_STRICT_PROTOTYPES": "YES",
+    "CLANG_WARN_SUSPICIOUS_MOVE": "YES",
+    "CLANG_WARN_UNGUARDED_AVAILABILITY": "YES_AGGRESSIVE",
+    "CLANG_WARN_UNREACHABLE_CODE": "YES",
+    "CLANG_WARN__DUPLICATE_METHOD_MATCH": "YES",
+    "COPY_PHASE_STRIP": "NO",
+    "ENABLE_STRICT_OBJC_MSGSEND": "YES",
+    "ENABLE_USER_SCRIPT_SANDBOXING": "YES",
+    "GCC_C_LANGUAGE_STANDARD": "gnu17",
+    "GCC_NO_COMMON_BLOCKS": "YES",
+    "GCC_WARN_64_TO_32_BIT_CONVERSION": "YES",
+    "GCC_WARN_ABOUT_RETURN_TYPE": "YES_ERROR",
+    "GCC_WARN_UNDECLARED_SELECTOR": "YES",
+    "GCC_WARN_UNINITIALIZED_AUTOS": "YES_AGGRESSIVE",
+    "GCC_WARN_UNUSED_FUNCTION": "YES",
+    "GCC_WARN_UNUSED_VARIABLE": "YES",
+    "LOCALIZATION_PREFERS_STRING_CATALOGS": "YES",
+}
+RECOMMENDED_DEBUG = {
+    "DEBUG_INFORMATION_FORMAT": "dwarf",
+    "ENABLE_TESTABILITY": "YES",
+    "GCC_DYNAMIC_NO_PIC": "NO",
+    "GCC_OPTIMIZATION_LEVEL": "0",
+    "GCC_PREPROCESSOR_DEFINITIONS": "DEBUG=1 $(inherited)",
+    "ONLY_ACTIVE_ARCH": "YES",
+}
+RECOMMENDED_RELEASE = {
+    "DEBUG_INFORMATION_FORMAT": "dwarf-with-dsym",
+    "ENABLE_NS_ASSERTIONS": "NO",
+}
+
+
 def identity(name):
     return hashlib.sha256(name.encode()).hexdigest()[:24].upper()
 
@@ -229,6 +291,8 @@ def generate():
     target_configs = []
     for name in ("Debug", "Release"):
         common = {
+            **RECOMMENDED,
+            **(RECOMMENDED_DEBUG if name == "Debug" else RECOMMENDED_RELEASE),
             "CLANG_ENABLE_MODULES": "YES",
             "SWIFT_VERSION": "6.0",
             "SWIFT_STRICT_CONCURRENCY": "complete",
@@ -359,7 +423,10 @@ def generate():
     project = add(
         "project",
         "PBXProject",
-        attributes={"LastUpgradeCheck": "2700"},
+        attributes={
+            "BuildIndependentTargetsInParallel": "1",
+            "LastUpgradeCheck": XCODE_VERSION,
+        },
         buildConfigurationList=project_list,
         compatibilityVersion="Xcode 14.0",
         developmentRegion="en",
@@ -382,7 +449,7 @@ def generate():
     reference = f'<BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="{target}" BuildableName="PigMusic.app" BlueprintName="PigMusic" ReferencedContainer="container:PigMusic.xcodeproj"/>'
     (schemes / "PigMusic.xcscheme").write_text(
         f"""<?xml version="1.0" encoding="UTF-8"?>
-<Scheme LastUpgradeVersion="2700" version="1.3">
+<Scheme LastUpgradeVersion="{XCODE_VERSION}" version="1.3">
 <BuildAction parallelizeBuildables="YES" buildImplicitDependencies="YES"><BuildActionEntries><BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">{reference}</BuildActionEntry></BuildActionEntries></BuildAction>
 <LaunchAction buildConfiguration="Debug" selectedDebuggerIdentifier="Xcode.DebuggerFoundation.Debugger.LLDB" selectedLauncherIdentifier="Xcode.IDEFoundation.Launcher.LLDB" launchStyle="0" useCustomWorkingDirectory="NO" ignoresPersistentStateOnLaunch="NO" debugDocumentVersioning="YES" allowLocationSimulation="YES"><BuildableProductRunnable runnableDebuggingMode="0">{reference}</BuildableProductRunnable></LaunchAction>
 <ProfileAction buildConfiguration="Release"><BuildableProductRunnable runnableDebuggingMode="0">{reference}</BuildableProductRunnable></ProfileAction>
