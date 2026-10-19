@@ -1,16 +1,27 @@
 """The native project generator and the committed Xcode project must agree on
 the iPhone app's Info.plist contents, so regenerating never drops a key."""
 
+import importlib.util
 import plistlib
 import re
 from pathlib import Path
 
-from scripts.generate_native_project import IPHONE_INFO
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+GENERATOR = ROOT / "scripts/generate_native_project.py"
 
 
+# The container image tests mount only tests/; the native sources are absent
+# there and checked by the native workflow.
+@pytest.mark.skipif(
+    not GENERATOR.exists(), reason="native project sources are not in this image"
+)
 def test_local_network_description_survives_regeneration():
+    spec = importlib.util.spec_from_file_location("generate_native_project", GENERATOR)
+    generator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(generator)
+    IPHONE_INFO = generator.IPHONE_INFO
     project = (ROOT / "swift/PigMusic.xcodeproj/project.pbxproj").read_text()
     info = plistlib.loads((ROOT / "swift/PigMusic/Info.plist").read_bytes())
     key = "INFOPLIST_KEY_NSLocalNetworkUsageDescription"
