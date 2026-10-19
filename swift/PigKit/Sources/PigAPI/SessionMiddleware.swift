@@ -27,6 +27,6 @@ public struct SessionMiddleware: ClientMiddleware {
 public enum PigClient {
     public static func make(server: String, vault: any DeviceTokenStore) throws -> Client {
         let url = try ServerAddress.validate(server)
-        return Client(serverURL:url, transport:URLSessionTransport(), middlewares:[try SessionMiddleware(vault:vault,origin:url)])
+        return Client(serverURL:url, transport:URLSessionTransport(), middlewares:[try SessionMiddleware(vault:vault,origin:url), TransientRetryMiddleware()])
     }
 }

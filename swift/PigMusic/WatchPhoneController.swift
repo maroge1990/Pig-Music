@@ -1,3 +1,4 @@
+import PigAPI
 import Foundation
 import Observation
 import PigBrand
@@ -106,7 +107,7 @@ import SwiftUI
         }
         return (try? JSONEncoder().encode(reply)) ?? Data()
       }
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
   func configure(directory: URL, namespace: String) async throws {
     generation += 1
@@ -125,7 +126,7 @@ import SwiftUI
       ?? DownloadArchive(directory: directory.appendingPathComponent("WatchAAC"))
     guard let service = model?.service else { return }
     downloads = DownloadController(archive: archive, source: service) { [weak self] error in
-      self?.message = error.localizedDescription
+      self?.message = error.userMessage
     }
     downloads?.budgetBytes = max(2 * 1024 * 1024 * 1024, receipt?.budgetBytes ?? 0)
     try downloads?.enableBackground(
@@ -274,7 +275,7 @@ import SwiftUI
       await publish()
       return result
     } catch {
-      message = error.localizedDescription
+      message = error.userMessage
       return message
     }
   }
@@ -521,12 +522,12 @@ import SwiftUI
         try data.write(to: manifestURL, options: .atomic)
       } catch {
         published = nil
-        message = error.localizedDescription
+        message = error.userMessage
         return
       }
     }
     do { try link?.publish(context) } catch {
-      message = error.localizedDescription
+      message = error.userMessage
       return
     }
     let outstanding = (link?.outstanding ?? []).compactMap {

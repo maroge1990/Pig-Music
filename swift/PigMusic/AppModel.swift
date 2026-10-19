@@ -98,7 +98,7 @@ import UIKit
       try await attach(connection.person, service: service)
       await refresh()
       startLiveUpdates()
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
   func sceneActive(_ active: Bool) async {
     activeScene = active
@@ -166,7 +166,7 @@ import UIKit
         _ = await artwork(sha: sha, width: 512)
         _ = await artwork(sha: sha, width: 256)
       }
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
   func cachePreferences() async { try? await store?.cache(preferences, key: "preferences") }
   func join(invitation: String, password: String) async {
@@ -200,7 +200,7 @@ import UIKit
       startLiveUpdates()
     } catch OnboardingError.accountCreatedSignInFailed(let username) {
       message = "Account created for \(username). Sign in to finish connecting."
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
   func signIn(username: String, password: String) async {
     guard !busy else { return }
@@ -220,7 +220,7 @@ import UIKit
       )
       await refresh()
       startLiveUpdates()
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
   private func attach(_ user: Person, service: NativeService) async throws {
     generation += 1
@@ -260,7 +260,7 @@ import UIKit
       } else if case OfflineFailure.authentication = error {
         self?.revoked(generation: stamp)
       } else {
-        self?.message = error.localizedDescription
+        self?.message = error.userMessage
       }
     }
     downloads?.budgetBytes = Int64(
@@ -528,7 +528,7 @@ import UIKit
           } catch let failure as NativeFailure {
             return (section, .failure(failure))
           } catch {
-            return (section, .failure(.unavailable(error.localizedDescription)))
+            return (section, .failure(.unavailable(error.userMessage)))
           }
         }
       }
@@ -549,7 +549,7 @@ import UIKit
           revoked(generation: stamp)
         case .failure(let error):
           // Cached content stays visible; only an empty section shows the error.
-          if homeContent[section] == nil { homeErrors[section] = error.localizedDescription }
+          if homeContent[section] == nil { homeErrors[section] = error.userMessage }
         }
       }
     }
@@ -667,7 +667,7 @@ import UIKit
         }
       }
       if generation == stamp { pendingEdits = try await store.pendingMutations() }
-    } catch { if generation == stamp { message = error.localizedDescription } }
+    } catch { if generation == stamp { message = error.userMessage } }
     return applied
   }
   /// What an edit changes, for keeping dependent edits in order.
@@ -819,7 +819,7 @@ import UIKit
     case .artists: artistSort = sort
     case .playlists: return
     }
-    do { try await loadCache() } catch { message = error.localizedDescription }
+    do { try await loadCache() } catch { message = error.userMessage }
   }
   /// Where a song's file is on this side of the server: iPhone and Apple Watch.
   func deviceCopies(_ trackId: String) -> (phone: DeviceCopyMark?, watch: DeviceCopyMark?) {
@@ -868,7 +868,7 @@ import UIKit
     albums = []
     albumCount = albumCategoryCounts[category] ?? 0
     guard !syncing else { return }  // The sync's own reload uses the new category.
-    do { try await loadCache() } catch { message = error.localizedDescription }
+    do { try await loadCache() } catch { message = error.userMessage }
   }
   func more(_ collection: LibraryCollection) async {
     guard let store, !loadingMore, !syncing else { return }
@@ -892,7 +892,7 @@ import UIKit
         artists += next
       case .playlists: break
       }
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
   func albumTracks(_ album: Album) async -> [Track] {
     (try? await store?.tracks(albumId: album.id)) ?? []
@@ -972,7 +972,7 @@ import UIKit
       let tracks = try await store.tracks(limit: max(songCount, 1))
       guard generation == stamp else { return }
       play(tracks.shuffled())
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
   /// Songs in the queue that came from the person's radio, by `mix:` id.
   var radioIDs: Set<String> = []
@@ -986,7 +986,7 @@ import UIKit
       }
       radioIDs = Set(batch.tracks.map(\.id))
       play(batch.tracks)
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
   /// Appends the next prepared songs. At the end of the queue, plays them
   /// as a fresh queue so the station never stops.
@@ -1051,7 +1051,7 @@ import UIKit
     do {
       try await service.signOut()
       detach()
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
   private func detach() {
     watch?.disconnect()
@@ -1134,7 +1134,7 @@ import UIKit
         )
         server = "https://demo.invalid"
         try await loadCache()
-      } catch { message = error.localizedDescription }
+      } catch { message = error.userMessage }
     }
     private func demoArtwork(_ request: ArtworkRequest) -> Data? {
       let format = UIGraphicsImageRendererFormat()

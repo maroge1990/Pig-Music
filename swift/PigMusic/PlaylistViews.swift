@@ -1,3 +1,4 @@
+import PigAPI
 import PigBrand
 import PigDomain
 import SwiftUI
@@ -77,7 +78,7 @@ struct PlaylistToolsView: View {
           preview = nil
           message =
             "Review the selected export before importing. Existing imported playlists are updated; unrelated playlists are retained."
-        } catch { message = error.localizedDescription }
+        } catch { message = error.userMessage }
       }
   }
   private func create() async {
@@ -89,7 +90,7 @@ struct PlaylistToolsView: View {
       name = ""
       message =
         confirmed ? "Playlist created." : "New playlist saved on this phone; waiting to sync."
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
   private func review(_ data: Data) async {
     loading = true
@@ -100,7 +101,7 @@ struct PlaylistToolsView: View {
           selected: selectedPlaylists, includeOtherTracks: includeOtherTracks) ?? data
       preview = try await model.readCatalogue { try await $0.previewImport(selected) }
       message = nil
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
   private func submit(_ data: Data) async {
     loading = true
@@ -112,7 +113,7 @@ struct PlaylistToolsView: View {
       let result = try await model.performPersonal { try await $0.importApple(selected) }
       imported = nil
       message = "Imported \(result.playlists) playlists and \(result.tracks) song records."
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
 }
 
@@ -135,7 +136,7 @@ struct AddToPlaylistView: View {
                 confirmed
                 ? "Added to \(playlist.name). Repeated songs are kept as separate entries."
                 : "Playlist addition saved on this phone; waiting to sync."
-            } catch { message = error.localizedDescription }
+            } catch { message = error.userMessage }
           }
         }.disabled(loading || !model.canMutate)
       }
@@ -259,7 +260,7 @@ struct PlaylistView: View {
       }
       name = playlist.name
       message = nil
-    } catch is CancellationError {} catch { message = error.localizedDescription }
+    } catch is CancellationError {} catch { message = error.userMessage }
   }
   private func addMissing() async {
     guard !loading else { return }
@@ -284,7 +285,7 @@ struct PlaylistView: View {
         ].compactMap { $0 }.joined(separator: " ")
       if message?.isEmpty == true { message = "These songs are already requested." }
       reloadAfterEdit = true
-    } catch is CancellationError {} catch { message = error.localizedDescription }
+    } catch is CancellationError {} catch { message = error.userMessage }
   }
   private func edit(name: String? = nil, order: [Int]? = nil) async {
     guard !loading else { return }
@@ -301,7 +302,7 @@ struct PlaylistView: View {
         confirmed
         ? nil : "Edit saved on this phone. Other playlist edits wait for this one to sync."
       if confirmed { reloadAfterEdit = true }
-    } catch { message = error.localizedDescription + " Refresh before reapplying your edit." }
+    } catch { message = error.userMessage + " Refresh before reapplying your edit." }
   }
   private func remove(_ index: Int) async {
     guard !loading else { return }
@@ -322,7 +323,7 @@ struct PlaylistView: View {
       let confirmed = try await model.saveEdit(mutation)
       message = confirmed ? nil : "Removal saved on this phone; waiting to sync."
       if confirmed { reloadAfterEdit = true }
-    } catch { message = error.localizedDescription + " Refresh before reapplying your edit." }
+    } catch { message = error.userMessage + " Refresh before reapplying your edit." }
   }
   private func delete() async {
     loading = true
@@ -333,6 +334,6 @@ struct PlaylistView: View {
       _ = try await model.saveEdit(
         OfflineMutation(action: "delete", playlistId: id, revision: revision))
       dismiss()
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
 }

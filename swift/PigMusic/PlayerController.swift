@@ -1,3 +1,4 @@
+import PigAPI
 import AVFoundation
 import Combine
 import MediaPlayer
@@ -417,7 +418,7 @@ import PigPlayback
         startClock()
       } catch is CancellationError {} catch {
         guard generation == stamp else { return }
-        self.error = error.localizedDescription
+        self.error = error.userMessage
         preparing = false
         intent.pause()
       }
@@ -456,7 +457,7 @@ import PigPlayback
     Task {
       do { try await activate() } catch {
         guard generation == stamp else { return }
-        self.error = error.localizedDescription
+        self.error = error.userMessage
         intent.pause()
         suspend()
       }
@@ -481,7 +482,7 @@ import PigPlayback
         playing = player.timeControlStatus == .playing
         preparing = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
         if let failed = player.currentItem?.error {
-          error = failed.localizedDescription
+          error = failed.userMessage
           playing = false
           intent.pause()
         }
@@ -529,7 +530,7 @@ import PigPlayback
       let stamp = generation
       Task {
         do { try await activate() } catch {
-          self.error = error.localizedDescription
+          self.error = error.userMessage
           return
         }
         guard generation == stamp, intent.canPlay else { return }
@@ -562,7 +563,7 @@ import PigPlayback
       do {
         if intent.canPlay { try await activate() }
         engine?.recoverOutput()
-      } catch { self.error = error.localizedDescription }
+      } catch { self.error = error.userMessage }
     }
   }
   func toggle() { intent.wantsPlayback ? pause() : resume() }
@@ -587,7 +588,7 @@ import PigPlayback
     let stamp = generation
     Task {
       do { try await activate() } catch {
-        self.error = error.localizedDescription
+        self.error = error.userMessage
         return
       }
       guard generation == stamp, intent.canPlay else { return }

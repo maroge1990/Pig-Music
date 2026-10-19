@@ -1,3 +1,4 @@
+import PigAPI
 import PigBrand
 import PigDomain
 import SwiftUI
@@ -195,7 +196,7 @@ struct MixDetailView: View {
               _ = try await model.performPersonal { try await $0.saveMix(mix.id) }
               notice =
                 "Playlist saved. Add songs to your library to keep their audio after this mix leaves rotation."
-            } catch { notice = error.localizedDescription }
+            } catch { notice = error.userMessage }
             saving = false
           }
         }.disabled(saving)
@@ -210,7 +211,7 @@ struct MixDetailView: View {
                   do {
                     try await model.performPersonal { try await $0.hideMixSong(track.id) }
                     hidden.insert(track.id)
-                  } catch { notice = error.localizedDescription }
+                  } catch { notice = error.userMessage }
                 }
               }
             }
@@ -233,7 +234,7 @@ struct MixDetailView: View {
                   let archive = model.store
                   dismiss()
                   try? await archive?.cache(updated, key: "home:mixes")
-                } catch { notice = error.localizedDescription }
+                } catch { notice = error.userMessage }
                 saving = false
               }
             }.disabled(saving)

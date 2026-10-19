@@ -1,3 +1,4 @@
+import PigAPI
 import PigBrand
 import PigDomain
 import SwiftUI
@@ -445,6 +446,6 @@ struct InlineQualityPicker: View {
       }
       settings = try? await model.readCatalogue { try await $0.quality() }
       message = "Saved. Shared files keep the highest quality anyone wants."
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
 }

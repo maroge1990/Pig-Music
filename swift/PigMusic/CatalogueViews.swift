@@ -1,3 +1,4 @@
+import PigAPI
 import PigBrand
 import PigDomain
 import SwiftUI
@@ -176,7 +177,7 @@ struct CatalogueArtistView: View {
         try await $0.catalogueGroups(artistId: artistId, offset: 0, kind: "album")
       }
       error = nil
-    } catch is CancellationError {} catch { self.error = error.localizedDescription }
+    } catch is CancellationError {} catch { self.error = error.userMessage }
   }
   /// The library artist with this name, confirmed against its catalogue identity
   /// when the server can say; the identity is not required offline.
@@ -428,7 +429,7 @@ struct CatalogueDiscographyView: View {
       total = page.releases.isEmpty ? offset : page.total
       loaded = true
     } catch is CancellationError {} catch {
-      if kind == selectedKind { self.error = error.localizedDescription }
+      if kind == selectedKind { self.error = error.userMessage }
     }
   }
 }
@@ -487,7 +488,7 @@ struct CatalogueAlbumView: View {
       editions = try await model.cachedCatalogue(key: "editions:\(groupId):0") {
         try await $0.catalogueEditions(groupId: groupId, offset: 0)
       }
-    } catch is CancellationError {} catch { self.error = error.localizedDescription }
+    } catch is CancellationError {} catch { self.error = error.userMessage }
   }
 }
 
@@ -545,7 +546,7 @@ struct CatalogueEditionsView: View {
       offset = page.offset + page.editions.count
       total = page.editions.isEmpty ? offset : page.total
       loaded = true
-    } catch is CancellationError {} catch { self.error = error.localizedDescription }
+    } catch is CancellationError {} catch { self.error = error.userMessage }
   }
 }
 
@@ -662,7 +663,7 @@ struct CatalogueReleaseView: View {
     do {
       _ = try await model.performPersonal { try await $0.requestMusic(tracks) }
       await load()
-    } catch is CancellationError {} catch { requestFailure = error.localizedDescription }
+    } catch is CancellationError {} catch { requestFailure = error.userMessage }
   }
   private func track(_ song: CatalogueSong) -> Track {
     var track = song.track
@@ -685,7 +686,7 @@ struct CatalogueReleaseView: View {
       release = try await model.cachedCatalogue(key: "release:" + releaseId) {
         try await $0.catalogueRelease(releaseId: releaseId)
       }
-    } catch is CancellationError {} catch { self.error = error.localizedDescription }
+    } catch is CancellationError {} catch { self.error = error.userMessage }
   }
 }
 

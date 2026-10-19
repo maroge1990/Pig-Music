@@ -1,3 +1,4 @@
+import PigAPI
 import PigDomain
 import SwiftUI
 
@@ -65,7 +66,7 @@ struct ArtistAcquisitionView: View {
     do {
       let value = try await model.readCatalogue({ try await $0.artistAcquisition(id: artistId) })
       apply(value)
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
   private func save(request: Bool) async {
     guard !loading else { return }
@@ -79,7 +80,7 @@ struct ArtistAcquisitionView: View {
           id: artistId, kinds: kinds, monitor: monitoring, request: request)
       })
       apply(value)
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
   private func cancel() async {
     guard !loading else { return }
@@ -88,6 +89,6 @@ struct ArtistAcquisitionView: View {
     do {
       let value = try await model.performPersonal({ try await $0.cancelArtist(id: artistId) })
       apply(value)
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
 }

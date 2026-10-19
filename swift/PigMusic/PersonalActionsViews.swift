@@ -1,3 +1,4 @@
+import PigAPI
 import PigBrand
 import PigDomain
 import SwiftUI
@@ -111,7 +112,7 @@ struct SongActionsView: View {
         confirmed
         ? (value ? "Added to favourites." : "Removed from favourites.")
         : "Favourite edit saved on this phone; waiting to sync."
-    } catch is CancellationError {} catch { message = error.localizedDescription }
+    } catch is CancellationError {} catch { message = error.userMessage }
   }
   private func add() async {
     guard !loading else { return }
@@ -123,7 +124,7 @@ struct SongActionsView: View {
       }
       message = count > 0 ? "Added to your library." : "Already in your library."
       addedToLibrary = true
-    } catch is CancellationError {} catch { message = error.localizedDescription }
+    } catch is CancellationError {} catch { message = error.userMessage }
   }
   private func request() async {
     guard !loading else { return }
@@ -136,7 +137,7 @@ struct SongActionsView: View {
       if !result.downloadsEnabled {
         message! += " Server downloads are disabled; requests will wait."
       }
-    } catch is CancellationError {} catch { message = error.localizedDescription }
+    } catch is CancellationError {} catch { message = error.userMessage }
   }
 }
 
@@ -167,7 +168,7 @@ struct RequestsView: View {
                 do {
                   _ = try await model.performPersonal { try await $0.retryRequest(id: item.id) }
                   await load(reset: true)
-                } catch { self.error = error.localizedDescription }
+                } catch { self.error = error.userMessage }
               }
             }.disabled(loading || !model.canMutate)
           }
@@ -184,7 +185,7 @@ struct RequestsView: View {
                     self.error =
                       "Your request was cancelled. The shared download continues for another person."
                   }
-                } catch { self.error = error.localizedDescription }
+                } catch { self.error = error.userMessage }
               }
             }.disabled(loading || !model.canMutate)
           }
@@ -233,7 +234,7 @@ struct RequestsView: View {
       enabled = page.downloadsEnabled
       model.serverActiveRequests = page.active
       loaded = true
-    } catch is CancellationError {} catch { self.error = error.localizedDescription }
+    } catch is CancellationError {} catch { self.error = error.userMessage }
   }
   private func clear() async {
     guard !loading else { return }
@@ -244,7 +245,7 @@ struct RequestsView: View {
       loading = false
       return
     } catch {
-      self.error = error.localizedDescription
+      self.error = error.userMessage
       loading = false
       return
     }

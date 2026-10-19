@@ -1,3 +1,4 @@
+import PigAPI
 import AVKit
 import PigBrand
 import PigDomain
@@ -320,7 +321,7 @@ struct AlbumView: View {
       requestMessage = "Requested \(result.created) song\(result.created == 1 ? "" : "s")."
       release = nil
       await loadRelease()
-    } catch is CancellationError {} catch { requestMessage = error.localizedDescription }
+    } catch is CancellationError {} catch { requestMessage = error.userMessage }
   }
   private var albumSubtitle: String {
     let count = tracks.isEmpty ? album.trackCount : tracks.count

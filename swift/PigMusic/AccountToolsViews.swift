@@ -1,3 +1,4 @@
+import PigAPI
 import PigBrand
 import PigDomain
 import UIKit
@@ -32,7 +33,7 @@ struct PreferencesView: View {
       await model.cachePreferences()
       message =
         confirmed ? "Preferences saved." : "Preferences saved on this phone; waiting to sync."
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
 }
 struct PasswordView: View {
@@ -65,7 +66,7 @@ struct PasswordView: View {
               try await $0.changePassword(current: old, password: new)
             }
             message = "Password changed."
-          } catch { message = error.localizedDescription }
+          } catch { message = error.userMessage }
         }
       }.disabled(
         loading || !model.canMutate || current.isEmpty || password.count < 12
@@ -112,7 +113,7 @@ struct SessionsView: View {
               loading = true
               do {
                 try await model.performPersonal { try await $0.revokeSession(id: session.id) }
-              } catch { message = error.localizedDescription }
+              } catch { message = error.userMessage }
               revoking = nil
               loading = false
               await load()
@@ -126,7 +127,7 @@ struct SessionsView: View {
     loading = true
     defer { loading = false }
     do { sessions = try await model.readCatalogue { try await $0.sessions() } } catch {
-      message = error.localizedDescription
+      message = error.userMessage
     }
   }
 }
@@ -159,7 +160,7 @@ struct QualityView: View {
                 try await $0.saveQuality(scope: scope, id: id, preferred: value)
               }
               message = "Preference saved."
-            } catch { message = error.localizedDescription }
+            } catch { message = error.userMessage }
           }
         }.disabled(loading || !model.canMutate)
       } else {
@@ -173,7 +174,7 @@ struct QualityView: View {
         selected =
           value.preferences.first(where: { $0.scope == scope && $0.itemId == id })?.preferred
           ?? "inherit"
-      } catch { message = error.localizedDescription }
+      } catch { message = error.userMessage }
     }
   }
 }
@@ -223,7 +224,7 @@ struct RemovalView: View {
     defer { loading = false }
     let ids = tracks.map(\.id)
     do { preview = try await model.readCatalogue { try await $0.removalPreview(ids: ids) } } catch {
-      message = error.localizedDescription
+      message = error.userMessage
     }
   }
   private func remove() async {
@@ -238,7 +239,7 @@ struct RemovalView: View {
       }
     } catch {
       self.preview = nil
-      message = error.localizedDescription + " Preview again before confirming."
+      message = error.userMessage + " Preview again before confirming."
     }
   }
   private func undo(_ result: RemovalResult) async {
@@ -249,7 +250,7 @@ struct RemovalView: View {
       self.result = nil
       preview = nil
       message = "Music restored."
-    } catch { message = error.localizedDescription }
+    } catch { message = error.userMessage }
   }
 }
 
@@ -323,7 +324,7 @@ struct DiagnosticsView: View {
       export = makeExport()
       do {
         server = try await model.readCatalogue { try await $0.serverInfo() }
-      } catch { serverError = error.localizedDescription }
+      } catch { serverError = error.userMessage }
       serverChecked = true
       export = makeExport()
     }

@@ -1,3 +1,4 @@
+import PigAPI
 import PigBrand
 import PigDomain
 import PigSync
@@ -229,7 +230,7 @@ struct SavedArtistView: View {
         }
         identityMessage = nil
       } catch {
-        identityMessage = error.localizedDescription
+        identityMessage = error.userMessage
         return
       }
     }
@@ -258,7 +259,7 @@ struct SavedArtistView: View {
       guard namespace == model.artworkNamespace else { return }
       albums += found
       more = found.count == 100
-    } catch is CancellationError {} catch { self.error = error.localizedDescription }
+    } catch is CancellationError {} catch { self.error = error.userMessage }
   }
 }
 
