@@ -485,6 +485,7 @@ class UserLibrary:
         self.store = store
         self.cache = OrderedDict()
         self.artwork_cache = {}
+        self.index_cache = {}
         self.lookup_cache = {}
 
     def artwork_access(self, user_id):
@@ -508,6 +509,19 @@ class UserLibrary:
         }
         self.artwork_cache[user_id] = (data["revision"], access)
         return access
+
+    def match_index(self, user_id):
+        """The person's song-matching index, built once per projection revision
+        (building it reads every saved song; playlist pages need it each time)."""
+        from .matching import LibraryIndex
+
+        data = self.projection(user_id)
+        cached = self.index_cache.get(user_id)
+        if cached and cached[0] == data["revision"]:
+            return cached[1]
+        index = LibraryIndex(data)
+        self.index_cache[user_id] = (data["revision"], index)
+        return index
 
     def projection(self, user_id):
         initialise_owner(self.store)

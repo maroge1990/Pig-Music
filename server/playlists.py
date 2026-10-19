@@ -64,9 +64,7 @@ class Playlists:
         entries = []
         index = self.store.index
         if self.user_id:
-            from .matching import LibraryIndex
-
-            index = LibraryIndex(self.store.user_libraries.projection(self.user_id))
+            index = self.store.user_libraries.match_index(self.user_id)
         for position, track in enumerate(playlist["tracks"]):
             result = index.match(track)
             match = result.track
