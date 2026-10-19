@@ -134,6 +134,24 @@ public actor LibraryStore {
       return try LibraryCodec.decoder().decode(Track.self, from: data)
     }
   }
+  /// Each known track's source revision (nil when it has none) in one query.
+  /// Ids missing from the library are left out.
+  public func sourceRevisions(ids: some Collection<String>) throws -> [String: String?] {
+    guard !ids.isEmpty else { return [:] }
+    let list = String(decoding: try JSONEncoder().encode(Array(ids)), as: UTF8.self)
+    return try database.read { db in
+      var result: [String: String?] = [:]
+      let rows = try Row.fetchCursor(
+        db,
+        sql:
+          "SELECT tracks.id, json_extract(CAST(tracks.payload AS TEXT),'$.source_revision') FROM tracks JOIN json_each(?) ids ON tracks.id=ids.value",
+        arguments: [list])
+      while let row = try rows.next() {
+        result.updateValue(row[1] as String?, forKey: row[0] as String)
+      }
+      return result
+    }
+  }
   public func recordListen(_ event: ListeningEvent) throws {
     try database.write { db in
       try db.execute(

@@ -383,21 +383,21 @@ import UIKit
       }
       let revisions = await player.cachedRevisions()
       guard generation == stamp else { return }
-      var invalid = false
-      for (id, revision) in revisions {
-        let track = try await store?.track(id: id)
-        if track == nil || track?.sourceRevision != revision {
-          invalid = true
-          break
-        }
-      }
+      // One store query answers every cached and downloaded song at once.
+      let records = downloads?.records ?? []
+      let known =
+        try await store?.sourceRevisions(ids: Set(revisions.keys).union(records.map(\.id))) ?? [:]
       guard generation == stamp else { return }
+      var invalid = revisions.contains { id, revision in
+        guard let current = known[id] else { return true }
+        return current != revision
+      }
       if let downloads {
         var allowed: [String: String?] = [:]
-        for record in downloads.records {
-          if let track = try await store?.track(id: record.id) {
-            allowed.updateValue(track.sourceRevision, forKey: record.id)
-            if record.state == "ready" && record.track.sourceRevision != track.sourceRevision {
+        for record in records {
+          if let current = known[record.id] {
+            allowed.updateValue(current, forKey: record.id)
+            if record.state == "ready" && record.track.sourceRevision != current {
               invalid = true
             }
           } else if record.state == "ready" {

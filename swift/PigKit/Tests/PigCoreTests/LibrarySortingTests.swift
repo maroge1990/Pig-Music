@@ -41,3 +41,29 @@ struct LibrarySortingTests {
     #expect(names.sorted { $0.sortingCompare($1) == .orderedAscending } == expected)
   }
 }
+
+struct SourceRevisionLookupTests {
+  @Test func oneQueryMatchesPerTrackLookups() async throws {
+    let store = try LibraryStore(path: ":memory:")
+    let tracks = (0..<600).map { index in
+      var track = Track(id: "t\(index)", title: "Song \(index)", artist: "A")
+      track.sourceRevision = index % 3 == 0 ? nil : "rev\(index)"
+      return track
+    }
+    try await store.replace(LibrarySnapshot(revision: "one", tracks: tracks))
+    let ids = tracks.map(\.id) + ["missing", "also-missing"]
+    let batched = try await store.sourceRevisions(ids: ids)
+    var single: [String: String?] = [:]
+    for id in ids {
+      if let track = try await store.track(id: id) {
+        single.updateValue(track.sourceRevision, forKey: id)
+      }
+    }
+    #expect(batched == single)
+    #expect(batched.count == 600)
+    #expect(batched["t3"] == .some(nil))
+    #expect(batched["t4"] == .some("rev4"))
+    #expect(batched["missing"] == nil)
+    #expect(try await store.sourceRevisions(ids: [String]()).isEmpty)
+  }
+}
