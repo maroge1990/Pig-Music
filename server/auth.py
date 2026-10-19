@@ -34,6 +34,50 @@ HASHER = PasswordHasher()  # Argon2id library defaults (64MiB, three iterations)
 DUMMY_HASH = HASHER.hash(secrets.token_urlsafe(32))
 
 
+def browser_name(user_agent: str) -> str:
+    """A person-readable name for a web session, e.g. "Safari on iPhone".
+
+    Only the browser family and device kind are kept; the full agent string
+    is never stored.
+    """
+    agent = user_agent or ""
+    browser = next(
+        (
+            name
+            for token, name in (
+                ("Edg", "Edge"),
+                ("OPR/", "Opera"),
+                ("FxiOS", "Firefox"),
+                ("Firefox/", "Firefox"),
+                ("CriOS", "Chrome"),
+                ("Chrome/", "Chrome"),
+                ("Safari/", "Safari"),
+            )
+            if token in agent
+        ),
+        "",
+    )
+    system = next(
+        (
+            name
+            for token, name in (
+                ("iPhone", "iPhone"),
+                ("iPad", "iPad"),
+                ("Android", "Android"),
+                ("Windows", "Windows"),
+                ("CrOS", "ChromeOS"),
+                ("Macintosh", "Mac"),
+                ("Linux", "Linux"),
+            )
+            if token in agent
+        ),
+        "",
+    )
+    if browser and system:
+        return f"{browser} on {system}"
+    return browser or (f"Browser on {system}" if system else "Browser")
+
+
 class AuthError(ValueError):
     def __init__(self, code, status=401):
         super().__init__(code)
@@ -94,7 +138,9 @@ class Auth:
                 is not None
             )
 
-    def claim_owner(self, code, expected, name, password, display_name, ip):
+    def claim_owner(
+        self, code, expected, name, password, display_name, ip, device_name="Browser"
+    ):
         if self.has_owner():
             raise AuthError("owner_already_exists", 409)
         if self.locked("first-owner", ip):
@@ -105,7 +151,7 @@ class Auth:
         if not display_name.strip():
             raise AuthError("invalid_display_name", 422)
         self.create_owner(name, password, display_name)
-        return self.login(name, password, "web", "Browser", "web", ip)
+        return self.login(name, password, "web", device_name, "web", ip)
 
     def create_owner(self, name, password, display_name=None):
         name = username(name)
@@ -321,6 +367,17 @@ class Auth:
             if not result.rowcount:
                 raise AuthError("session_not_found", 404)
             self.event(conn, "session_revoked", "", identity)
+
+    def revoke_others(self, identity, keep_public_id):
+        """Sign out every other session of this person; returns how many."""
+        with self.store.connect() as conn:
+            result = conn.execute(
+                "UPDATE sessions SET revoked_at=? WHERE user_id=? AND public_id<>? AND revoked_at IS NULL",
+                (self.now(), identity, keep_public_id),
+            )
+            if result.rowcount:
+                self.event(conn, "sessions_revoked", str(result.rowcount), identity)
+            return result.rowcount
 
     def disable(self, owner_id, identity, disabled):
         if self.user(owner_id)["role"] != "owner":

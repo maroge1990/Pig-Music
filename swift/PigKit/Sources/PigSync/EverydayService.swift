@@ -275,6 +275,14 @@ extension NativeService {
     default: throw NativeFailure.unavailable("Your sessions are unavailable.")
     }
   }
+  /// Signs out every other session of this account; returns how many.
+  public func revokeOtherSessions() async throws -> Int {
+    switch try await client.revoke_others_api_v1_me_sessions_delete(.init()) {
+    case .ok(let value): return try value.body.json.revoked
+    case .unauthorized: throw NativeFailure.authentication
+    default: throw NativeFailure.unavailable("Signing out other devices was not confirmed.")
+    }
+  }
   public func revokeSession(id: String) async throws {
     switch try await client.revoke_api_v1_me_sessions__identity__delete(
       .init(path: .init(identity: id)))

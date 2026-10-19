@@ -138,3 +138,14 @@ private actor FailedSource: LibrarySource {
   #expect(group.summary == "3 of 13 songs in your library · 1 downloading · 8 waiting · 1 failed")
   #expect(RequestSource.name(group.items[0].source ?? "") == "Soulseek")
 }
+
+@Test func sessionsSayWhichDeviceThisIs() throws {
+  let sessions = try LibraryCodec.decoder().decode(
+    AccountSessions.self,
+    from: Data(
+      #"{"sessions":[{"id":"a","kind":"device","device_name":"iPhone","platform":"ios","created_at":1,"last_seen_at":2,"expires_at":3,"revoked_at":null,"current":true},{"id":"b","kind":"web","device_name":"Safari on Mac","platform":"web","created_at":1,"last_seen_at":2,"expires_at":3,"revoked_at":null}]}"#
+        .utf8)
+  ).sessions
+  #expect(sessions[0].current == true && sessions[0].platformName == "iPhone or iPad app")
+  #expect(sessions[1].current == nil && sessions[1].platformName == "Web")
+}

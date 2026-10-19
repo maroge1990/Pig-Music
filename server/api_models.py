@@ -420,6 +420,8 @@ class SessionDTO(BaseModel):
     last_seen_at: float
     expires_at: float
     revoked_at: float | None
+    # The session making this request ("This device").
+    current: bool = False
 
 
 class SessionsDTO(BaseModel):
@@ -428,6 +430,11 @@ class SessionsDTO(BaseModel):
 
 class RevokedDTO(BaseModel):
     revoked: bool
+
+
+class RevokedOthersDTO(BaseModel):
+    # How many other sessions were signed out.
+    revoked: int
 
 
 class PasswordChangedDTO(BaseModel):

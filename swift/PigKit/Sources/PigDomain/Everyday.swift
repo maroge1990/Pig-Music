@@ -16,6 +16,13 @@ public struct AccountSession: Codable, Sendable, Identifiable {
   public let lastSeenAt: Double
   public let expiresAt: Double
   public let revokedAt: Double?
+  /// The session this app is using ("This device"); nil from older servers.
+  public let current: Bool?
+  /// "iPhone or iPad app", "Apple Watch app" or "Web".
+  public var platformName: String {
+    ["ios": "iPhone or iPad app", "watchos": "Apple Watch app", "web": "Web"][platform]
+      ?? platform
+  }
 }
 public struct AccountSessions: Codable, Sendable { public let sessions: [AccountSession] }
 public struct QualityOption: Codable, Sendable, Identifiable {

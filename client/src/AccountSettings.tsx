@@ -7,12 +7,20 @@ import {
 import { api } from "./api";
 import type { Person } from "./AppShell";
 import { PageHeader } from "./PageHeader";
+import { formatRelative } from "./format";
 
 type Session = {
   id: string;
   device_name: string;
   platform: string;
+  last_seen_at: number;
   revoked_at: number | null;
+  current?: boolean;
+};
+const platforms: Record<string, string> = {
+  web: "Web",
+  ios: "iPhone or iPad app",
+  watchos: "Apple Watch app",
 };
 export function AccountSettings({
   user,
@@ -50,7 +58,7 @@ export function AccountSettings({
     setError("");
     try {
       await fn();
-      setMessage(text);
+      if (text) setMessage(text);
       await load();
     } catch (e) {
       setError((e as Error).message);
@@ -150,23 +158,68 @@ export function AccountSettings({
       </section>
       <section className="account-section">
         <h2>Your devices</h2>
-        {sessions
-          .filter((s) => !s.revoked_at)
-          .map((s) => (
-            <p key={s.id}>
-              {s.device_name} · {s.platform}{" "}
-              <button
-                onClick={() =>
-                  void action(
-                    () => api("/v1/me/sessions/" + s.id, { method: "DELETE" }),
-                    "Device signed out",
-                  )
-                }
-              >
-                Revoke
-              </button>
-            </p>
-          ))}
+        <ul className="session-list">
+          {sessions
+            .filter((s) => !s.revoked_at)
+            .sort((a, b) => Number(!!b.current) - Number(!!a.current))
+            .map((s) => (
+              <li key={s.id}>
+                <div>
+                  <strong>
+                    {s.device_name}
+                    {s.current && (
+                      <span className="session-current"> · This device</span>
+                    )}
+                  </strong>
+                  <span>
+                    {[
+                      platforms[s.platform] || s.platform,
+                      s.current
+                        ? "In use now"
+                        : `Last used ${formatRelative(s.last_seen_at)}`,
+                    ].join(" · ")}
+                  </span>
+                </div>
+                {!s.current && (
+                  <button
+                    aria-label={`Sign out ${s.device_name}`}
+                    onClick={() =>
+                      void action(
+                        () =>
+                          api("/v1/me/sessions/" + s.id, { method: "DELETE" }),
+                        "Device signed out",
+                      )
+                    }
+                  >
+                    Sign out
+                  </button>
+                )}
+              </li>
+            ))}
+        </ul>
+        {sessions.some((s) => !s.revoked_at && !s.current) && (
+          <button
+            className="secondary-button"
+            onClick={() => {
+              if (
+                confirm(
+                  "Sign out every other browser and app? This device stays signed in.",
+                )
+              )
+                void action(async () => {
+                  const result = await api<{ revoked: number }>(
+                    "/v1/me/sessions",
+                    { method: "DELETE" },
+                  );
+                  setMessage(
+                    `Signed out ${result.revoked} other ${result.revoked === 1 ? "device" : "devices"}.`,
+                  );
+                }, "");
+            }}
+          >
+            Sign out other devices
+          </button>
+        )}
       </section>
       <section className="account-section">
         <h2>Your music quality</h2>

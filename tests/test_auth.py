@@ -345,3 +345,38 @@ def test_credential_filter_redacts_diagnostic_fields():
         and "secret-signature" not in text.getMessage()
         and "secret-cookie" not in text.getMessage()
     )
+
+
+def test_devices_are_named_marked_current_and_others_can_be_signed_out(fixture):
+    auth, owner, _ = fixture
+    phone = token(auth)
+    watch = token(auth)
+    with TestClient(
+        app_for(auth), base_url="https://private.ts.net", headers={"X-Pig-Request": "1"}
+    ) as client:
+        response = client.post(
+            "/api/v1/auth/login",
+            json={"username": "mark", "password": PASSWORD},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
+            },
+        )
+        assert response.status_code == 200
+        sessions = client.get("/api/v1/me/sessions").json()["sessions"]
+        names = {s["device_name"]: s for s in sessions}
+        assert names["Chrome on Mac"]["current"] is True
+        assert names["Chrome on Mac"]["platform"] == "web"
+        assert sum(s["current"] for s in sessions) == 1
+        assert all(s["last_seen_at"] for s in sessions)
+        # The full agent string is not kept.
+        assert "AppleWebKit" not in str(sessions)
+        assert client.delete("/api/v1/me/sessions").json() == {"revoked": 2}
+        assert client.get("/api/v1/me").status_code == 200
+        for other in (phone, watch):
+            denied = client.get(
+                "/api/v1/me", headers={"Authorization": "Bearer " + other}
+            )
+            # A bearer token is checked before the cookie.
+            assert denied.status_code == 401
+        assert client.delete("/api/v1/me/sessions").json() == {"revoked": 0}

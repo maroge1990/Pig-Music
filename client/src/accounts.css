@@ -836,3 +836,33 @@ main h1[tabindex="-1"]:focus {
   font-size: var(--type-caption);
   color: var(--secondary);
 }
+
+/* Account › Your devices: name, kind and last use, this device first. */
+.session-list {
+  display: grid;
+  gap: var(--space-8);
+  margin: 0 0 var(--space-12);
+  padding: 0;
+  list-style: none;
+}
+.session-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  padding: var(--space-12) 0;
+  border-bottom: 1px solid var(--border);
+}
+.session-list li > div {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+.session-list span {
+  font-size: var(--type-footnote);
+  color: var(--secondary);
+}
+.session-list .session-current {
+  color: var(--success);
+  font-weight: 600;
+}

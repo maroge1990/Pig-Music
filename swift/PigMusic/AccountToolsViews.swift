@@ -81,20 +81,41 @@ struct SessionsView: View {
   @State private var loading = false
   @State private var message: String?
   @State private var revoking: AccountSession?
+  @State private var signingOutOthers = false
+  /// Signed-in sessions, this device first.
+  private var active: [AccountSession] {
+    sessions.filter { $0.revokedAt == nil }.sorted {
+      ($0.current == true ? 0 : 1) < ($1.current == true ? 0 : 1)
+    }
+  }
   var body: some View {
     List {
-      ForEach(sessions) { session in
-        VStack(alignment: .leading) {
-          Text(session.deviceName.isEmpty ? session.kind : session.deviceName)
-          Text("Last seen \(Date(timeIntervalSince1970:session.lastSeenAt).formatted())").font(
-            PigType.caption)
-          if session.revokedAt != nil {
-            Text("Revoked").foregroundStyle(.secondary)
-          } else {
-            Button("Revoke session", role: .destructive) { revoking = session }.disabled(
+      ForEach(active) { session in
+        VStack(alignment: .leading, spacing: 2) {
+          HStack(spacing: 6) {
+            Text(session.deviceName.isEmpty ? session.kind : session.deviceName)
+            if session.current == true {
+              Text("This device").font(PigType.caption.weight(.semibold))
+                .foregroundStyle(.green)
+            }
+          }
+          Text(
+            session.platformName + " · "
+              + (session.current == true
+                ? "In use now"
+                : "Last used "
+                  + Date(timeIntervalSince1970: session.lastSeenAt).formatted(
+                    .relative(presentation: .named)))
+          ).font(PigType.caption).foregroundStyle(.secondary)
+          if session.current != true {
+            Button("Sign out", role: .destructive) { revoking = session }.disabled(
               loading || !model.canMutate)
           }
         }
+      }
+      if active.contains(where: { $0.current != true }) {
+        Button("Sign out other devices", role: .destructive) { signingOutOthers = true }
+          .disabled(loading || !model.canMutate)
       }
       if let message { Text(message).font(PigType.footnote) }
       if loading { ProgressView() }
@@ -104,11 +125,27 @@ struct SessionsView: View {
           loading)
       }
       .confirmationDialog(
-        "Revoke this session? Revoking this device signs it out.",
+        "Sign out every other browser and app? This device stays signed in.",
+        isPresented: $signingOutOthers
+      ) {
+        Button("Sign out other devices", role: .destructive) {
+          Task {
+            loading = true
+            do {
+              let count = try await model.performPersonal { try await $0.revokeOtherSessions() }
+              message = "Signed out \(count) other device\(count == 1 ? "" : "s")."
+            } catch { message = error.userMessage }
+            loading = false
+            await load()
+          }
+        }
+      }
+      .confirmationDialog(
+        "Sign out this device? It will need to sign in again.",
         isPresented: Binding(get: { revoking != nil }, set: { if !$0 { revoking = nil } })
       ) {
         if let session = revoking {
-          Button("Revoke", role: .destructive) {
+          Button("Sign out", role: .destructive) {
             Task {
               loading = true
               do {

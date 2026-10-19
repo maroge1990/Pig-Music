@@ -6,7 +6,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field, SecretStr
 
-from ..auth import Auth, AuthError, COOKIE, DAY
+from ..auth import Auth, AuthError, COOKIE, DAY, browser_name
 from ..api_models import (
     ActivationDTO,
     DeviceSessionDTO,
@@ -14,6 +14,7 @@ from ..api_models import (
     UserDTO,
     SessionsDTO,
     RevokedDTO,
+    RevokedOthersDTO,
     PasswordChangedDTO,
 )
 
@@ -136,6 +137,7 @@ def auth_router(auth: Auth, security=None, origin: str | None = None):
             body.password.get_secret_value(),
             body.display_name.strip(),
             request.client.host,
+            browser_name(request.headers.get("user-agent", "")),
         )
         set_cookie(response, result["token"])
         return {"user": result["user"]}
@@ -147,7 +149,7 @@ def auth_router(auth: Auth, security=None, origin: str | None = None):
             body.username,
             body.password.get_secret_value(),
             "web",
-            "Browser",
+            browser_name(request.headers.get("user-agent", "")),
             "web",
             request.client.host,
         )
@@ -189,7 +191,22 @@ def auth_router(auth: Auth, security=None, origin: str | None = None):
 
     @router.get("/me/sessions", response_model=SessionsDTO)
     async def sessions(result=Depends(current)):
-        return {"sessions": await run(auth.sessions, result[0]["id"])}
+        mine = result[1]["public_id"]
+        return {
+            "sessions": [
+                {**s, "current": s["id"] == mine}
+                for s in await run(auth.sessions, result[0]["id"])
+            ]
+        }
+
+    @router.delete("/me/sessions", response_model=RevokedOthersDTO)
+    async def revoke_others(result=Depends(current)):
+        """Sign out every device except this one."""
+        return {
+            "revoked": await run(
+                auth.revoke_others, result[0]["id"], result[1]["public_id"]
+            )
+        }
 
     @router.delete("/me/sessions/{identity}", response_model=RevokedDTO)
     async def revoke(identity: str, result=Depends(current)):
