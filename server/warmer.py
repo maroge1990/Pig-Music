@@ -2,7 +2,8 @@
 
 Home, each person's recommendations and every library artist are known ahead
 of time, so their pages are prepared in the background: artist portraits,
-photographs, logos, popular songs, album lists and covers. A search prepares
+photographs, logos, popular songs, album lists and covers. Home's albums also
+get their recommended edition's tracklist and cover, so they open at once. A search prepares
 its top results at once. All provider calls run as background work, so a
 person waiting on a page always goes first, and answers close to expiry are
 renewed early so nobody waits on an expired cache.
@@ -35,6 +36,10 @@ class Warmer:
         self.warm_artist = None
         self.library_identity = None
         self.cover = None
+        # Prepares a release group's editions and recommended edition; returns
+        # that edition's ID.
+        self.warm_album = None
+        self.albums = OrderedDict()
         self.queue = asyncio.PriorityQueue()
         self.pending = {}
         self.done = OrderedDict()
@@ -122,6 +127,11 @@ class Warmer:
                     self.state["artists_prepared"] += 1
                 limit = LIBRARY_COVERS if priority == LIBRARY else 24
                 for kind, item_id in list(covers) + found[:limit]:
+                    if kind == "album":
+                        item_id = await self.album(item_id)
+                        if not item_id:
+                            continue
+                        kind = "release"
                     if await self.cover(kind, item_id):
                         self.state["covers_prepared"] += 1
             except asyncio.CancelledError:
@@ -211,6 +221,36 @@ class Warmer:
         if not artists and covers:
             self.serial += 1
             self.queue.put_nowait((HOME, self.serial, None, False, tuple(covers)))
+        self.prepare_albums(feed)
+
+    async def album(self, group_id):
+        if self.warm_album is None:
+            return None
+        try:
+            return await self.warm_album(group_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.state["failures"] += 1
+            return None
+
+    def prepare_albums(self, feed):
+        """Queue a Home feed's album pages not prepared recently."""
+        now = time.time()
+        fresh = []
+        for album in feed.get("albums", []):
+            group_id = album.get("id")
+            if not group_id or now - self.albums.get(group_id, 0) < ARTIST_REUSE:
+                continue
+            self.albums[group_id] = now
+            self.albums.move_to_end(group_id)
+            fresh.append(("album", group_id))
+        while len(self.albums) > 5000:
+            self.albums.popitem(last=False)
+        if fresh:
+            self.serial += 1
+            self.queue.put_nowait((HOME, self.serial, None, False, tuple(fresh)))
+        return len(fresh)
 
     def people(self):
         with self.store.connect() as conn:

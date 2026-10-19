@@ -241,8 +241,12 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     mixes = Mixes(store, home, source_runtime)
     app.include_router(mixes_router(mixes))
     warmer = Warmer(store, home, lambda: app.state.http)
-    app.include_router(home_router(store, music_catalogue, home))
-    app.include_router(discover_router(store, music_catalogue, popularity, warmer))
+    app.include_router(home_router(store, music_catalogue, home, warmer))
+    discover_routes = discover_router(
+        store, music_catalogue, popularity, warmer, lambda: app.state.http
+    )
+    app.include_router(discover_routes)
+    warmer.warm_album = discover_routes.warm_album
     app.include_router(personal_router(store, artist_jobs, recovery))
     install_validation_redaction(app)
     app.state.store = store

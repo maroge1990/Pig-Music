@@ -6,13 +6,19 @@ from ..home import HomeDiscovery
 from ..api_models import HomeFeedDTO, RecentAlbums
 
 
-def home_router(store, catalogue, home=None):
+def home_router(store, catalogue, home=None, warmer=None):
     router = APIRouter(tags=["personal-library"])
     home = home or HomeDiscovery(store, catalogue)
 
+    def prepared(feed):
+        # Albums shown on Home open at once: their pages are cached ahead.
+        if warmer is not None and isinstance(feed, dict):
+            warmer.prepare_albums(feed)
+        return feed
+
     @router.get("/api/v1/home/popular", response_model=HomeFeedDTO)
     async def popular(request: Request):
-        return await home.popular(request.app.state.http)
+        return prepared(await home.popular(request.app.state.http))
 
     @router.get("/api/v1/home/recent", response_model=RecentAlbums)
     async def recent(request: Request):
@@ -29,8 +35,10 @@ def home_router(store, catalogue, home=None):
             else store.library
         )
         try:
-            return await asyncio.wait_for(
-                home.recommended(request.app.state.http, projection), 25
+            return prepared(
+                await asyncio.wait_for(
+                    home.recommended(request.app.state.http, projection), 25
+                )
             )
         except asyncio.TimeoutError:
             return {

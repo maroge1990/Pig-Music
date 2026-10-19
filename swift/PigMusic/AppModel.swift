@@ -437,8 +437,9 @@ import UIKit
       revoked(generation: stamp)
     } catch {
       guard generation == stamp else { return }
+      // The cached library carries on quietly; the next foreground or pull retries.
       DiagnosticsLog.shared.record("sync", "refresh failed: \(error.localizedDescription)")
-      message = "Showing your cached library. " + error.localizedDescription
+      message = nil
     }
   }
   private func loadCache() async throws {
@@ -476,6 +477,28 @@ import UIKit
   func homeLibraryChanged() {
     homeLoadedAt[.recommended] = nil
     homeLoadedAt[.mixes] = nil
+  }
+  /// Home's catalogue albums, fetched ahead one at a time with their
+  /// recommended edition and its cover, so a tap opens like a library album.
+  private func prefetchAlbums(_ albums: [DiscoveryItem]) {
+    let stamp = generation
+    Task(priority: .utility) { [weak self] in
+      for album in albums.prefix(20) {
+        guard let self, generation == stamp, !Task.isCancelled else { return }
+        let key = "editions:\(album.id):0"
+        guard peekCatalogue(key: key, as: CatalogueEditions.self) == nil else { continue }
+        guard
+          let editions = try? await cachedCatalogue(key: key, load: {
+            try await $0.catalogueEditions(groupId: album.id, offset: 0)
+          }),
+          let first = editions.editions.first
+        else { continue }
+        _ = try? await cachedCatalogue(key: "release:" + first.id) {
+          try await $0.catalogueRelease(releaseId: first.id)
+        }
+        _ = await artwork(.release(first.id), width: 512)
+      }
+    }
   }
   func refreshHome(force: Bool = false) async {
     guard let service else { return }
@@ -516,6 +539,7 @@ import UIKit
           homeContent[section] = content
           homeLoadedAt[section] = Date()
           try? await store?.cache(content, key: "home:" + section.rawValue)
+          if let feed = content.feed { prefetchAlbums(feed.albums) }
         case .failure(.authentication):
           group.cancelAll()
           revoked(generation: stamp)

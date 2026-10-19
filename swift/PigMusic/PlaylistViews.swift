@@ -161,6 +161,9 @@ struct PlaylistView: View {
     _name = State(initialValue: playlist.name)
   }
   private var songs: [Track] { (playlist.entries ?? []).map(\.playbackTrack) }
+  /// Songs this library lacks: household files are added, the rest requested
+  /// (the server ignores repeat requests).
+  private var missing: [PlaylistEntry] { (playlist.entries ?? []).filter { $0.savedTrack == nil } }
   private var locked: Bool {
     loading || !model.canMutate
       || model.pendingEdits.contains(where: { $0.mutation.playlistId == playlist.id })
@@ -178,7 +181,9 @@ struct PlaylistView: View {
             .disabled(songs.isEmpty)
           DownloadMenu(
             model: model, tracks: songs,
-            origin: DownloadOrigin(playlistId: playlist.id, playlistName: playlist.name))
+            origin: DownloadOrigin(playlistId: playlist.id, playlistName: playlist.name),
+            missingCount: missing.count
+          ) { await addMissing() }
           Spacer()
         }.buttonStyle(.plain)
         if let message { Text(message).font(PigType.footnote) }
@@ -254,6 +259,31 @@ struct PlaylistView: View {
       }
       name = playlist.name
       message = nil
+    } catch is CancellationError {} catch { message = error.localizedDescription }
+  }
+  private func addMissing() async {
+    guard !loading else { return }
+    loading = true
+    defer { loading = false }
+    let household = missing.compactMap(\.householdTrack).map(\.id)
+    let requested = missing.filter { $0.householdTrack == nil }.map(\.entryTrack)
+    do {
+      var added = 0
+      if !household.isEmpty {
+        added = try await model.performPersonal { try await $0.addMembership(trackIds: household) }
+      }
+      var queued = 0
+      for batch in stride(from: 0, to: requested.count, by: 500) {
+        let tracks = Array(requested[batch..<min(batch + 500, requested.count)])
+        queued += try await model.performPersonal { try await $0.requestMusic(tracks) }.created
+      }
+      message =
+        [
+          added > 0 ? "Added \(added) song\(added == 1 ? "" : "s") to your library." : nil,
+          queued > 0 ? "Requested \(queued) song\(queued == 1 ? "" : "s")." : nil,
+        ].compactMap { $0 }.joined(separator: " ")
+      if message?.isEmpty == true { message = "These songs are already requested." }
+      reloadAfterEdit = true
     } catch is CancellationError {} catch { message = error.localizedDescription }
   }
   private func edit(name: String? = nil, order: [Int]? = nil) async {

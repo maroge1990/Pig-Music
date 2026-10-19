@@ -47,6 +47,9 @@ DISCOVERY = {"related", "genre", "decade"}
 SEEDS, PER_SEED, GENRE_SONGS, DECADE_SONGS = 5, 12, 20, 12
 CANDIDATE_LIMIT = 100
 RELEASE_ARTISTS, RELEASE_DAYS = 10, 90
+# A rotating mix shorter than this is topped up from the library where that
+# fits its theme, or not shown at all.
+MIN_MIX = 20
 # Radio keeps this many ready songs ahead of the listener, added in batches.
 RADIO_BUFFER, RADIO_BATCH, RADIO_PAGE = 20, 20, 10
 
@@ -468,7 +471,7 @@ class Mixes:
             ).fetchone()
         return row
 
-    def stage(self, user_id, kind, day, title, reason, tracks):
+    def stage(self, user_id, kind, day, title, reason, tracks, backfill=None):
         identity = str(
             uuid.uuid5(uuid.NAMESPACE_URL, f"pig-mix:v1:{user_id}:{kind}:{day}")
         )
@@ -482,12 +485,75 @@ class Mixes:
             "attempts": 0,
             "retry_at": 0,
         }
+        if backfill is not None:
+            payload.update(backfill=backfill, minimum=MIN_MIX)
         with self.store.connect() as conn:
             conn.execute(
                 "INSERT OR IGNORE INTO mix_editions(id,user_id,kind,day,payload) VALUES (?,?,?,?,?)",
                 (identity, user_id, kind, str(day), json.dumps(payload)),
             )
         return identity
+
+    def plan(self, user_id, kind, day, title, reason, tracks, backfill=()):
+        """Stage a rotating mix that can reach MIN_MIX; None when it cannot.
+
+        Backfill is owned music that fits the mix, used in order when planned
+        songs fail to prepare.
+        """
+        seen = {song_key(t) for t in tracks}
+        planned, extra = len(seen), []
+        for track in backfill:
+            if song_key(track) not in seen:
+                seen.add(song_key(track))
+                extra.append(track)
+        if planned + len(extra) < MIN_MIX:
+            log.info(
+                "Mixes: skipped %s for %s on %s: %d songs, %d needed",
+                title,
+                user_id,
+                day,
+                planned + len(extra),
+                MIN_MIX,
+            )
+            return None
+        return self.stage(
+            user_id, kind, day, title, reason, tracks, backfill=extra[: MIN_MIX * 2]
+        )
+
+    @staticmethod
+    def neighbourhood_fill(owned, artist, neighbourhood, salt, history):
+        """The artist's other songs, then owned songs by their neighbours, then
+        owned songs in the artist's main genre."""
+        own = sorted(
+            (t for t in owned if t["artist"] == artist),
+            key=lambda t: hashlib.sha256((salt + song_key(t)).encode()).hexdigest(),
+        )
+        near = {t["artist"].casefold() for t in neighbourhood}
+        genres = Counter((t.get("genre") or "").casefold() for t in own)
+        genres.pop("", None)
+        genre = genres.most_common(1)[0][0] if genres else None
+        others = [t for t in owned if t["artist"] != artist]
+        return (
+            own[:MIN_MIX]
+            + choose(
+                [t for t in others if t["artist"].casefold() in near],
+                MIN_MIX,
+                salt + ":near",
+                history,
+                per_artist=4,
+            )
+            + choose(
+                [
+                    t
+                    for t in others
+                    if genre and (t.get("genre") or "").casefold() == genre
+                ],
+                MIN_MIX,
+                salt + ":genre",
+                history,
+                per_artist=3,
+            )
+        )
 
     def publish(self, identity, tracks, today):
         with self.store.lifecycle_lock, self.store.connect() as conn:
@@ -636,7 +702,7 @@ class Mixes:
                     )
                     if tracks:
                         await asyncio.to_thread(
-                            self.stage, user, kind, day, title, reason, tracks
+                            self.plan, user, kind, day, title, reason, tracks
                         )
                 await self.prepare_staged(user, day, today, deadline)
             return
@@ -646,7 +712,7 @@ class Mixes:
         if not await asyncio.to_thread(self.edition, user, "back", today):
             tracks = choose(owned, 30, f"{user}:{today}:back", history)
             identity = await asyncio.to_thread(
-                self.stage,
+                self.plan,
                 user,
                 "back",
                 today,
@@ -654,7 +720,8 @@ class Mixes:
                 "Saved music worth another listen",
                 tracks,
             )
-            await asyncio.to_thread(self.publish, identity, tracks, today)
+            if identity:
+                await asyncio.to_thread(self.publish, identity, tracks, today)
         for day in (today, today + timedelta(days=1)):
             if self.stopping.is_set():
                 return
@@ -695,7 +762,7 @@ class Mixes:
                     familiar + related + chart, 30, salt, history, previous=previous
                 )
                 await asyncio.to_thread(
-                    self.stage,
+                    self.plan,
                     user,
                     "daily",
                     day,
@@ -714,9 +781,17 @@ class Mixes:
                         )
                     ),
                     daily,
+                    backfill=choose(
+                        owned,
+                        2 * MIN_MIX,
+                        salt + ":fill",
+                        history,
+                        weights,
+                        per_artist=3,
+                    ),
                 )
                 await asyncio.to_thread(
-                    self.stage,
+                    self.plan,
                     user,
                     "back",
                     day,
@@ -734,7 +809,7 @@ class Mixes:
                 )
                 if len(fresh) >= 10:
                     await asyncio.to_thread(
-                        self.stage,
+                        self.plan,
                         user,
                         "fresh",
                         day,
@@ -751,7 +826,7 @@ class Mixes:
                 )
                 if len(releases) >= 3:
                     await asyncio.to_thread(
-                        self.stage,
+                        self.plan,
                         user,
                         "releases",
                         day,
@@ -783,13 +858,16 @@ class Mixes:
                 )
                 if len({t["artist"].casefold() for t in artist_tracks}) > 1:
                     await asyncio.to_thread(
-                        self.stage,
+                        self.plan,
                         user,
                         "artist",
                         day,
                         "Around " + artist,
                         "An artist you saved and their musical neighbourhood",
                         artist_tracks,
+                        backfill=self.neighbourhood_fill(
+                            owned, artist, neighbourhood, salt, history
+                        ),
                     )
                 if genre:
                     same = (
@@ -805,13 +883,20 @@ class Mixes:
                         history,
                     )
                     await asyncio.to_thread(
-                        self.stage,
+                        self.plan,
                         user,
                         "genre",
                         day,
                         genre + " rotation",
                         "A genre from your library",
                         choose(genre_owned + genre_new, 30, salt, history),
+                        backfill=choose(
+                            [t for t in owned if same(t)],
+                            2 * MIN_MIX,
+                            salt + ":fill",
+                            history,
+                            per_artist=3,
+                        ),
                     )
                 decade = decade_theme(owned, day)
                 if decade:
@@ -833,13 +918,25 @@ class Mixes:
                         history,
                     )
                     await asyncio.to_thread(
-                        self.stage,
+                        self.plan,
                         user,
                         "decade",
                         day,
                         f"Your {decade}s",
                         f"Music from the {decade}s, from your library and beyond",
                         choose(decade_owned + decade_new, 30, salt, history),
+                        backfill=choose(
+                            [
+                                t
+                                for t in owned
+                                if isinstance(t.get("year"), int)
+                                and t["year"] // 10 * 10 == decade
+                            ],
+                            2 * MIN_MIX,
+                            salt + ":fill",
+                            history,
+                            per_artist=3,
+                        ),
                     )
                 plays = await asyncio.to_thread(self.plays, user)
                 deep = choose(
@@ -855,7 +952,7 @@ class Mixes:
                 )
                 if len(deep) >= 10:
                     await asyncio.to_thread(
-                        self.stage,
+                        self.plan,
                         user,
                         "deep",
                         day,
@@ -872,7 +969,7 @@ class Mixes:
                 )
                 if len(recent) >= 10:
                     await asyncio.to_thread(
-                        self.stage,
+                        self.plan,
                         user,
                         "recent",
                         day,
@@ -882,7 +979,7 @@ class Mixes:
                     )
                 if popular_tracks:
                     await asyncio.to_thread(
-                        self.stage,
+                        self.plan,
                         user,
                         "popular",
                         day,
@@ -978,7 +1075,14 @@ class Mixes:
                 len(prepared) == len(payload["tracks"])
                 or payload.get("attempts", 0) >= 2
             ):
-                if prepared:
+                need = payload.get("minimum", 0)
+                if len(prepared) < need:
+                    prepared += await asyncio.to_thread(
+                        self.fill, payload, prepared, hidden, need
+                    )
+                if len(prepared) < need:
+                    await asyncio.to_thread(self.retire_short, identity, payload)
+                elif prepared:
                     await asyncio.to_thread(self.publish, identity, prepared, today)
                 else:
                     payload["retry_at"] = time.time() + 3600
@@ -988,6 +1092,36 @@ class Mixes:
                     attempts=payload.get("attempts", 0) + 1, retry_at=time.time() + 300
                 )
                 await asyncio.to_thread(self.update, identity, payload)
+
+    def fill(self, payload, prepared, hidden, need):
+        """Owned backfill songs with audio, in order, up to `need` in all."""
+        have = {song_key(t) for t in prepared}
+        added = []
+        for track in payload.get("backfill", []):
+            if len(prepared) + len(added) >= need:
+                break
+            key = song_key(track)
+            if key in have or key in hidden:
+                continue
+            try:
+                self.cache.available(track)
+            except FileNotFoundError:
+                continue
+            have.add(key)
+            added.append(track)
+        return added
+
+    def retire_short(self, identity, payload):
+        """A mix that cannot reach MIN_MIX is never shown."""
+        payload.update(state="short", cursor=0)
+        with self.store.connect() as conn:
+            conn.execute(
+                "UPDATE mix_editions SET payload=?,retired_at=? WHERE id=?",
+                (json.dumps(payload), time.time(), identity),
+            )
+        log.info(
+            "Mixes: retired %s: fewer than %d songs ready", payload["title"], MIN_MIX
+        )
 
     def pending(self, user, day):
         with self.store.connect() as conn:
@@ -1111,6 +1245,8 @@ class Mixes:
             if "edition:" + identity in hidden:
                 continue
             payload = json.loads(raw)
+            if not kind.startswith("saved:") and len(payload["tracks"]) < MIN_MIX:
+                continue  # Short editions from before the minimum stay out of Home.
             tracks = [
                 dto
                 for index, track in enumerate(payload["tracks"])

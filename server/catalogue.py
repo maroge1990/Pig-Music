@@ -131,7 +131,9 @@ class Catalogue:
 
 
 def edition_rank(release):
-    text = normalise(release.get("disambiguation", "") + " " + release.get("title", ""))
+    text = normalise(
+        (release.get("disambiguation") or "") + " " + (release.get("title") or "")
+    )
     special = any(
         word in text.split()
         for word in (
@@ -146,12 +148,12 @@ def edition_rank(release):
             "spatial",
         )
     )
-    formats = {m.get("format", "") for m in release.get("media", [])}
+    formats = {m.get("format") or "" for m in release.get("media") or []}
     return (
         release.get("status") != "Official",
         special,
         0 if "Digital Media" in formats else 1 if "CD" in formats else 2,
         not bool(release.get("date")),
-        release.get("date", "9999"),
-        release.get("id", ""),
+        release.get("date") or "9999",
+        release.get("id") or "",
     )

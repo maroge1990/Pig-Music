@@ -135,3 +135,25 @@ def test_warming_renews_catalogue_answers_before_they_expire(tmp_path):
     assert requests == []
     assert asyncio.run(read(True)) == {"n": 2}
     assert json.loads(json.dumps(store.read_document(key)))["data"] == {"n": 2}
+
+
+def test_home_albums_get_their_recommended_edition_prepared_once(tmp_path):
+    w, _, covers = warmer(tmp_path)
+    albums = []
+
+    async def album(group_id):
+        albums.append(group_id)
+        return None if group_id == "empty" else group_id + "-edition"
+
+    w.warm_album = album
+    feed = {"albums": [{"id": "group"}, {"id": "empty"}]}
+
+    async def run():
+        assert w.prepare_albums(feed) == 2
+        await drain(w)
+        # Shown again within the reuse window: nothing is queued.
+        assert w.prepare_albums(feed) == 0
+
+    asyncio.run(run())
+    assert albums == ["group", "empty"]
+    assert covers == [("release", "group-edition")]

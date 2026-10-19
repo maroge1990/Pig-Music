@@ -42,7 +42,7 @@ struct HomeView: View {
                   )
                   .font(PigType.footnote).foregroundStyle(.secondary).lineLimit(2)
                   Text(
-                    "\(mix.tracks.count) \(mix.tracks.count == 1 ? "song" : "songs") · Ready to play"
+                    "\(mix.tracks.count) \(mix.tracks.count == 1 ? "song" : "songs")"
                   ).font(PigType.footnote)
                     .foregroundStyle(.secondary)
                 }.frame(width: 150, alignment: .leading)
@@ -111,7 +111,8 @@ struct HomeView: View {
         Shelf(title: feed.artists.isEmpty ? heading : "Albums") {
           ForEach(feed.albums) { item in
             NavigationLink {
-              CatalogueAlbumView(model: model, groupId: item.id, title: item.name)
+              CatalogueAlbumView(
+                model: model, groupId: item.id, title: item.name, artist: item.artist)
             } label: {
               CollectionCard(
                 model: model, source: .releaseGroup(item.id), title: item.name,

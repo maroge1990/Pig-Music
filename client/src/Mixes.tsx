@@ -248,8 +248,7 @@ export function Mixes() {
                   .join(" · ")}
               </span>
               <small>
-                {mix.tracks.length} {mix.tracks.length === 1 ? "song" : "songs"}{" "}
-                · Ready to play
+                {mix.tracks.length} {mix.tracks.length === 1 ? "song" : "songs"}
               </small>
             </button>
           ))}

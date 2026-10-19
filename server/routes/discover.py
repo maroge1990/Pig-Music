@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from ..artist_identity import Ambiguous, resolve_artist
-from ..catalogue import release_tracks, credit
+from ..catalogue import release_tracks, credit, edition_rank
 from ..releases import release_query
 from ..api_models import (
     CatalogueGroupsDTO,
@@ -24,7 +24,7 @@ from ..user_library import track_dto
 ACTIVE = {"waiting_for_sources", "searching", "downloading", "validating", "importing"}
 
 
-def discover_router(store, catalogue, popularity=None, warmer=None):
+def discover_router(store, catalogue, popularity=None, warmer=None, http_client=None):
     router = APIRouter(prefix="/api/v1/catalogue", tags=["personal-library"])
 
     def valid(value):
@@ -184,20 +184,25 @@ def discover_router(store, catalogue, popularity=None, warmer=None):
         store.write_document("library-artist:" + artist_id, identity)
         return identity
 
+    def editions_query(group_id, offset):
+        return {
+            "release-group": group_id,
+            "inc": "media",
+            "limit": 50,
+            "offset": offset,
+        }
+
+    RELEASE_INC = "recordings+artist-credits+isrcs"
+
     @router.get("/groups/{group_id}/editions", response_model=CatalogueEditionsDTO)
     async def editions(group_id: str, request: Request, offset: int = 0):
         if not 0 <= offset <= 10000:
             raise HTTPException(422, "invalid_page")
         result = await metadata(
-            request,
-            "release",
-            **{
-                "release-group": valid(group_id),
-                "inc": "media",
-                "limit": 50,
-                "offset": offset,
-            },
+            request, "release", **editions_query(valid(group_id), offset)
         )
+        # Ranked like the web, so the first is the recommended edition.
+        ranked = sorted(result.get("releases", []), key=edition_rank)
         return {
             "total": result.get("release-count", 0),
             "offset": offset,
@@ -214,16 +219,14 @@ def discover_router(store, catalogue, popularity=None, warmer=None):
                         m.get("track-count") or 0 for m in r.get("media", [])
                     ),
                 }
-                for r in result.get("releases", [])
+                for r in ranked
             ],
         }
 
     @router.get("/releases/{release_id}", response_model=CatalogueReleaseDTO)
     async def release(release_id: str, request: Request):
         result = await metadata(
-            request,
-            "release/" + valid(release_id),
-            inc="recordings+artist-credits+isrcs",
+            request, "release/" + valid(release_id), inc=RELEASE_INC
         )
         user = request.state.user["id"]
         projection = await asyncio.to_thread(store.user_libraries.projection, user)
@@ -288,4 +291,15 @@ def discover_router(store, catalogue, popularity=None, warmer=None):
             "tracks": tracks,
         }
 
+    async def warm_album(group_id):
+        """Cache an album's first editions page and its recommended edition."""
+        http = http_client()
+        found = await catalogue.get(http, "release", **editions_query(group_id, 0))
+        ranked = sorted(found.get("releases", []), key=edition_rank)
+        if not ranked:
+            return None
+        await catalogue.get(http, "release/" + ranked[0]["id"], inc=RELEASE_INC)
+        return ranked[0]["id"]
+
+    router.warm_album = warm_album
     return router

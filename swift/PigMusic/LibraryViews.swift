@@ -337,9 +337,22 @@ struct DownloadMenu: View {
   let tracks: [Track]
   /// A playlist's downloads are grouped under it on the device.
   var origin: DownloadOrigin = .direct
+  /// Songs not in your library yet; offered first, as a server request.
+  var missingCount = 0
+  var addMissing: (() async -> Void)?
   @State private var watchResult: String?
   var body: some View {
     Menu {
+      if missingCount > 0, let addMissing {
+        Section {
+          Button(
+            "Add \(missingCount) missing song\(missingCount == 1 ? "" : "s") to server",
+            systemImage: "externaldrive.badge.plus"
+          ) {
+            Task { await addMissing() }
+          }.disabled(!model.canMutate)
+        }
+      }
       Button("Download originals", systemImage: "arrow.down.circle") {
         Task { await model.download(tracks, origin: origin) }
       }

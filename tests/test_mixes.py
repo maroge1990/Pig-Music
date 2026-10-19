@@ -9,9 +9,16 @@ from fastapi.testclient import TestClient
 
 from server.home import HomeDiscovery
 from server.mix_cache import song_key, MixDownloader
+from server import mixes as mix_module
 from server.mixes import choose
 from test_security import PASSWORD, protected
 from test_downloader import audio  # Shared real MP3 fixture, not provider traffic.
+
+
+@pytest.fixture(autouse=True)
+def small_mixes(monkeypatch):
+    # Most fixtures use a few songs; the minimum has its own tests below.
+    monkeypatch.setattr(mix_module, "MIN_MIX", 1)
 
 
 def track(n=1, **extra):
@@ -1143,3 +1150,71 @@ def test_radio_appends_stable_entries_pages_and_learns_from_skips(
     assert mixes.radio_next(owner)["id"] != edition
     with pytest.raises(LookupError):
         mixes.radio_feedback(owner, skipped["id"], "like")
+
+
+def test_short_mixes_are_topped_up_from_the_library_or_never_shown(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(mix_module, "MIN_MIX", 3)
+    app, owner = protected(tmp_path, monkeypatch)
+    mixes = app.state.store.mixes
+    for n in (1, 2, 3, 5, 6):
+        cached(mixes, track(n))
+    today = mixes.day()
+    # Too few songs even with backfill: nothing is staged.
+    assert mixes.plan(owner, "fresh", today, "Fresh", "Why", [track(1)]) is None
+    topped = mixes.plan(
+        owner,
+        "daily",
+        today,
+        "Daily",
+        "Why",
+        [track(1), track(2)],
+        backfill=[track(2), track(3), track(4)],
+    )
+    short = mixes.plan(
+        owner,
+        "genre",
+        today,
+        "Genre",
+        "Why",
+        [track(5)],
+        backfill=[track(6), track(7)],  # Song 7 has no audio.
+    )
+    asyncio.run(mixes.prepare_staged(owner, today, today))
+    listed = mixes.list(owner)["mixes"]
+    assert [m["id"] for m in listed] == [topped]
+    assert [t.title for t in listed[0]["tracks"]] == ["Song 1", "Song 2", "Song 3"]
+    with mixes.store.connect() as conn:
+        state, retired = conn.execute(
+            "SELECT json_extract(payload,'$.state'),retired_at FROM mix_editions WHERE id=?",
+            (short,),
+        ).fetchone()
+    assert state == "short" and retired
+    assert not mixes.list(owner)["preparing"]
+
+
+def test_short_editions_published_before_the_minimum_leave_home(tmp_path, monkeypatch):
+    monkeypatch.setattr(mix_module, "MIN_MIX", 3)
+    app, owner = protected(tmp_path, monkeypatch)
+    mixes = app.state.store.mixes
+    for n in (1, 2, 3):
+        cached(mixes, track(n))
+    ready(mixes, owner, [track(1), track(2)], kind="artist")
+    full = ready(mixes, owner, [track(1), track(2), track(3)], kind="genre")
+    assert [m["id"] for m in mixes.list(owner)["mixes"]] == [full]
+
+
+def test_artist_mix_backfill_prefers_the_artist_then_neighbours_then_genre(
+    monkeypatch,
+):
+    monkeypatch.setattr(mix_module, "MIN_MIX", 20)
+    owned = [track(n, artist="Focus", genre="Rock") for n in range(3)]
+    owned += [track(n, artist="Near", genre="Pop") for n in range(3, 5)]
+    owned += [track(n, artist="Other", genre="Rock") for n in range(5, 7)]
+    owned += [track(n, artist="Unrelated", genre="Jazz") for n in range(7, 9)]
+    fill = mix_module.Mixes.neighbourhood_fill(
+        owned, "Focus", [track(99, artist="Near")], "salt", {}
+    )
+    assert [t["artist"] for t in fill[:3]] == ["Focus"] * 3
+    assert {t["artist"] for t in fill[3:]} == {"Near", "Other"}

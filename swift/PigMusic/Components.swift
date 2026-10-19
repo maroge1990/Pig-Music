@@ -10,6 +10,9 @@ struct Artwork: View {
   let title: String
   var width = 256
   var circle = false
+  /// Drawn while `source` loads, such as the album cover a Home card already
+  /// showed while its chosen edition's cover arrives.
+  var fallback: AppModel.ArtworkSource?
   @Environment(\.colorScheme) private var scheme
   @State private var image: UIImage?
   @State private var loaded: AppModel.ArtworkSource?
@@ -30,6 +33,18 @@ struct Artwork: View {
       .task(id: identity) {
         // Another item (cell reuse): forget the old picture first.
         if loaded != source { image = nil }
+        if image == nil, let fallback, fallback != source {
+          async let primary = model.artwork(source, width: width)
+          if let early = await model.artwork(fallback, width: width), !Task.isCancelled,
+            loaded != source
+          {
+            image = early
+          }
+          guard let next = await primary, !Task.isCancelled else { return }
+          image = next
+          loaded = source
+          return
+        }
         guard let next = await model.artwork(source, width: width), !Task.isCancelled else {
           return
         }
@@ -159,6 +174,7 @@ struct Shelf<Content: View>: View {
 struct DetailHeader: View {
   let model: AppModel
   let source: AppModel.ArtworkSource?
+  var fallback: AppModel.ArtworkSource?
   let eyebrow: String
   let title: String
   var subtitle: String?
@@ -169,8 +185,10 @@ struct DetailHeader: View {
   @Environment(\.colorScheme) private var scheme
   var body: some View {
     HStack(alignment: .center, spacing: 16) {
-      Artwork(model: model, source: source, title: title, width: 512, circle: circle)
-        .frame(width: 112, height: 112)
+      Artwork(
+        model: model, source: source, title: title, width: 512, circle: circle, fallback: fallback
+      )
+      .frame(width: 112, height: 112)
         .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
       VStack(alignment: .leading, spacing: 4) {
         Text(eyebrow).font(.caption.weight(.bold)).tracking(1.2)

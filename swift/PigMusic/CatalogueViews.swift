@@ -439,12 +439,14 @@ struct CatalogueAlbumView: View {
   let model: AppModel
   let groupId: String
   let title: String
+  var artist: String?
   @State private var editions: CatalogueEditions?
   @State private var error: String?
-  init(model: AppModel, groupId: String, title: String) {
+  init(model: AppModel, groupId: String, title: String, artist: String? = nil) {
     self.model = model
     self.groupId = groupId
     self.title = title
+    self.artist = artist
     _editions = State(initialValue: model.peekCatalogue(key: "editions:\(groupId):0"))
   }
   var body: some View {
@@ -455,18 +457,31 @@ struct CatalogueAlbumView: View {
           editionCount: editions?.total ?? 1
         ).id(first.id)
       } else {
+        // The card's cover and title straight away, as for a library album.
         List {
-          CatalogueStatus(
-            loading: editions == nil && error == nil, loaded: editions != nil, empty: true,
-            error: error
-          ) { Task { await load() } }
-        }.pigCanvas().navigationTitle(title)
+          Section {
+            DetailHeader(
+              model: model, source: .releaseGroup(groupId), eyebrow: "ALBUM", title: title,
+              artist: artist)
+          }.listRowSeparator(.hidden)
+          if let error {
+            Text(error).foregroundStyle(.secondary)
+            Button("Try again") { Task { await load() } }
+          } else if editions != nil {
+            Text("No catalogue results.").foregroundStyle(.secondary)
+          } else {
+            ProgressView().frame(maxWidth: .infinity)
+          }
+        }.pigCanvas().navigationTitle(title).navigationBarTitleDisplayMode(.inline)
       }
     }
     .task { await load() }
   }
   private func load() async {
     error = nil
+    if editions == nil {
+      editions = await model.storedCatalogue(key: "editions:\(groupId):0")
+    }
     do {
       // Editions arrive ranked; the first is the recommended one.
       editions = try await model.cachedCatalogue(key: "editions:\(groupId):0") {
@@ -562,8 +577,16 @@ struct CatalogueReleaseView: View {
   var body: some View {
     List {
       if release == nil {
-        CatalogueStatus(loading: loading, loaded: false, empty: true, error: error) {
-          Task { await load() }
+        Section {
+          DetailHeader(
+            model: model, source: .release(releaseId),
+            fallback: groupId.map { .releaseGroup($0) }, eyebrow: "ALBUM", title: title)
+        }.listRowSeparator(.hidden)
+        if let error {
+          Text(error).foregroundStyle(.secondary)
+          Button("Try again") { Task { await load() } }.disabled(loading)
+        } else {
+          ProgressView().frame(maxWidth: .infinity)
         }
       } else if release?.songs.isEmpty == true {
         Text("No catalogue results.").foregroundStyle(.secondary)
@@ -571,7 +594,8 @@ struct CatalogueReleaseView: View {
       if let release {
         Section {
           DetailHeader(
-            model: model, source: .release(releaseId), eyebrow: "ALBUM", title: release.title,
+            model: model, source: .release(releaseId),
+            fallback: groupId.map { .releaseGroup($0) }, eyebrow: "ALBUM", title: release.title,
             artist: release.artist,
             openArtist: release.artistId == nil ? nil : { showingArtist = true })
           let missing = release.songs.filter {
@@ -656,6 +680,7 @@ struct CatalogueReleaseView: View {
     loading = true
     error = nil
     defer { loading = false }
+    if release == nil { release = await model.storedCatalogue(key: "release:" + releaseId) }
     do {
       release = try await model.cachedCatalogue(key: "release:" + releaseId) {
         try await $0.catalogueRelease(releaseId: releaseId)
