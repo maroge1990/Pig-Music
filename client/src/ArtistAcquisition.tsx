@@ -21,7 +21,10 @@ export function ArtistAcquisition({
     let active = true;
     const update = () =>
       apiFetch(`/api/catalogue/artists/${id}/acquisition`)
-        .then((r) => r.json())
+        // A failed answer keeps the current settings rather than replacing them.
+        .then((r) =>
+          r.ok ? r.json() : Promise.reject(new Error(r.statusText)),
+        )
         .then((d) => {
           if (active)
             setState((old) =>

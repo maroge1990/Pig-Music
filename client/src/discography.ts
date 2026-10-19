@@ -4,6 +4,7 @@ export type ReleaseGroup = {
   date: string;
   type: string;
   saved_album_id?: string | null;
+  saved_songs?: number;
 };
 export type Discography = {
   scope: string;

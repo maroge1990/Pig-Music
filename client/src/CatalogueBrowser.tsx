@@ -53,7 +53,9 @@ type Group = {
   title: string;
   date: string;
   type: string;
+  /** Your library album for this release, and how many of its songs you have. */
   saved_album_id?: string | null;
+  saved_songs?: number;
 };
 type Edition = {
   id: string;
@@ -149,7 +151,7 @@ export function CatalogueBrowser({
   const [kind, setKind] = useState("album");
   const scope = artist.id + ":" + kind;
   const cachedListing = peekCatalogue<{ releases: Group[]; total: number }>(
-    `/api/v1/catalogue/artists/${artist.id}/releases?kind=${kind}&offset=0`,
+    `/api/v1/catalogue/artists/${artist.id}/releases?kind=${kind}&offset=0&name=${encodeURIComponent(artist.name)}`,
   );
   const [listing, setListing] = useState<Discography>(() => ({
     scope,
@@ -239,7 +241,8 @@ export function CatalogueBrowser({
         let offset = 0;
         while (!controller.signal.aborted) {
           const data = await request<{ releases: Group[]; total: number }>(
-            `artists/${artist.id}/releases?kind=${kind}&offset=${offset}`,
+            // The name lets the server find your copies without a lookup.
+            `artists/${artist.id}/releases?kind=${kind}&offset=${offset}&name=${encodeURIComponent(artist.name)}`,
             { signal: controller.signal },
           );
           if (controller.signal.aborted) return;
@@ -528,7 +531,22 @@ export function CatalogueBrowser({
             >
               <ArrowDown size={18} aria-hidden="true" />
             </button>
+            {group?.saved_album_id && (
+              <a
+                className="secondary-button"
+                href={"#/library/album/" + group.saved_album_id}
+              >
+                <Check size={16} aria-hidden="true" /> Open in your library
+              </a>
+            )}
           </div>
+          {rows.length > 0 && !rows.some((r) => r.state === "missing") && (
+            <p className="muted">
+              {rows.every((r) => r.state === "saved")
+                ? "Already in your library: nothing to download."
+                : "Nothing to download: every song is in your library, on the server or requested."}
+            </p>
+          )}
           <div className="song-list">
             {rows.map((row, i) => (
               <SongRow
@@ -683,9 +701,12 @@ export function CatalogueBrowser({
                   </span>
                 </div>
                 {g.saved_album_id ? (
-                  <span className="saved-icon discography-saved">
+                  <span
+                    className="saved-icon discography-saved"
+                    title={`${g.saved_songs ?? 0} of your songs`}
+                  >
                     <Check size={14} />
-                    Saved
+                    In library
                   </span>
                 ) : (
                   <ArrowRight size={16} />

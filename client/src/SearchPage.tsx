@@ -55,7 +55,9 @@ export function SearchPage({
         setCatalogue(found.artists);
         // The likely next tap: essentials for three, everything for two.
         whenIdle(() =>
-          found.artists.slice(0, 3).forEach((a, i) => warmArtist(a.id, i < 2)),
+          found.artists
+            .slice(0, 3)
+            .forEach((a, i) => warmArtist(a.id, i < 2, a.name)),
         );
       })
       .catch(() => {

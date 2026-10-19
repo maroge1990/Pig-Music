@@ -69,7 +69,111 @@ test("the owner chooses which artist an ambiguous name means, once", async ({
   );
   await choice.getByRole("button", { name: "Choose" }).first().click();
   expect((await put).postDataJSON()).toEqual({ id: "mb-1" });
-  await expect(page).toHaveURL(/#\/search\/artist\/mb-1\?/);
+  // The catalogue page opened from the library stays under Library.
+  await expect(page).toHaveURL(/#\/library\/discography\/mb-1\?/);
+  await expect(page.locator(".nav-library").first()).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+});
+
+test("library and catalogue artist pages each link to the other", async ({
+  page,
+}) => {
+  const owned = album.tracks.map((t) => ({ ...t, cover_url: album.cover_url }));
+  await mockApi(page, {
+    answers: {
+      [`/v1/artists/${artist.id}`]: (route) =>
+        route.fulfill({
+          json: {
+            ...artist,
+            albums: [{ ...album, year: 2024 }],
+            tracks: owned,
+            compilation_tracks: [],
+          },
+        }),
+      [`/v1/catalogue/library-artists/${artist.id}`]: (route) =>
+        route.fulfill({ json: { id: "mb-1", name: artist.name } }),
+      "/v1/catalogue/artists/mb-1/releases": (route) =>
+        route.fulfill({
+          json: {
+            total: 2,
+            offset: 0,
+            releases: [
+              {
+                id: "g1",
+                title: "Brat",
+                date: "2024-06-07",
+                type: "Album",
+                saved_album_id: album.id,
+                saved_songs: 2,
+              },
+              { id: "g2", title: "Crash", date: "2022-03-18", type: "Album" },
+            ],
+          },
+        }),
+      "/v1/catalogue/groups/g1/editions": (route) =>
+        route.fulfill({
+          json: {
+            total: 1,
+            offset: 0,
+            editions: [
+              {
+                id: "r1",
+                title: "Brat",
+                date: "2024-06-07",
+                country: "",
+                description: "",
+                status: "Official",
+                formats: ["Digital Media"],
+                track_count: 2,
+              },
+            ],
+          },
+        }),
+      "/v1/library/lookup": (route) =>
+        route.fulfill({ json: { tracks: owned } }),
+      "/v1/catalogue/releases/r1": (route) =>
+        route.fulfill({
+          json: {
+            id: "r1",
+            title: "Brat",
+            artist: artist.name,
+            artist_id: "mb-1",
+            tracks: owned.map((t) => ({
+              ...t,
+              saved_track: t,
+              server_state: "in_library",
+            })),
+          },
+        }),
+    },
+  });
+  // Library page: play what you have.
+  await page.goto(`/#/library/artist/${artist.id}`);
+  await expect(
+    page.locator(".release-actions").getByRole("button", { name: "Play" }),
+  ).toBeEnabled();
+  await expect(page.getByRole("heading", { name: "Albums" })).toBeVisible();
+  await expect(page.locator(".personal-grid")).toContainText("2024 · 2 songs");
+  await expect(page.getByRole("heading", { name: "Songs" })).toBeVisible();
+  await expect(page.getByText("Von dutch").first()).toBeVisible();
+  // Catalogue page: find what you could have, with your copies marked.
+  await page
+    .getByRole("button", { name: `Find more by ${artist.name}` })
+    .click();
+  await expect(page).toHaveURL(/#\/library\/discography\/mb-1\?/);
+  const brat = page.getByRole("button", { name: /Brat/ });
+  await expect(brat).toContainText("In library");
+  await expect(page.getByRole("button", { name: /Crash/ })).not.toContainText(
+    "In library",
+  );
+  await brat.click();
+  await expect(
+    page.getByText("Already in your library: nothing to download."),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Open in your library" }).click();
+  await expect(page).toHaveURL(new RegExp(`#/library/album/${album.id}$`));
 });
 
 test("a member is told the owner links an ambiguous artist", async ({

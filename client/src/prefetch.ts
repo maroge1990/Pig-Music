@@ -42,7 +42,7 @@ type Releases = { releases: { id: string }[] };
  * Get an artist page ready. "Essential" is the photograph, logo, portrait and
  * popular list; "full" adds the album list and every visible cover.
  */
-export function warmArtist(id: string, full = false) {
+export function warmArtist(id: string, full = false, name = "") {
   const base = `/api/catalogue/artists/${id}`;
   warm([
     `${base}/background?r=0&w=1024`,
@@ -64,7 +64,10 @@ export function warmArtist(id: string, full = false) {
     })
     .catch(() => {});
   if (!full) return;
-  void apiFetch(`/api/v1/catalogue/artists/${id}/releases?kind=album&offset=0`)
+  // The same address the artist page asks for, so it opens from this answer.
+  void apiFetch(
+    `/api/v1/catalogue/artists/${id}/releases?kind=album&offset=0&name=${encodeURIComponent(name)}`,
+  )
     .then((r) => (r.ok ? (r.json() as Promise<Releases>) : null))
     .then((data) => {
       if (data)

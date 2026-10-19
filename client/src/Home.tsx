@@ -64,16 +64,16 @@ function HomeSection({ kind }: { kind: "popular" | "recommended" }) {
           // Every artist here opens instantly; the first two are fully ready.
           whenIdle(() =>
             [
-              ...new Set(
+              ...new Map(
                 [
                   ...value.artists,
                   ...value.albums,
                   ...(kind === "recommended" ? [] : value.songs),
-                ].map((item) => item.artist_id),
+                ].map((item) => [item.artist_id, item.artist] as const),
               ),
             ]
               .slice(0, 12)
-              .forEach((id, i) => warmArtist(id, i < 2)),
+              .forEach(([id, name], i) => warmArtist(id, i < 2, name)),
           );
           if (kind === "recommended") return;
           const plain = songRows(value.songs);

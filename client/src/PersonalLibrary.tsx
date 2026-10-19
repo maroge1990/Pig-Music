@@ -1,4 +1,5 @@
-import { SavedArtistHeading } from "./SavedArtistHeading";
+import { FindMore } from "./FindMore";
+import { ArtistHero } from "./ArtistHero";
 import { CatalogueBrowser } from "./CatalogueBrowser";
 import { Shuffle } from "lucide-react";
 import { shuffled } from "./shuffle";
@@ -192,7 +193,9 @@ export function PersonalLibrary({
   const routeKey = `${route.section}/${route.parts.join("/")}?${route.params}`;
   useEffect(() => {
     openRoute.current = !searching && id ? `${kind}:${id}` : "";
-    if (searching && kind === "artist" && id) {
+    // A catalogue artist page: from Search, or from a library artist page
+    // (then it stays under Library).
+    if (id && ((searching && kind === "artist") || kind === "discography")) {
       setCatalogue({
         id,
         name: route.params.get("name") || "Artist",
@@ -338,15 +341,32 @@ export function PersonalLibrary({
   async function openArtist(artist: Artist) {
     try {
       const data = await api<
-        Artist & { albums: Album[]; compilation_tracks?: Track[] }
+        Artist & {
+          albums: Album[];
+          tracks?: Track[];
+          compilation_tracks?: Track[];
+        }
       >("/v1/artists/" + artist.id);
       if (openRoute.current !== "artist:" + artist.id) return;
+      // Newest first, like the catalogue page.
+      const albums = [...data.albums].sort(
+        (a, b) => Number(b.year || 0) - Number(a.year || 0),
+      );
+      const order = new Map(albums.map((a, i) => [a.id, i]));
       setDetail({
         title: data.name,
         artist: data,
         quality: { scope: "artist", itemId: data.id },
-        albums: data.albums,
-        tracks: data.compilation_tracks,
+        albums,
+        // Owned songs album by album, then appearances on compilations.
+        tracks: [
+          ...(data.tracks || []).sort(
+            (a, b) =>
+              (order.get(a.album_id || "") ?? 0) -
+              (order.get(b.album_id || "") ?? 0),
+          ),
+          ...(data.compilation_tracks || []),
+        ],
       });
     } catch (e) {
       if (openRoute.current === "artist:" + artist.id)
@@ -517,7 +537,7 @@ export function PersonalLibrary({
   const visibleTabs = libraryTabs.filter((id) => counts[id] !== 0);
   return (
     <main className="personal-main">
-      {detail && !searching && (
+      {detail && !searching && !detail.artist && (
         <button className="text-button back-link" onClick={backToLibrary}>
           <ArrowLeft size={16} aria-hidden="true" /> Library
         </button>
@@ -528,7 +548,10 @@ export function PersonalLibrary({
           subtitle="Your library, the server and the wider catalogue."
         />
       ) : detail?.artist ? (
-        <SavedArtistHeading artist={detail.artist} personal />
+        <ArtistHero
+          artist={detail.artist}
+          back={{ label: "Library", go: backToLibrary }}
+        />
       ) : detail?.albumInfo ? (
         <div className="page-heading catalogue-heading">
           <Cover title={detail.title} src={detail.cover} />
@@ -574,7 +597,7 @@ export function PersonalLibrary({
         />
       ) : detail ? (
         <>
-          {(detail.playlist || detail.quality?.scope === "album") && (
+          {(detail.playlist || detail.quality) && (
             <div className="release-actions">
               {[false, true].map((shuffle) => {
                 const playable = detail.playlist
@@ -609,6 +632,7 @@ export function PersonalLibrary({
                   </button>
                 );
               })}
+              {detail.artist && <FindMore artist={detail.artist} />}
               {albumRows && missing.length > 0 && (
                 <button
                   className="round-action"
@@ -623,14 +647,29 @@ export function PersonalLibrary({
             </div>
           )}
           {detail.albums && (
-            <div className="personal-grid">
-              {detail.albums.map((a) => (
-                <button key={a.id} onClick={() => go("/library/album/" + a.id)}>
-                  <Cover title={a.title} src={a.cover_url} />
-                  <h3>{a.title}</h3>
-                </button>
-              ))}
-            </div>
+            <>
+              {detail.albums.length > 0 && <h2>Albums</h2>}
+              <div className="personal-grid">
+                {detail.albums.map((a) => (
+                  <button
+                    key={a.id}
+                    onClick={() => go("/library/album/" + a.id)}
+                  >
+                    <Cover title={a.title} src={a.cover_url} />
+                    <h3>{a.title}</h3>
+                    <p>
+                      {[
+                        a.year ? String(a.year) : "",
+                        `${a.track_count} ${a.track_count === 1 ? "song" : "songs"}`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  </button>
+                ))}
+              </div>
+              {!!detail.tracks?.length && <h2>Songs</h2>}
+            </>
           )}
           {albumRows && (
             <p className="muted album-summary">

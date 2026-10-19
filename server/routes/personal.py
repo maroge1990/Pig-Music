@@ -297,6 +297,13 @@ def personal_router(store, artist_jobs, recovery):
         return {
             **found,
             "albums": albums,
+            "tracks": [
+                track_dto(t)
+                for a in data["albums"]
+                if a["id"] in found["album_ids"]
+                and a.get("server_state", "in_library") == "in_library"
+                for t in a["tracks"]
+            ],
             "compilation_tracks": [
                 track_dto(t)
                 for t in data["tracks"]

@@ -116,3 +116,14 @@ private actor FailedSource: LibrarySource {
   #expect(!PrefetchConditions(cellular: true).allowsPrefetch)
   #expect(!PrefetchConditions(connected: false).allowsPrefetch)
 }
+
+@Test func catalogueReleasesCarryYourLibraryCopyWhenTheServerKnowsIt() throws {
+  let page = try LibraryCodec.decoder().decode(
+    CatalogueGroups.self,
+    from: Data(
+      #"{"total":2,"offset":0,"releases":[{"id":"g1","title":"Brat","date":"2024","type":"Album","saved_album_id":"a1","saved_songs":2},{"id":"g2","title":"Crash","date":"2022","type":"Album"}]}"#
+        .utf8))
+  #expect(page.releases[0].savedAlbumId == "a1")
+  #expect(page.releases[0].savedSongs == 2)
+  #expect(page.releases[1].savedAlbumId == nil)
+}

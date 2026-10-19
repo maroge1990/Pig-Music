@@ -285,6 +285,9 @@ public actor LibraryStore {
     try read(.artists, where: Self.ownArtist, offset: offset, limit: limit, sort: sort)
   }
   /// One saved artist by ID.
+  public func album(id: String) throws -> Album? {
+    try read(.albums, where: "id=?", arguments: [id], offset: 0, limit: 1).first
+  }
   public func artist(id: String) throws -> Artist? {
     let found: [Artist] = try read(.artists, where: "id=?", arguments: [id], offset: 0, limit: 1)
     return found.first

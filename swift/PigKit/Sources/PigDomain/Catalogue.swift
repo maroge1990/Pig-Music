@@ -5,6 +5,10 @@ public struct CatalogueGroup: Codable, Sendable, Identifiable {
   public let title: String
   public let date: String
   public let type: String
+  /// Your library album for this release, and how many of its songs you have
+  /// (nil from servers before the library/catalogue split).
+  public let savedAlbumId: String?
+  public let savedSongs: Int?
 }
 public struct CatalogueGroups: Codable, Sendable {
   public let total: Int

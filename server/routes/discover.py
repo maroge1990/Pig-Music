@@ -1,13 +1,15 @@
 """Shared provider metadata with personal availability and acquisition controls."""
 
 import asyncio
+import re
 from uuid import UUID
 import httpx
 from fastapi import APIRouter, Header, HTTPException, Request, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from ..artist_identity import Ambiguous, resolve_artist
+from ..artist_identity import Ambiguous, cached_identity, resolve_artist
 from ..catalogue import release_tracks, credit, edition_rank
+from ..library import normalise
 from ..releases import release_query
 from ..api_models import (
     CatalogueGroupsDTO,
@@ -21,6 +23,14 @@ from ..api_models import (
 )
 from ..conditional import CONDITIONAL_RESPONSES, conditional_json
 from ..user_library import track_dto
+
+
+def title_key(title):
+    """Album titles compare without edition qualifiers: "Brat (Deluxe)" is "brat"."""
+    return normalise(
+        re.sub(r"\s*[\(\[][^\)\]]*[\)\]]\s*$", "", title or "")
+    ) or normalise(title)
+
 
 ACTIVE = {"waiting_for_sources", "searching", "downloading", "validating", "importing"}
 
@@ -74,9 +84,37 @@ def discover_router(store, catalogue, popularity=None, warmer=None, http_client=
             ],
         }
 
+    def saved_albums(user_id, artist_id, name):
+        """The person's library albums for a catalogue artist, by title key.
+
+        Library artists match by their resolved identity, or by name when the
+        caller passes one; no catalogue request is made.
+        """
+        projection = store.user_libraries.projection(user_id)
+        wanted = normalise(name)
+        artists = [
+            a
+            for a in projection["artists"]
+            if (cached_identity(store, a) or {}).get("id") == artist_id
+            or (wanted and normalise(a["name"]) == wanted)
+        ]
+        album_ids = {i for a in artists for i in a.get("album_ids", [])}
+        found = {}
+        for album in projection["albums"]:
+            if (
+                album["id"] in album_ids
+                and album.get("server_state", "in_library") == "in_library"
+            ):
+                found.setdefault(title_key(album["title"]), album)
+        return found
+
     @router.get("/artists/{artist_id}/releases", response_model=CatalogueGroupsDTO)
     async def groups(
-        artist_id: str, request: Request, offset: int = 0, kind: str | None = None
+        artist_id: str,
+        request: Request,
+        offset: int = 0,
+        kind: str | None = None,
+        name: str = Query(default="", max_length=200),
     ):
         if not 0 <= offset <= 10000:
             raise HTTPException(422, "invalid_page")
@@ -98,6 +136,17 @@ def discover_router(store, catalogue, popularity=None, warmer=None, http_client=
                 limit=50,
                 offset=offset,
             )
+        saved = await asyncio.to_thread(
+            saved_albums, request.state.user["id"], valid(artist_id), name
+        )
+
+        def owned(title):
+            album = saved.get(title_key(title))
+            return {
+                "saved_album_id": album["id"] if album else None,
+                "saved_songs": album.get("track_count", 0) if album else 0,
+            }
+
         return {
             "total": result.get("count", result.get("release-group-count", 0)),
             "offset": offset,
@@ -107,6 +156,7 @@ def discover_router(store, catalogue, popularity=None, warmer=None, http_client=
                     "title": r["title"],
                     "date": r.get("first-release-date") or "",
                     "type": r.get("primary-type") or "Release",
+                    **owned(r["title"]),
                 }
                 for r in result.get("release-groups", [])
             ],

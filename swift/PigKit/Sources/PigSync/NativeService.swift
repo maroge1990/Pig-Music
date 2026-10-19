@@ -139,11 +139,14 @@ public actor NativeService: LibrarySource {
     }
   }
 
-  public func catalogueGroups(artistId: String, offset: Int = 0, kind: String? = nil) async throws
-    -> CatalogueGroups
-  {
+  /// `name` lets the server mark the releases you own without a catalogue lookup.
+  public func catalogueGroups(
+    artistId: String, offset: Int = 0, kind: String? = nil, name: String = ""
+  ) async throws -> CatalogueGroups {
     switch try await client.groups_api_v1_catalogue_artists__artist_id__releases_get(
-      .init(path: .init(artist_id: artistId), query: .init(offset: offset, kind: kind)))
+      .init(
+        path: .init(artist_id: artistId),
+        query: .init(offset: offset, kind: kind, name: String(name.prefix(200)))))
     {
     case .ok(let response): return try LibraryCodec.convert(response.body.json)
     case .unauthorized: throw NativeFailure.authentication

@@ -174,7 +174,7 @@ struct CatalogueArtistView: View {
   private func loadAlbums() async {
     do {
       albums = try await model.cachedCatalogue(key: Self.albumsKey(artistId)) {
-        try await $0.catalogueGroups(artistId: artistId, offset: 0, kind: "album")
+        try await $0.catalogueGroups(artistId: artistId, offset: 0, kind: "album", name: name)
       }
       error = nil
     } catch is CancellationError {} catch { self.error = error.userMessage }
@@ -296,9 +296,10 @@ struct ArtistHero: View {
 
 /// The bottom-of-page link to an artist's complete catalogue.
 struct DiscographyLinkLabel: View {
+  var title = "Full discography"
   var body: some View {
     HStack {
-      Label("Full discography", systemImage: "square.stack.3d.up")
+      Label(title, systemImage: "square.stack.3d.up")
         .font(.subheadline.weight(.semibold))
       Spacer()
       Image(systemName: "chevron.right").foregroundStyle(.tertiary)
@@ -317,12 +318,17 @@ private struct ReleaseGrid: View {
     LazyVGrid(columns: cardColumns, spacing: 18) {
       ForEach(releases, id: \.id) { release in
         NavigationLink {
-          CatalogueAlbumView(model: model, groupId: release.id, title: release.title)
+          CatalogueAlbumView(
+            model: model, groupId: release.id, title: release.title,
+            savedAlbumId: release.savedAlbumId)
         } label: {
           CollectionCard(
             model: model, source: .releaseGroup(release.id), title: release.title,
-            caption: [showType ? release.type : "", String(release.date.prefix(4))]
-              .filter { !$0.isEmpty }.joined(separator: " · "))
+            caption: [
+              showType ? release.type : "", String(release.date.prefix(4)),
+              release.savedAlbumId == nil ? "" : "In library",
+            ]
+            .filter { !$0.isEmpty }.joined(separator: " · "))
         }.buttonStyle(.plain)
       }
     }
@@ -420,7 +426,8 @@ struct CatalogueDiscographyView: View {
     do {
       let page = try await model.cachedCatalogue(key: key(selectedKind, next)) {
         try await $0.catalogueGroups(
-          artistId: artistId, offset: next, kind: selectedKind == "all" ? nil : selectedKind)
+          artistId: artistId, offset: next, kind: selectedKind == "all" ? nil : selectedKind,
+          name: name)
       }
       try Task.checkCancellation()
       guard kind == selectedKind else { return }
@@ -441,13 +448,19 @@ struct CatalogueAlbumView: View {
   let groupId: String
   let title: String
   var artist: String?
+  /// Your library copy of this album, linked from its page.
+  var savedAlbumId: String?
   @State private var editions: CatalogueEditions?
   @State private var error: String?
-  init(model: AppModel, groupId: String, title: String, artist: String? = nil) {
+  init(
+    model: AppModel, groupId: String, title: String, artist: String? = nil,
+    savedAlbumId: String? = nil
+  ) {
     self.model = model
     self.groupId = groupId
     self.title = title
     self.artist = artist
+    self.savedAlbumId = savedAlbumId
     _editions = State(initialValue: model.peekCatalogue(key: "editions:\(groupId):0"))
   }
   var body: some View {
@@ -455,7 +468,7 @@ struct CatalogueAlbumView: View {
       if let first = editions?.editions.first {
         CatalogueReleaseView(
           model: model, releaseId: first.id, title: first.title, groupId: groupId,
-          editionCount: editions?.total ?? 1
+          editionCount: editions?.total ?? 1, savedAlbumId: savedAlbumId
         ).id(first.id)
       } else {
         // The card's cover and title straight away, as for a library album.
@@ -557,7 +570,9 @@ struct CatalogueReleaseView: View {
   /// Set when this edition was chosen for an album, to offer its other editions.
   let groupId: String?
   let editionCount: Int
+  var savedAlbumId: String?
   @State private var release: CatalogueRelease?
+  @State private var savedAlbum: Album?
   @State private var showingArtist = false
   @State private var requesting = false
   @State private var requestFailure: String?
@@ -566,13 +581,14 @@ struct CatalogueReleaseView: View {
   @Environment(\.colorScheme) private var scheme
   init(
     model: AppModel, releaseId: String, title: String, groupId: String? = nil,
-    editionCount: Int = 1
+    editionCount: Int = 1, savedAlbumId: String? = nil
   ) {
     self.model = model
     self.releaseId = releaseId
     self.title = title
     self.groupId = groupId
     self.editionCount = editionCount
+    self.savedAlbumId = savedAlbumId
     _release = State(initialValue: model.peekCatalogue(key: "release:" + releaseId))
   }
   var body: some View {
@@ -626,6 +642,20 @@ struct CatalogueReleaseView: View {
             }
             Spacer()
           }.buttonStyle(.plain)
+          if !release.songs.isEmpty
+            && release.songs.allSatisfy({ $0.availability == "in_library" })
+          {
+            Text("Already in your library: nothing to request.")
+              .font(PigType.footnote).foregroundStyle(.secondary)
+          }
+          if let savedAlbum {
+            NavigationLink {
+              AlbumView(model: model, album: savedAlbum)
+            } label: {
+              Label("Open in your library", systemImage: "checkmark.circle.fill")
+                .font(.subheadline.weight(.semibold))
+            }
+          }
         }
         .listRowSeparator(.hidden)
         Section {
@@ -654,6 +684,9 @@ struct CatalogueReleaseView: View {
       }
     }
     .task { await load() }
+    .task(id: savedAlbumId) {
+      if let savedAlbumId { savedAlbum = try? await model.store?.album(id: savedAlbumId) }
+    }
   }
   private func request(_ tracks: [Track]) async {
     guard !requesting else { return }

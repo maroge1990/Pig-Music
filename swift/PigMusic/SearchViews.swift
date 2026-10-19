@@ -153,6 +153,8 @@ struct SavedArtistView: View {
   @State private var identity: ArtistIdentity?
   @State private var identityMessage: String?
   @State private var albums: [Album] = []
+  /// Owned songs, album by album, for Play and the Songs list.
+  @State private var songs: [Track] = []
   @State private var cover: String?
   @State private var loading = false
   @State private var more = true
@@ -166,12 +168,10 @@ struct SavedArtistView: View {
           title: artist.name,
           subtitle: artist.albumCount.map { "\($0) album\($0 == 1 ? "" : "s")" }, circle: true)
         HStack(spacing: 10) {
-          Button {
-            Task { await shuffleArtist() }
-          } label: {
-            Label("Shuffle", systemImage: "shuffle").font(.subheadline.weight(.semibold))
-              .padding(.horizontal, 6)
-          }.pigPrimaryAction().buttonBorderShape(.capsule).disabled(albums.isEmpty)
+          PlayCapsule { model.play(songs) }.disabled(songs.isEmpty)
+          RoundIcon(label: "Shuffle", systemImage: "shuffle") {
+            model.play(songs.shuffled())
+          }.disabled(songs.isEmpty)
           if model.watch?.supported == true {
             RoundIcon(label: "Send \(artist.name) to Apple Watch", systemImage: "applewatch") {
               Task { await sendToWatch() }
@@ -196,13 +196,22 @@ struct SavedArtistView: View {
           Button("Show more albums") { Task { await load() } }.disabled(loading)
             .buttonStyle(ChipStyle(selected: false)).frame(maxWidth: .infinity)
         }
+        if !songs.isEmpty {
+          VStack(alignment: .leading, spacing: 0) {
+            Text("Songs").font(.title3.weight(.bold)).padding(.bottom, 6)
+            ForEach(Array(songs.prefix(10).enumerated()), id: \.element.id) { index, track in
+              SongRow(model: model, track: track) { model.play(songs, at: index) }
+              Divider()
+            }
+          }
+        }
         Button {
           Task { await explore() }
         } label: {
-          DiscographyLinkLabel()
+          // The library page plays what you have; this finds what you could have.
+          DiscographyLinkLabel(title: "Find more by \(artist.name)")
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Full discography of \(artist.name)")
         if let identityMessage {
           Text(identityMessage).font(PigType.footnote).foregroundStyle(.secondary)
         }
@@ -241,11 +250,10 @@ struct SavedArtistView: View {
     for album in albums { tracks += await model.albumTracks(album) }
     identityMessage = await model.watch?.enqueue(tracks)
   }
-  private func shuffleArtist() async {
+  private func loadSongs() async {
     var tracks: [Track] = []
     for album in albums { tracks += await model.albumTracks(album) }
-    guard !tracks.isEmpty else { return }
-    model.play(tracks.shuffled())
+    songs = tracks
   }
   private func load() async {
     guard !loading, let store = model.store else { return }
@@ -259,6 +267,7 @@ struct SavedArtistView: View {
       guard namespace == model.artworkNamespace else { return }
       albums += found
       more = found.count == 100
+      await loadSongs()
     } catch is CancellationError {} catch { self.error = error.userMessage }
   }
 }

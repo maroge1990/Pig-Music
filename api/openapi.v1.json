@@ -514,6 +514,13 @@
             "default": 0,
             "title": "Track Count",
             "type": "integer"
+          },
+          "tracks": {
+            "items": {
+              "$ref": "#/components/schemas/TrackDTO"
+            },
+            "title": "Tracks",
+            "type": "array"
           }
         },
         "required": [
@@ -774,6 +781,16 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "saved_album_id": {
+            "nullable": true,
+            "title": "Saved Album Id",
+            "type": "string"
+          },
+          "saved_songs": {
+            "default": 0,
+            "title": "Saved Songs",
+            "type": "integer"
           },
           "title": {
             "title": "Title",
@@ -6561,6 +6578,17 @@
             "schema": {
               "nullable": true,
               "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "name",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "title": "Name",
               "type": "string"
             }
           }

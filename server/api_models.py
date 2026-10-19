@@ -76,6 +76,8 @@ class AlbumDetail(AlbumDTO):
 class ArtistDetail(ArtistDTO):
     albums: list[AlbumDTO]
     compilation_tracks: list[TrackDTO] = Field(default_factory=list)
+    # Every song you own on this artist's albums, album by album, for Play all.
+    tracks: list[TrackDTO] = Field(default_factory=list)
 
 
 class TrackPage(BaseModel):
@@ -284,6 +286,10 @@ class CatalogueGroupDTO(BaseModel):
     title: str
     date: str
     type: str
+    # Your library album with this title by this artist, and how many of its
+    # songs you have; null and 0 when you have none.
+    saved_album_id: str | None = None
+    saved_songs: int = 0
 
 
 class CatalogueGroupsDTO(BaseModel):
