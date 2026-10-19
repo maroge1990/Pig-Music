@@ -1,4 +1,4 @@
-import type { Page, Route } from "@playwright/test";
+import type { BrowserContext, Page, Route } from "@playwright/test";
 
 /** A small signed-in household: one artist with a Fanart photo and one album. */
 export const artist = {
@@ -36,7 +36,8 @@ export type Mock = { appearance?: string; unknown: string[] };
 
 /** Routes every /api call. Unknown calls answer 404 and are listed for the test. */
 export async function mockApi(
-  page: Page,
+  /** A context also answers the service worker's own requests. */
+  page: Page | BrowserContext,
   options: {
     appearance?: string;
     role?: "owner" | "member";

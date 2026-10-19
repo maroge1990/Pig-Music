@@ -10,27 +10,30 @@
  * out. Storage stays under BUDGET, oldest entries first.
  */
 const IMAGES = "pig-images-v1";
-// v2: personal pages from v1 were served stale; start them afresh.
-const DATA = "pig-data-v2";
+// v3: artist release lists now say what this person owns; earlier copies
+// were kept as shared pages.
+const DATA = "pig-data-v3";
 const BUDGET = 500 * 1024 * 1024;
 const LEDGER = "/__pig-cache-ledger";
 
+/** Image addresses of the versioned API (U01-4). */
 const artwork = [
-  /^\/api\/artwork\/[^/]+$/,
+  /^\/api\/v1\/covers\/[0-9a-f]{64}\.jpg$/,
   /^\/api\/v1\/artwork\/[^/]+$/,
-  /^\/api\/library-artwork\/(albums|artists)\/[^/]+$/,
-  /^\/api\/catalogue\/artwork\/(release|release-group)\/[^/]+$/,
-  /^\/api\/catalogue\/artists\/[^/]+\/(artwork|background|logo)$/,
-  /^\/api\/artists\/[^/]+\/(background|logo)$/,
+  /^\/api\/v1\/library-artwork\/(albums|artists)\/[^/]+$/,
+  /^\/api\/v1\/catalogue\/artwork\/(release|release-group)\/[^/]+$/,
+  /^\/api\/v1\/catalogue\/artists\/[^/]+\/(artwork|background|logo)$/,
+  /^\/api\/v1\/artists\/[^/]+\/(background|logo)$/,
 ];
 /** Shared catalogue lists: the same for everyone. */
 const pages = [
   /^\/api\/v1\/catalogue\/artists$/,
-  /^\/api\/v1\/catalogue\/artists\/[^/]+\/(popularity|releases)$/,
+  /^\/api\/v1\/catalogue\/artists\/[^/]+\/popularity$/,
 ];
 /** Include this person's library state or recommendations. */
 const personal = [
   /^\/api\/v1\/home\/(popular|recommended)$/,
+  /^\/api\/v1\/catalogue\/artists\/[^/]+\/releases$/,
   /^\/api\/v1\/catalogue\/groups\/[^/]+\/editions$/,
   /^\/api\/v1\/catalogue\/releases\/[^/]+$/,
 ];
