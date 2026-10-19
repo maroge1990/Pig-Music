@@ -141,9 +141,11 @@ struct SongActionsView: View {
   }
 }
 
+/// Server requests, one per album request (a lone song alone), unfinished
+/// first. Opening a request shows its songs with their source and quality.
 struct RequestsView: View {
   let model: AppModel
-  @State private var items: [AcquisitionRequest] = []
+  @State private var groups: [RequestGroup] = []
   @State private var next: Int?
   @State private var loading = false
   @State private var loaded = false
@@ -155,47 +157,32 @@ struct RequestsView: View {
         Text("Server downloads are disabled. Requests can wait until downloads are enabled.").font(
           PigType.footnote)
       }
-      if loading { ProgressView("Loading requests…") }
+      if loading && !loaded { ProgressView("Loading requests…") }
       if let error { Text(error).font(PigType.footnote) }
-      if loaded && items.isEmpty { Text("No music requests").foregroundStyle(.secondary) }
-      ForEach(items) { item in
-        VStack(alignment: .leading, spacing: 4) {
-          Text(item.title)
-          Text(item.artist).font(PigType.subhead).foregroundStyle(.secondary)
-          if ["failed", "cancelled"].contains(item.status) {
-            Button("Retry request") {
-              Task {
-                do {
-                  _ = try await model.performPersonal { try await $0.retryRequest(id: item.id) }
-                  await load(reset: true)
-                } catch { self.error = error.userMessage }
+      if loaded && groups.isEmpty { Text("No music requests").foregroundStyle(.secondary) }
+      ForEach(groups) { group in
+        DisclosureGroup {
+          ForEach(group.items) { item in songRow(item) }
+          let failed = group.items.filter { ["failed", "cancelled"].contains($0.status) }
+          if failed.count > 1 {
+            Button("Retry \(failed.count) songs") { Task { await retry(failed) } }
+              .disabled(loading || !model.canMutate)
+          }
+        } label: {
+          HStack(spacing: 12) {
+            ArtworkThumb(
+              model: model, source: group.releaseId.map { .release($0) }, title: group.title,
+              size: 48)
+            VStack(alignment: .leading, spacing: 2) {
+              Text(group.title).lineLimit(1)
+              Text(group.artist).font(PigType.footnote).foregroundStyle(.secondary).lineLimit(1)
+              Text(group.summary).font(PigType.caption).foregroundStyle(.secondary)
+              if group.state != "done" {
+                ProgressView(value: min(1, max(0, group.progress)))
               }
-            }.disabled(loading || !model.canMutate)
+            }
           }
-          if ["waiting_for_sources", "searching", "downloading", "validating"].contains(item.status)
-          {
-            Button("Cancel my request", role: .destructive) {
-              Task {
-                do {
-                  let result = try await model.performPersonal {
-                    try await $0.cancelRequest(id: item.id)
-                  }
-                  await load(reset: true)
-                  if result.continuesForOthers {
-                    self.error =
-                      "Your request was cancelled. The shared download continues for another person."
-                  }
-                } catch { self.error = error.userMessage }
-              }
-            }.disabled(loading || !model.canMutate)
-          }
-          Text(RequestStatus.label(item.status)).font(PigType.caption)
-          if let progress = item.requestProgress {
-            ProgressView(value: min(1, max(0, progress)))
-          }
-          if let error = item.error, !error.isEmpty {
-            Text(error).font(PigType.caption).foregroundStyle(.secondary)
-          }
+          .accessibilityElement(children: .combine)
         }
       }
       if next != nil {
@@ -211,6 +198,50 @@ struct RequestsView: View {
       // Live: the server's request queue changed.
       .onChange(of: model.requestsRevision) { Task { await load(reset: true) } }
   }
+  private func songRow(_ item: RequestGroupItem) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Text(item.title)
+      Text(
+        [
+          RequestStatus.label(item.status), item.source.map(RequestSource.name) ?? "",
+          item.quality ?? "",
+        ]
+        .filter { !$0.isEmpty }.joined(separator: " · ")
+      ).font(PigType.caption).foregroundStyle(.secondary)
+      if let progress = item.requestProgress {
+        ProgressView(value: min(1, max(0, progress)))
+      }
+      if let error = item.error, !error.isEmpty {
+        Text(error).font(PigType.caption).foregroundStyle(.secondary)
+      }
+      if ["failed", "cancelled"].contains(item.status) {
+        Button("Retry request") { Task { await retry([item]) } }
+          .disabled(loading || !model.canMutate)
+      }
+      if ["waiting_for_sources", "searching", "downloading", "validating"].contains(item.status) {
+        Button("Cancel my request", role: .destructive) { Task { await cancel(item) } }
+          .disabled(loading || !model.canMutate)
+      }
+    }
+  }
+  private func retry(_ items: [RequestGroupItem]) async {
+    do {
+      for item in items {
+        _ = try await model.performPersonal { try await $0.retryRequest(id: item.id) }
+      }
+      await load(reset: true)
+    } catch { self.error = error.userMessage }
+  }
+  private func cancel(_ item: RequestGroupItem) async {
+    do {
+      let result = try await model.performPersonal { try await $0.cancelRequest(id: item.id) }
+      await load(reset: true)
+      if result.continuesForOthers {
+        self.error =
+          "Your request was cancelled. The shared download continues for another person."
+      }
+    } catch { self.error = error.userMessage }
+  }
   private func load(reset: Bool) async {
     guard !loading else { return }
     loading = true
@@ -218,15 +249,15 @@ struct RequestsView: View {
     defer { loading = false }
     let offset = reset ? 0 : (next ?? 0)
     do {
-      let page = try await model.readCatalogue { try await $0.requests(offset: offset) }
+      let page = try await model.readCatalogue { try await $0.requestGroups(offset: offset) }
       if reset {
-        items = page.items
+        groups = page.groups
       } else {
-        for item in page.items {
-          if let index = items.firstIndex(where: { $0.id == item.id }) {
-            items[index] = item
+        for group in page.groups {
+          if let index = groups.firstIndex(where: { $0.id == group.id }) {
+            groups[index] = group
           } else {
-            items.append(item)
+            groups.append(group)
           }
         }
       }

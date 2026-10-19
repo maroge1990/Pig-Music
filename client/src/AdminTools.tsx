@@ -712,22 +712,32 @@ export function AdminTools({ route }: { route: Route }) {
       setBusy(false);
     }
   };
-  async function clearQueue() {
+  async function clearQueue(finished: boolean) {
     if (!queue?.items.length) return;
     const unfinished = queue.items.some(
-      (t) => !["completed", "cancelled", "failed"].includes(t.status),
+      (t) =>
+        !["completed", "downloaded", "cancelled", "failed"].includes(t.status),
     );
     if (
+      !finished &&
       unfinished &&
       !window.confirm(
-        "Cancel unfinished downloads and clear the queue? Downloaded music will be kept.",
+        "Cancel every unfinished download and clear the queue? Downloaded music will be kept.",
       )
     )
       return;
     setBusy(true);
     try {
-      setQueue(await api<Queue>("/queue/clear", { method: "POST" }));
-      setToast("Queue cleared. Downloaded music kept.");
+      setQueue(
+        await api<Queue>(`/queue/clear${finished ? "?finished=true" : ""}`, {
+          method: "POST",
+        }),
+      );
+      setToast(
+        finished
+          ? "Finished entries cleared. Downloaded music kept."
+          : "Queue cleared. Downloaded music kept.",
+      );
     } catch (e) {
       setError((e as Error).message);
     } finally {

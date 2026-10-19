@@ -42,6 +42,50 @@ public struct AcquisitionRequest: Codable, Sendable, Identifiable {
   public let requestProgress: Double?
   public let error: String?
 }
+/// One song in a request group, with where it came from and its quality.
+public struct RequestGroupItem: Codable, Sendable, Identifiable {
+  public let id: String
+  public let title: String
+  public let status: String
+  public let requestProgress: Double?
+  public let error: String?
+  public let source: String?
+  public let quality: String?
+}
+/// One request on the Downloads page: an album request, or a lone song.
+public struct RequestGroup: Codable, Sendable, Identifiable {
+  public let id: String
+  public let kind: String
+  public let title: String
+  public let artist: String
+  public let releaseId: String?
+  /// "active", "waiting", "done" or "failed".
+  public let state: String
+  public let songs: Int
+  public let done: Int
+  public let active: Int
+  public let waiting: Int
+  public let failed: Int
+  public let progress: Double
+  public let updatedAt: String
+  public let items: [RequestGroupItem]
+  /// "3 of 13 songs in your library · 2 waiting", or a lone song's state.
+  public var summary: String {
+    if songs == 1, let item = items.first { return RequestStatus.label(item.status) }
+    var parts = ["\(done) of \(songs) songs in your library"]
+    if active > 0 { parts.append("\(active) downloading") }
+    if waiting > 0 { parts.append("\(waiting) waiting") }
+    if failed > 0 { parts.append("\(failed) failed") }
+    return parts.joined(separator: " · ")
+  }
+}
+public struct RequestGroupPage: Codable, Sendable {
+  public let groups: [RequestGroup]
+  public let total: Int
+  public let active: Int
+  public let nextOffset: Int?
+  public let downloadsEnabled: Bool
+}
 public struct AcquisitionPage: Codable, Sendable {
   public let items: [AcquisitionRequest]
   public let total: Int

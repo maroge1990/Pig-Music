@@ -16,6 +16,7 @@ from ..api_models import (
     PlaylistList,
     SearchResults,
     RequestList,
+    RequestGroupList,
     FavouriteResultDTO,
     MembershipResultDTO,
     AcquisitionResultDTO,
@@ -571,6 +572,14 @@ def personal_router(store, artist_jobs, recovery):
             return await run(users.retry_request, identity(request), request_id)
         except LookupError:
             raise HTTPException(404, "Request not found")
+
+    @router.get("/requests/groups", response_model=RequestGroupList)
+    async def request_groups(
+        request: Request,
+        offset: int = Query(default=0, ge=0, le=100000),
+        limit: int = Query(default=50, ge=1, le=100),
+    ):
+        return await run(users.request_groups, identity(request), offset, limit)
 
     @router.get("/requests", response_model=RequestList)
     async def requests(request: Request, offset: int = 0, limit: int = 200):

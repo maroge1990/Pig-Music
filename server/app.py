@@ -901,8 +901,8 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         }
 
     @app.post("/api/queue/clear")
-    def clear_queue():
-        return store.clear_queue()
+    def clear_queue(finished: bool = False):
+        return store.clear_queue(finished_only=finished)
 
     app.include_router(download_sources_router(source_runtime))
 

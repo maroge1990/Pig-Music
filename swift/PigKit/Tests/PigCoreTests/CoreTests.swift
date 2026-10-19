@@ -127,3 +127,14 @@ private actor FailedSource: LibrarySource {
   #expect(page.releases[0].savedSongs == 2)
   #expect(page.releases[1].savedAlbumId == nil)
 }
+
+@Test func requestGroupsReadAsOneLinePerRequest() throws {
+  let page = try LibraryCodec.decoder().decode(
+    RequestGroupPage.self,
+    from: Data(
+      #"{"total":1,"active":2,"offset":0,"next_offset":null,"downloads_enabled":true,"groups":[{"id":"g","kind":"album","title":"Meteora","artist":"Linkin Park","release_id":"r","state":"waiting","songs":13,"done":3,"active":1,"waiting":8,"failed":1,"progress":0.3,"requested_at":"2026-10-19T00:00:00Z","updated_at":"2026-10-19T00:05:00Z","items":[{"id":"a","title":"Foreword","status":"completed","request_progress":null,"source":"soulseek","quality":"FLAC","server_state":"in_library"}]}]}"#
+        .utf8))
+  let group = try #require(page.groups.first)
+  #expect(group.summary == "3 of 13 songs in your library · 1 downloading · 8 waiting · 1 failed")
+  #expect(RequestSource.name(group.items[0].source ?? "") == "Soulseek")
+}

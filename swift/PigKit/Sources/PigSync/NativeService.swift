@@ -367,6 +367,16 @@ public actor NativeService: LibrarySource {
     default: throw NativeFailure.unavailable("Your requests are unavailable. Try again shortly.")
     }
   }
+  /// Requests one per album request (lone songs alone), unfinished first.
+  public func requestGroups(offset: Int = 0, limit: Int = 50) async throws -> RequestGroupPage {
+    switch try await client.request_groups_api_v1_requests_groups_get(
+      .init(query: .init(offset: offset, limit: limit)))
+    {
+    case .ok(let response): return try LibraryCodec.convert(response.body.json)
+    case .unauthorized: throw NativeFailure.authentication
+    default: throw NativeFailure.unavailable("Your requests are unavailable. Try again shortly.")
+    }
+  }
   public func clearFinishedRequests() async throws -> Int {
     switch try await client.clear_requests_api_v1_requests_delete(.init()) {
     case .ok(let response): return try response.body.json.cleared

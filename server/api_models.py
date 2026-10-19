@@ -255,6 +255,44 @@ class RequestList(BaseModel):
     items: list[RequestDTO]
 
 
+class RequestGroupItemDTO(RequestDTO):
+    track_number: int = 0
+    disc_number: int = 1
+    created_at: str | None = None
+    updated_at: str | None = None
+    # The source that supplied (or is supplying) the file, e.g. "soulseek".
+    source: str | None = None
+    # The file's quality in the shared vocabulary, e.g. "MP3 320 kbps".
+    quality: str | None = None
+
+
+class RequestGroupDTO(BaseModel):
+    id: str
+    kind: Literal["album", "song"]
+    title: str
+    artist: str = ""
+    release_id: str | None = None
+    state: Literal["active", "waiting", "done", "failed"]
+    songs: int
+    done: int
+    active: int
+    waiting: int
+    failed: int
+    progress: float
+    requested_at: str
+    updated_at: str
+    items: list[RequestGroupItemDTO]
+
+
+class RequestGroupList(BaseModel):
+    total: int
+    active: int
+    offset: int
+    next_offset: int | None
+    downloads_enabled: bool
+    groups: list[RequestGroupDTO]
+
+
 class RecentAlbums(BaseModel):
     albums: list[AlbumDTO]
     revision: str

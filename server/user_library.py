@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 
 from .library import identifier, normalise
 from .media import public_settings
+from .quality import LABELS as QUALITY_LABELS
 from .lifecycle import coordinated
 from .playlists import MAX_PLAYLIST_ENTRIES
 
@@ -39,6 +40,32 @@ TRACK_FIELDS = frozenset(
         "genre",
     }
 )
+
+
+def _text(value):
+    """SQLite's UTC "2026-10-19 07:00:00" as ISO 8601 with its zone."""
+    text = str(value or "")
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", text):
+        return text.replace(" ", "T") + "Z"
+    return text
+
+
+def _stamp(item):
+    """Sortable creation order for a queue item (SQLite timestamp text)."""
+    digits = re.sub(r"\D", "", _text(item.get("created_at")))
+    return int(digits or 0)
+
+
+def _quality(item):
+    """What the file is (or was asked to be), in words: "FLAC", "MP3 320 kbps"."""
+    codec = (item.get("codec") or "").upper()
+    bitrate = item.get("bitrate_kbps") or item.get("bitrate")
+    if codec in {"FLAC", "ALAC"}:
+        return codec
+    if codec and bitrate:
+        return f"{codec} {round(bitrate)} kbps"
+    profile = item.get("effective_quality") or item.get("quality_profile")
+    return QUALITY_LABELS.get(profile, codec or None)
 
 
 class SearchChanged(ValueError):
@@ -710,6 +737,9 @@ class UserLibrary:
             "items": [],
         }
         allowed = TRACK_FIELDS | {
+            "source",
+            "effective_quality",
+            "bitrate_kbps",
             "status",
             "created_at",
             "updated_at",
@@ -754,6 +784,118 @@ class UserLibrary:
             if job.get("error"):
                 job["error"] = "Acquisition failed. Retry or ask your administrator."
         return result
+
+    def request_groups(self, user_id, offset=0, limit=50):
+        """This person's requests, one entry per album request (a single song
+        stands alone), newest first with unfinished ones on top.
+
+        A song requested again after a failure appears once: the most
+        advanced, then the newest, of its jobs.
+        """
+        if offset < 0 or not 1 <= limit <= 100:
+            raise ValueError("Invalid request page bounds")
+        everything = self.queue(user_id, 0, 200)
+        items = list(everything["items"])
+        while len(items) < everything["total"]:
+            more = self.queue(user_id, len(items), 200)["items"]
+            if not more:
+                break
+            items += more
+        rank = {"active": 0, "waiting": 1, "done": 2, "failed": 3}
+
+        def phase(item):
+            status = item["status"]
+            if status in {"searching", "downloading", "validating", "importing"}:
+                return "active"
+            if status == "waiting_for_sources":
+                return "waiting"
+            return "done" if status in {"completed", "downloaded"} else "failed"
+
+        groups = {}
+        for item in items:
+            artist = item.get("album_artist") or item.get("artist", "")
+            album = item.get("album") or ""
+            key = (
+                ("album", normalise(artist), normalise(album))
+                if album
+                else ("song", item["id"])
+            )
+            group = groups.setdefault(key, {"key": key, "songs": {}})
+            song = (
+                normalise(item.get("title", "")),
+                item.get("disc_number") or 1,
+                item.get("track_number") or 0,
+            )
+            current = group["songs"].get(song)
+            if current is None or (rank[phase(item)], -_stamp(item)) < (
+                rank[phase(current)],
+                -_stamp(current),
+            ):
+                group["songs"][song] = item
+        result = []
+        for group in groups.values():
+            songs = sorted(
+                group["songs"].values(),
+                key=lambda i: (
+                    i.get("disc_number") or 1,
+                    i.get("track_number") or 0,
+                    i.get("title", ""),
+                ),
+            )
+            phases = [phase(i) for i in songs]
+            first = songs[0]
+            done = phases.count("done")
+            partial = sum(
+                i.get("request_progress") or 0
+                for i, p in zip(songs, phases)
+                if p == "active"
+            )
+            album = group["key"][0] == "album"
+            result.append(
+                {
+                    "id": identifier("request-group", *group["key"]),
+                    "kind": "album" if album else "song",
+                    "title": first.get("album") if album else first.get("title", ""),
+                    "artist": first.get("album_artist") or first.get("artist", ""),
+                    "release_id": next(
+                        (
+                            i["musicbrainz_release_id"]
+                            for i in songs
+                            if i.get("musicbrainz_release_id")
+                        ),
+                        None,
+                    ),
+                    "state": min(phases, key=rank.get),
+                    "songs": len(songs),
+                    "done": done,
+                    "active": phases.count("active"),
+                    "waiting": phases.count("waiting"),
+                    "failed": phases.count("failed"),
+                    "progress": (done + partial) / len(songs),
+                    "requested_at": min(_text(i.get("created_at")) for i in songs),
+                    "updated_at": max(_text(i.get("updated_at")) for i in songs),
+                    "items": [
+                        {
+                            **i,
+                            "created_at": _text(i.get("created_at")),
+                            "updated_at": _text(i.get("updated_at")),
+                            "source": i.get("source"),
+                            "quality": _quality(i),
+                        }
+                        for i in songs
+                    ],
+                }
+            )
+        result.sort(key=lambda g: g["updated_at"], reverse=True)
+        result.sort(key=lambda g: g["state"] not in {"active", "waiting"})
+        return {
+            "total": len(result),
+            "active": everything["active"],
+            "offset": offset,
+            "next_offset": offset + limit if offset + limit < len(result) else None,
+            "downloads_enabled": everything["downloads_enabled"],
+            "groups": result[offset : offset + limit],
+        }
 
     @coordinated
     def import_playlists(self, user_id, raw):

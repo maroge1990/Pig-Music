@@ -84,6 +84,17 @@ public enum OfflineFailure: Error, LocalizedError, Sendable {
 
 /// Plain-language request states, the same words as the web; the server keeps
 /// its technical names.
+/// Display names for download sources, as on the web.
+public enum RequestSource {
+  public static func name(_ id: String) -> String {
+    [
+      "soulseek": "Soulseek", "freemp3cloud": "FreeMp3Cloud", "zvu4no": "zvu4no",
+      "jiosaavn": "JioSaavn", "youtube": "YouTube", "soundcloud": "SoundCloud",
+      "monochrome": "Monochrome",
+    ][id] ?? id
+  }
+}
+
 public enum RequestStatus {
   public static func label(_ status: String) -> String {
     switch status {

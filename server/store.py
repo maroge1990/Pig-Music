@@ -1191,12 +1191,21 @@ class Store:
             ],
         }
 
-    def clear_queue(self):
-        # Removing an active claim invalidates its token; it cannot publish
-        # into a newly submitted request with the same deterministic ID.
+    def clear_queue(self, finished_only=False):
+        """Clear finished entries (the one Clear everyone has), or with
+        `finished_only=False` cancel and remove everything.
+
+        Removing an active claim invalidates its token; it cannot publish
+        into a newly submitted request with the same deterministic ID.
+        """
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            conn.execute("DELETE FROM queue")
+            if finished_only:
+                conn.execute(
+                    "DELETE FROM queue WHERE status IN ('completed','downloaded','failed','cancelled')"
+                )
+            else:
+                conn.execute("DELETE FROM queue")
         return self.queue()
 
     def cancel_request(self, request_id):

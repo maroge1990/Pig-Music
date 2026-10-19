@@ -29,7 +29,9 @@ export function QueueView({
 }: {
   queue: Queue | null;
   busy: boolean;
-  clearQueue: () => void;
+  /** `finished` clears done, failed and cancelled entries (the Clear
+   * everyone has); otherwise every request is cancelled and removed. */
+  clearQueue: (finished: boolean) => void;
   queueAction: (id: string, action: "retry" | "cancel") => void;
 }) {
   return (
@@ -43,13 +45,29 @@ export function QueueView({
               : "Downloads are paused. Enable them in Download settings below."}
           </p>
         </div>
-        <button
-          className="secondary-button"
-          disabled={busy || !queue?.items.length}
-          onClick={clearQueue}
-        >
-          Clear all
-        </button>
+        <div className="release-actions">
+          <button
+            className="secondary-button"
+            disabled={
+              busy ||
+              !queue?.items.some((t) =>
+                ["completed", "downloaded", "cancelled", "failed"].includes(
+                  t.status,
+                ),
+              )
+            }
+            onClick={() => clearQueue(true)}
+          >
+            Clear finished
+          </button>
+          <button
+            className="danger-text-button"
+            disabled={busy || !queue?.items.length}
+            onClick={() => clearQueue(false)}
+          >
+            Cancel all…
+          </button>
+        </div>
       </div>
       {!queue ? (
         <p>Loading requests...</p>

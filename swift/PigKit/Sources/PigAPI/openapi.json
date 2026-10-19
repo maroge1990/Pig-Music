@@ -3105,6 +3105,239 @@
         "title": "RequestDTO",
         "type": "object"
       },
+      "RequestGroupDTO": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "integer"
+          },
+          "artist": {
+            "default": "",
+            "title": "Artist",
+            "type": "string"
+          },
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RequestGroupItemDTO"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "album",
+              "song"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "progress": {
+            "title": "Progress",
+            "type": "number"
+          },
+          "release_id": {
+            "nullable": true,
+            "title": "Release Id",
+            "type": "string"
+          },
+          "requested_at": {
+            "title": "Requested At",
+            "type": "string"
+          },
+          "songs": {
+            "title": "Songs",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "active",
+              "waiting",
+              "done",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "waiting": {
+            "title": "Waiting",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "state",
+          "songs",
+          "done",
+          "active",
+          "waiting",
+          "failed",
+          "progress",
+          "requested_at",
+          "updated_at",
+          "items"
+        ],
+        "title": "RequestGroupDTO",
+        "type": "object"
+      },
+      "RequestGroupItemDTO": {
+        "properties": {
+          "album": {
+            "default": "",
+            "title": "Album",
+            "type": "string"
+          },
+          "artist": {
+            "default": "",
+            "title": "Artist",
+            "type": "string"
+          },
+          "created_at": {
+            "nullable": true,
+            "title": "Created At",
+            "type": "string"
+          },
+          "disc_number": {
+            "default": 1,
+            "title": "Disc Number",
+            "type": "integer"
+          },
+          "error": {
+            "nullable": true,
+            "title": "Error",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "quality": {
+            "nullable": true,
+            "title": "Quality",
+            "type": "string"
+          },
+          "received_bytes": {
+            "default": 0,
+            "title": "Received Bytes",
+            "type": "integer"
+          },
+          "request_progress": {
+            "nullable": true,
+            "title": "Request Progress",
+            "type": "number"
+          },
+          "server_state": {
+            "enum": [
+              "not_in_library",
+              "household_available",
+              "requested",
+              "in_library",
+              "failed"
+            ],
+            "title": "Server State",
+            "type": "string"
+          },
+          "source": {
+            "nullable": true,
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "total_bytes": {
+            "default": 0,
+            "title": "Total Bytes",
+            "type": "integer"
+          },
+          "track_number": {
+            "default": 0,
+            "title": "Track Number",
+            "type": "integer"
+          },
+          "updated_at": {
+            "nullable": true,
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "server_state"
+        ],
+        "title": "RequestGroupItemDTO",
+        "type": "object"
+      },
+      "RequestGroupList": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "integer"
+          },
+          "downloads_enabled": {
+            "title": "Downloads Enabled",
+            "type": "boolean"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/RequestGroupDTO"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "next_offset": {
+            "nullable": true,
+            "title": "Next Offset",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "active",
+          "offset",
+          "next_offset",
+          "downloads_enabled",
+          "groups"
+        ],
+        "title": "RequestGroupList",
+        "type": "object"
+      },
       "RequestList": {
         "properties": {
           "active": {
@@ -14055,6 +14288,148 @@
           }
         ],
         "summary": "Request Tracks",
+        "tags": [
+          "personal-library"
+        ]
+      }
+    },
+    "/api/v1/requests/groups": {
+      "get": {
+        "operationId": "request_groups_api_v1_requests_groups_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RequestGroupList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "410": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            },
+            "description": "Request error"
+          }
+        },
+        "security": [
+          {
+            "deviceBearer": []
+          }
+        ],
+        "summary": "Request Groups",
         "tags": [
           "personal-library"
         ]

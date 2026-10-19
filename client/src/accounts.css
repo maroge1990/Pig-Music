@@ -584,10 +584,91 @@ main h1[tabindex="-1"]:focus {
   font-size: var(--type-footnote);
   color: var(--secondary);
 }
-.request-row progress {
+/* Downloads: one card per request; its songs, source and quality inside. */
+.request-group {
+  margin-bottom: var(--space-12);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.request-group > summary {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-12);
+  padding: var(--space-12);
+  cursor: pointer;
+  list-style: none;
+}
+.request-group > summary::-webkit-details-marker {
+  display: none;
+}
+.request-group > summary .cover {
+  width: 56px;
+}
+.request-group-text {
+  min-width: 0;
+}
+.request-group-text strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.request-group-text p {
+  margin: 2px 0 0;
+  font-size: var(--type-footnote);
+  color: var(--secondary);
+}
+.request-group progress {
   width: 100%;
   margin-top: var(--space-8);
   accent-color: var(--accent);
+}
+.request-group-chevron {
+  color: var(--secondary);
+  transition: transform 0.15s ease;
+}
+.request-group[open] .request-group-chevron {
+  transform: rotate(180deg);
+}
+.request-group-songs {
+  margin: 0;
+  padding: 0 var(--space-12) var(--space-12);
+  list-style: none;
+}
+.request-group-songs li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-12);
+  padding: var(--space-8) 0;
+  border-top: 1px solid var(--border);
+}
+.request-group-songs li > div {
+  min-width: 0;
+}
+.request-group-songs span,
+.request-group-songs small {
+  display: block;
+}
+.request-group-songs small {
+  color: var(--secondary);
+  font-size: var(--type-footnote);
+}
+.request-group > .small-button {
+  margin: 0 var(--space-12) var(--space-12);
+}
+@media (max-width: 600px) {
+  .request-group > summary {
+    grid-template-columns: 48px minmax(0, 1fr) auto;
+  }
+  .request-group > summary .cover {
+    width: 48px;
+  }
+  .request-group-chevron {
+    display: none;
+  }
 }
 .request-error {
   color: var(--danger);

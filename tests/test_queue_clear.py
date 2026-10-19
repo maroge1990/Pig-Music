@@ -50,3 +50,31 @@ def test_clear_queue_invalidates_claim_and_preserves_music_and_playlists(tmp_pat
     assert target.exists() and store.library["stats"]["tracks"] == 1
     with store.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM playlists").fetchone()[0] == 1
+
+
+def test_clear_finished_keeps_unfinished_requests(tmp_path):
+    store = Store(tmp_path / "data")
+    store.save_download_settings({"enabled": True, "sources": ["freemp3cloud"]})
+    songs = [
+        {
+            "id": f"t{i}",
+            "artist": "Artist",
+            "album_artist": "Artist",
+            "album": "Album",
+            "title": f"Song {i}",
+            "year": 2020,
+            "duration": 200,
+            "disc_number": 1,
+            "track_number": i,
+            "status": "missing",
+        }
+        for i in (1, 2)
+    ]
+    store.submit_catalogue(songs)
+    first = store.claim_request()
+    store.request_state(first["id"], "failed", _claim_token=first["claim_token"])
+    left = store.clear_queue(finished_only=True)["items"]
+    # The failed request is cleared; the one still waiting stays.
+    assert [i["title"] for i in left] == [
+        t["title"] for t in songs if t["title"] != first["title"]
+    ]
