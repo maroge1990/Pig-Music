@@ -48,3 +48,52 @@ async def events_journey(tmp_path):
     final = await endpoint(request)
     assert "event: revoked" in await anext(final.body_iterator)
     await final.body_iterator.aclose()
+
+
+def test_only_the_owner_receives_the_admin_event(tmp_path):
+    asyncio.run(admin_journey(tmp_path))
+
+
+async def admin_journey(tmp_path):
+    store, owner, member = fixture(tmp_path)
+    auth = Auth(store)
+    calls = []
+
+    def admin_snapshot():
+        calls.append(1)
+        return {"queue": {"items": [{"id": "q1"}]}, "scan": {"status": "scanning"}}
+
+    def health():
+        return {
+            "storage_available": True,
+            "soulseek": {"configured": True, "connected": False},
+        }
+
+    router = native_router(store, auth, health, admin_snapshot)
+    endpoint = next(
+        route.endpoint for route in router.routes if route.path == "/api/v1/events"
+    )
+
+    async def connected():
+        return False
+
+    async def messages(username, password):
+        token = auth.login(username, password, "device", "fixture", "ios", "f")["token"]
+        user, session = auth.authenticate(token)
+        request = SimpleNamespace(
+            state=SimpleNamespace(user=user, session=session), is_disconnected=connected
+        )
+        response = await endpoint(request)
+        found = [await anext(response.body_iterator) for _ in range(4)]
+        await response.body_iterator.aclose()
+        return found
+
+    member_messages = await messages("member", "native fixture password")
+    assert not any("event: admin" in m for m in member_messages)
+    assert not any("soulseek" in m for m in member_messages)
+    assert calls == []
+    owner_messages = await messages("mark", "native fixture password")
+    admin = next(m for m in owner_messages if m.startswith("event: admin"))
+    assert '"q1"' in admin and '"scanning"' in admin
+    assert '"soulseek":{"configured":true,"connected":false}' in admin
+    assert calls

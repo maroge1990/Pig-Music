@@ -227,7 +227,14 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     app.include_router(household_router(store))
     from .routes.native import native_router
 
-    app.include_router(native_router(store, auth, feed_health))
+    app.include_router(
+        native_router(
+            store,
+            auth,
+            feed_health,
+            lambda: {"queue": feed_queue(), "scan": scanner.status()},
+        )
+    )
     app.include_router(device_copy_router(device_copies))
     app.state.device_copies = device_copies
     from .routes.discover import discover_router

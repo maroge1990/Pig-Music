@@ -25,18 +25,24 @@ export function LibraryScan({ refresh }: { refresh: () => void }) {
           previous = v.status;
         })
         .catch(() => {});
+    // Progress arrives with the shell's owner `admin` event; no timer here.
+    const pushed = (event: Event) => {
+      const value = (event as CustomEvent<{ scan?: Scan }>).detail?.scan;
+      if (!active || !value) return;
+      setScan(value);
+      if (previous === "scanning" && value.status === "completed") refresh();
+      previous = value.status ?? "";
+    };
+    const poll = () => void update();
     void update();
-    const timer = setInterval(
-      () => {
-        if (!document.hidden) void update();
-      },
-      scan.status === "scanning" ? 3000 : 30000,
-    );
+    window.addEventListener("music-admin-state", pushed);
+    window.addEventListener("music-admin-poll", poll);
     return () => {
       active = false;
-      clearInterval(timer);
+      window.removeEventListener("music-admin-state", pushed);
+      window.removeEventListener("music-admin-poll", poll);
     };
-  }, [scan.status]);
+  }, []);
   async function start() {
     setError("");
     try {

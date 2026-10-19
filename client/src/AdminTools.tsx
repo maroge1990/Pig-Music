@@ -44,6 +44,13 @@ const adminSections = [
 ] as const;
 type AdminSection = (typeof adminSections)[number]["id"];
 
+/** The owner-only `admin` event of /api/v1/events, relayed by the shell. */
+export type AdminState = {
+  queue?: Queue;
+  scan?: Record<string, unknown>;
+  soulseek?: { configured: boolean; connected: boolean } | null;
+};
+
 const formatTime = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(Math.round(seconds % 60)).padStart(2, "0")}`;
 
@@ -133,12 +140,15 @@ export function AdminTools({ route }: { route: Route }) {
     };
   }, [reviewOpen]);
 
+  // Live state comes from the shell's /api/v1/events stream (owner-only
+  // `admin` event); Admin keeps no timers of its own.
   useEffect(() => {
     const controller = new AbortController();
     let refreshing = false;
     let pending: Queue | undefined;
     const refresh = async (incoming?: Queue) => {
-      if (document.hidden) return;
+      // Pushed state costs nothing to apply; only fetches wait for visibility.
+      if (!incoming && document.hidden) return;
       if (refreshing) {
         pending = incoming;
         return;
@@ -165,49 +175,19 @@ export function AdminTools({ route }: { route: Route }) {
         if (latest && !controller.signal.aborted) void refresh(latest);
       }
     };
-    let source: EventSource | undefined;
-    let connected = false;
-    const connect = () => {
-      source?.close();
-      source = undefined;
-      connected = false;
-      if (document.hidden || !window.EventSource) return;
-      source = new EventSource("/api/events");
-      source.onopen = () => {
-        connected = true;
-        void refresh();
-      };
-      source.onerror = () => {
-        connected = false;
-      };
-      source.addEventListener("state", (event) => {
-        try {
-          const state = JSON.parse((event as MessageEvent).data) as {
-            queue?: Queue;
-            health?: { soulseek?: { configured: boolean; connected: boolean } };
-          };
-          if (state.queue) void refresh(state.queue);
-          if (state.health?.soulseek) setSoulseekHealth(state.health.soulseek);
-        } catch {
-          connected = false;
-        }
-      });
+    const state = (event: Event) => {
+      const detail = (event as CustomEvent<AdminState>).detail;
+      if (detail?.queue) void refresh(detail.queue);
+      if (detail?.soulseek) setSoulseekHealth(detail.soulseek);
     };
-    const resume = () => {
-      connect();
-      if (!document.hidden) void refresh();
-    };
-    connect();
+    const poll = () => void refresh();
+    window.addEventListener("music-admin-state", state);
+    window.addEventListener("music-admin-poll", poll);
     void refresh();
-    const timer = setInterval(() => {
-      if (!connected && !document.hidden) void refresh();
-    }, 15000);
-    document.addEventListener("visibilitychange", resume);
     return () => {
       controller.abort();
-      source?.close();
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("music-admin-state", state);
+      window.removeEventListener("music-admin-poll", poll);
     };
   }, [section]);
 

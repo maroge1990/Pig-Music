@@ -148,3 +148,69 @@ test("members have no Admin section, even by address", async ({ page }) => {
   ).toBeVisible();
   await expect(page.getByRole("link", { name: "Admin" })).toHaveCount(0);
 });
+
+test("Admin follows the shell's event stream without a timer", async ({
+  page,
+}) => {
+  // Frozen timers: nothing polls, so only the pushed `admin` event can move
+  // the numbers after the first load.
+  await page.clock.install();
+  let queueAsked: () => void = () => {};
+  const asked = new Promise<void>((resolve) => (queueAsked = resolve));
+  let queueCalls = 0;
+  const pushed = {
+    library_revision: "1",
+    downloads_enabled: true,
+    items: [
+      ...["a", "b", "c", "d"].map((id) => ({
+        id,
+        status: "downloading",
+        title: id,
+        artist: "A",
+        album: "X",
+      })),
+      { id: "e", status: "failed", title: "e", artist: "A", album: "X" },
+      { id: "f", status: "failed", title: "f", artist: "A", album: "X" },
+    ],
+  };
+  await mockApi(page, {
+    role: "owner",
+    answers: {
+      "/queue": (route) => {
+        queueCalls += 1;
+        queueAsked();
+        return route.fulfill({ json: queue });
+      },
+      "/v1/events": async (route) => {
+        await asked;
+        await route.fulfill({
+          contentType: "text/event-stream",
+          body: `event: admin\ndata: ${JSON.stringify({
+            queue: pushed,
+            scan: { status: "completed" },
+            soulseek: { configured: true, connected: true },
+          })}\n\n`,
+        });
+      },
+      "/v1/people": (route) => route.fulfill({ json: { people: [] } }),
+      "/v1/admin/unassigned": (route) =>
+        route.fulfill({ json: { albums: [], next_offset: null } }),
+      "/warmer": (route) =>
+        route.fulfill({
+          json: { artists_ready: 0, covers_prepared: 0, queued: 0 },
+        }),
+    },
+  });
+  await page.goto("/#/admin");
+  const tile = (label: string) =>
+    page
+      .locator("a, div")
+      .filter({ has: page.getByText(label, { exact: true }) })
+      .last();
+  await expect(tile("Queued or downloading")).toContainText("4");
+  await expect(tile("Queued or downloading")).not.toContainText(
+    "Downloads are paused",
+  );
+  await expect(tile("Failed requests")).toContainText("2");
+  expect(queueCalls).toBe(1);
+});

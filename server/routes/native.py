@@ -11,7 +11,9 @@ from ..native_sync import NativeSync, ResyncRequired
 from ..auth import AuthError
 
 
-def native_router(store, auth, health_snapshot=None):
+def native_router(store, auth, health_snapshot=None, admin_snapshot=None):
+    """`admin_snapshot` feeds the owner-only `admin` event: the full download
+    queue and library scan, so the web Admin section needs no timers."""
     router = APIRouter(prefix="/api/v1", tags=["personal-library"])
     sync = NativeSync(store)
     connections = {}
@@ -64,11 +66,14 @@ def native_router(store, auth, health_snapshot=None):
         # Reserve before returning the response; release even if the generator is cancelled.
         connections[key] = connections.get(key, 0) + 1
 
+        owner = request.state.user.get("role") == "owner" and admin_snapshot
+
         async def stream():
             previous = {}
             heartbeat = time.monotonic()
             health_checked = 0.0
             health = {}
+            soulseek = None
             try:
                 while not await request.is_disconnected():
                     # Revoked sessions cannot keep receiving events indefinitely.
@@ -87,12 +92,18 @@ def native_router(store, auth, health_snapshot=None):
                     if health_snapshot and time.monotonic() - health_checked >= 15:
                         status = await asyncio.to_thread(health_snapshot)
                         health = {"storage_available": status["storage_available"]}
+                        soulseek = status.get("soulseek")
                         health_checked = time.monotonic()
                     state = {
                         "revision": {"revision": summary["revision"]},
                         "queue": queue,
                         "health": health,
                     }
+                    if owner:
+                        state["admin"] = {
+                            **await asyncio.to_thread(admin_snapshot),
+                            "soulseek": soulseek,
+                        }
                     for kind, value in state.items():
                         if previous.get(kind) != value:
                             yield f'event: {kind}\ndata: {json.dumps(value,separators=(",", ":"))}\n\n'

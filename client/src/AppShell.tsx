@@ -354,8 +354,10 @@ const initials = (name: string) =>
     .map((w) => w[0].toUpperCase())
     .join("");
 
-/** One change feed for every section: library revisions and download
- * progress, with a slow poll only while the feed is disconnected. */
+/** One change feed for every section: library revisions, download progress
+ * and, for the owner, Admin state (`music-admin-state`). While the feed is
+ * disconnected, one slow poll stands in for it, and only while the page is
+ * visible (`music-admin-poll` asks Admin to fetch). */
 function useServerEvents(active: boolean) {
   useEffect(() => {
     if (!active) return;
@@ -372,20 +374,36 @@ function useServerEvents(active: boolean) {
     events.addEventListener("revoked", () =>
       window.dispatchEvent(new Event("music-auth-required")),
     );
+    events.addEventListener("admin", (event) => {
+      try {
+        const detail: unknown = JSON.parse((event as MessageEvent).data);
+        window.dispatchEvent(new CustomEvent("music-admin-state", { detail }));
+      } catch {
+        /* a malformed message waits for the next one */
+      }
+    });
     let fallback: ReturnType<typeof setInterval> | undefined;
+    const poll = () => {
+      if (document.hidden) return;
+      changed();
+      requests();
+      window.dispatchEvent(new Event("music-admin-poll"));
+    };
+    const visible = () => {
+      if (fallback) poll();
+    };
     events.onerror = () => {
-      fallback ||= setInterval(() => {
-        changed();
-        requests();
-      }, 15000);
+      fallback ||= setInterval(poll, 15000);
     };
     events.onopen = () => {
       clearInterval(fallback);
       fallback = undefined;
     };
+    document.addEventListener("visibilitychange", visible);
     return () => {
       events.close();
       clearInterval(fallback);
+      document.removeEventListener("visibilitychange", visible);
     };
   }, [active]);
 }
