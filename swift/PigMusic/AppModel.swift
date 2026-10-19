@@ -355,7 +355,7 @@ import UIKit
       homeContent[section] = try? await database.cached(
         "home:" + section.rawValue, as: HomeContent.self)
     }
-    try await loadCache()
+    try await loadCache(artworkChanged: true)
     pendingEdits = (try? await database.pendingMutations()) ?? []
   }
   func refresh(afterMutation: Bool = false) async {
@@ -373,13 +373,16 @@ import UIKit
       }
       watch?.confirmAccount()
       let before = try? await store?.revision()
+      let artworkBefore = try? await store?.artworkRevision()
       try await sync.refresh()
       guard generation == stamp else { return }
-      // Reloading redraws every open page, list and cover, so it waits for a
-      // real change. Reconnecting the live updates syncs often with none.
+      // Reloading redraws every open page and list, so it waits for a real
+      // change. Reconnecting the live updates syncs often with none. Covers
+      // reload only when the sync changed one.
       if (try? await store?.revision()) != before {
         homeLibraryChanged()
-        try await loadCache()
+        try await loadCache(
+          artworkChanged: (try? await store?.artworkRevision()) != artworkBefore)
       }
       let revisions = await player.cachedRevisions()
       guard generation == stamp else { return }
@@ -421,8 +424,10 @@ import UIKit
       let editsApplied = await flushEdits()
       guard generation == stamp else { return }
       if editsApplied {
+        let artworkBefore = try? await store?.artworkRevision()
         try await sync.refresh()
-        try await loadCache()
+        try await loadCache(
+          artworkChanged: (try? await store?.artworkRevision()) != artworkBefore)
         if let settings = try? await service.preferences(), generation == stamp {
           preferences = settings
           await cachePreferences()
@@ -446,7 +451,9 @@ import UIKit
       message = nil
     }
   }
-  private func loadCache() async throws {
+  /// Reloads the lists from the local library. `artworkChanged` also redraws
+  /// every cover; only an account change or a sync that changed covers needs it.
+  private func loadCache(artworkChanged: Bool = false) async throws {
     guard let store else { return }
     let stamp = generation
     let tracks = try await store.tracks(sort: songSort)
@@ -465,8 +472,10 @@ import UIKit
     albumCategoryCounts = categoryCounts
     albumCount = categoryCounts[albumCategory] ?? 0
     self.artistCount = artistCount
-    artistCovers = [:]
-    artworkRefresh += 1
+    if artworkChanged {
+      artistCovers = [:]
+      artworkRefresh += 1
+    }
     libraryRevision += 1
   }
   /// Bumped after each reload from the local library, so open album and playlist
@@ -1133,7 +1142,7 @@ import UIKit
             #"{"id":"demo","username":"demo","display_name":"Demo listener","role":"member"}"#.utf8)
         )
         server = "https://demo.invalid"
-        try await loadCache()
+        try await loadCache(artworkChanged: true)
       } catch { message = error.userMessage }
     }
     private func demoArtwork(_ request: ArtworkRequest) -> Data? {

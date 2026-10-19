@@ -67,3 +67,67 @@ struct SourceRevisionLookupTests {
     #expect(try await store.sourceRevisions(ids: [String]()).isEmpty)
   }
 }
+
+struct ArtworkRevisionTests {
+  private func delta(_ revision: String, upserts: String, deletedAlbums: String = "")
+    throws -> LibraryDelta
+  {
+    try LibraryCodec.decoder().decode(
+      LibraryDelta.self,
+      from: Data(
+        #"{"revision":"\#(revision)","upserts":{\#(upserts)},"deletes":{"tracks":[],"albums":[\#(deletedAlbums)],"artists":[],"playlists":[]}}"#
+          .utf8))
+  }
+  @Test func onlyCoverChangesMoveTheArtworkRevision() async throws {
+    let store = try LibraryStore(path: ":memory:")
+    #expect(try await store.artworkRevision() == nil)
+    let album = #"{"id":"al","title":"Album","artist":"A","cover_sha":"aaa"}"#
+    try await store.apply(
+      delta("one", upserts: #""tracks":[],"albums":[\#(album)],"artists":[],"playlists":[]"#))
+    let first = try #require(try await store.artworkRevision())
+    // A title change and a new song without a cover leave covers alone.
+    try await store.apply(
+      delta(
+        "two",
+        upserts:
+          #""tracks":[{"id":"t","title":"Song","artist":"A"}],"albums":[{"id":"al","title":"Renamed","artist":"A","cover_sha":"aaa"}],"artists":[],"playlists":[]"#
+      ))
+    #expect(try await store.revision() == "two")
+    #expect(try await store.artworkRevision() == first)
+    // A changed cover moves it.
+    try await store.apply(
+      delta(
+        "three",
+        upserts:
+          #""tracks":[],"albums":[{"id":"al","title":"Renamed","artist":"A","cover_sha":"bbb"}],"artists":[],"playlists":[]"#
+      ))
+    let second = try #require(try await store.artworkRevision())
+    #expect(second != first)
+    // An artist's chosen cover album moves it; repeating it does not.
+    let artist =
+      #""tracks":[],"albums":[],"artists":[{"id":"ar","name":"A","cover_album_id":"al"}],"playlists":[]"#
+    try await store.apply(delta("four", upserts: artist))
+    let third = try #require(try await store.artworkRevision())
+    #expect(third != second)
+    try await store.apply(delta("five", upserts: artist))
+    #expect(try await store.artworkRevision() == third)
+    // A removed album can change an artist's cover.
+    try await store.apply(
+      delta(
+        "six", upserts: #""tracks":[],"albums":[],"artists":[],"playlists":[]"#,
+        deletedAlbums: #""al""#))
+    let fourth = try #require(try await store.artworkRevision())
+    #expect(fourth != third)
+    // A full resync moves it when covers differ (the artist is gone), but
+    // not when it repeats the same covers.
+    var song = Track(id: "t", title: "Song", artist: "A")
+    try await store.replace(LibrarySnapshot(revision: "seven", tracks: [song]))
+    let fifth = try #require(try await store.artworkRevision())
+    #expect(fifth != fourth)
+    try await store.replace(LibrarySnapshot(revision: "eight", tracks: [song]))
+    #expect(try await store.artworkRevision() == fifth)
+    song.coverSha = "ccc"
+    try await store.replace(LibrarySnapshot(revision: "nine", tracks: [song]))
+    #expect(try await store.artworkRevision() != fifth)
+  }
+}

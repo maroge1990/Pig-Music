@@ -120,6 +120,13 @@ public actor LibraryStore {
       try String.fetchOne($0, sql: "SELECT value FROM metadata WHERE key='revision'")
     }
   }
+  /// Changes only when a sync changed a cover: an album or song cover, an
+  /// artist's chosen cover album, or a removed album. Nil before the first sync.
+  public func artworkRevision() throws -> String? {
+    try database.read {
+      try String.fetchOne($0, sql: "SELECT value FROM metadata WHERE key='artwork'")
+    }
+  }
   public func count(_ collection: LibraryCollection) throws -> Int {
     try database.read {
       try Int.fetchOne($0, sql: "SELECT count(*) FROM \(collection.rawValue)") ?? 0
@@ -334,15 +341,18 @@ public actor LibraryStore {
   /// Transactional replacement preserves the old valid cache if any row fails.
   public func replace(_ snapshot: LibrarySnapshot) throws {
     try database.write { db in
+      let before = try Self.coverDigest(db)
       for kind in LibraryCollection.allCases { try db.execute(sql: "DELETE FROM \(kind.rawValue)") }
       for index in ["track_search", "album_search", "artist_search"] {
         try db.execute(sql: "DELETE FROM \(index)")
       }
       try Self.upsert(snapshot, db: db)
+      if try Self.coverDigest(db) != before { try Self.touchArtwork(db) }
     }
   }
   public func apply(_ delta: LibraryDelta) throws {
     try database.write { db in
+      let artworkChanged = try Self.coversChange(delta, db: db)
       for (kind, ids) in [
         (LibraryCollection.tracks, delta.deletes.tracks), (.albums, delta.deletes.albums),
         (.artists, delta.deletes.artists), (.playlists, delta.deletes.playlists),
@@ -368,7 +378,50 @@ public actor LibraryStore {
         .init(
           revision: delta.revision, tracks: delta.upserts.tracks, albums: delta.upserts.albums,
           artists: delta.upserts.artists, playlists: delta.upserts.playlists), db: db)
+      if artworkChanged { try Self.touchArtwork(db) }
     }
+  }
+  /// Whether applying `delta` would change any cover the library draws.
+  private static func coversChange(_ delta: LibraryDelta, db: Database) throws -> Bool {
+    if !delta.deletes.albums.isEmpty { return true }
+    func differs(_ table: String, _ key: String, _ id: String, _ value: String?) throws -> Bool {
+      let row = try Row.fetchOne(
+        db,
+        sql: "SELECT json_extract(CAST(payload AS TEXT),'$.\(key)') AS v FROM \(table) WHERE id=?",
+        arguments: [id])
+      guard let row else { return value != nil }
+      return (row["v"] as String?) != value
+    }
+    for album in delta.upserts.albums
+    where try differs("albums", "cover_sha", album.id, album.coverSha) {
+      return true
+    }
+    for track in delta.upserts.tracks
+    where try differs("tracks", "cover_sha", track.id, track.coverSha) {
+      return true
+    }
+    for artist in delta.upserts.artists
+    where try differs("artists", "cover_album_id", artist.id, artist.coverAlbumId) {
+      return true
+    }
+    return false
+  }
+  /// Every cover reference in the library, for comparing a full replacement.
+  private static func coverDigest(_ db: Database) throws -> [String] {
+    try [("albums", "cover_sha"), ("tracks", "cover_sha"), ("artists", "cover_album_id")].map {
+      table, key in
+      try String.fetchOne(
+        db,
+        sql:
+          "SELECT coalesce(group_concat(v, ','), '') FROM (SELECT id || '=' || coalesce(json_extract(CAST(payload AS TEXT),'$.\(key)'),'') AS v FROM \(table) ORDER BY id)"
+      ) ?? ""
+    }
+  }
+  private static func touchArtwork(_ db: Database) throws {
+    try db.execute(
+      sql:
+        "INSERT INTO metadata(key,value) VALUES ('artwork',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+      arguments: [UUID().uuidString])
   }
   private static func upsert(_ snapshot: LibrarySnapshot, db: Database) throws {
     for track in snapshot.tracks {
