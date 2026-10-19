@@ -82,7 +82,9 @@ def main():
     parser.add_argument(
         "--deploy",
         action="store_true",
-        help="After passing candidate tests, update the live container",
+        help="HISTORICAL Compose deploy: its live checks call unversioned /api/... "
+        "routes retired in U01-4, so it fails against current images. Releases use "
+        "deploy_release.py; verification (without --deploy) is current.",
     )
     args = parser.parse_args()
     if args.deploy and (ROOT / "api/openapi.v1.json").exists():

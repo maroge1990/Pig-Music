@@ -42,7 +42,7 @@ Never trade matching or validation guarantees for throughput.
 .venv/bin/python scripts/benchmark_mixes.py
 ```
 
-`benchmark_api.py` sends GET requests only. `deploy_unraid.py` also runs `verify_state_migration.py` against a read-only copy of a stopped-state backup, and any migration failure aborts the release.
+`benchmark_api.py` sends GET requests only, to `/api/v1` paths, with an owner device token from `PIG_MUSIC_BENCHMARK_TOKEN`. `deploy_unraid.py` also runs `verify_state_migration.py` against a read-only copy of a stopped-state backup, and any migration failure aborts the release.
 
 ## Native device acceptance
 

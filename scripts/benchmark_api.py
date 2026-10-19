@@ -1,8 +1,13 @@
-"""Measure warm read-only LAN endpoints; never submits library/queue changes."""
+"""Measure warm read-only LAN endpoints; never submits library/queue changes.
+
+Signed-in endpoints need an owner device token in PIG_MUSIC_BENCHMARK_TOKEN
+(never pass it on the command line).
+"""
 
 import argparse
 import json
 import math
+import os
 import statistics
 import time
 from datetime import datetime, timezone
@@ -21,18 +26,20 @@ def main():
     if args.samples < 30:
         parser.error("Use at least thirty samples for p95")
     results = []
-    with httpx.Client(base_url=args.url, timeout=30) as client:
+    token = os.environ.get("PIG_MUSIC_BENCHMARK_TOKEN")
+    headers = {"Authorization": "Bearer " + token} if token else {}
+    with httpx.Client(base_url=args.url, timeout=30, headers=headers) as client:
         library = client.get("/api/v1/admin/library").raise_for_status().json()
         artist = next(a for a in library["artists"] if a["id"] == args.artist)
         album = next(a for a in library["albums"] if a["artist_id"] == artist["id"])
         paths = [
             ("Health", "/api/health"),
             ("Library summary", "/api/v1/admin/library"),
-            ("Artist detail", "/api/artists/" + artist["id"]),
-            ("Album detail", "/api/albums/" + album["id"]),
+            ("Artist detail", "/api/v1/artists/" + artist["id"]),
+            ("Album detail", "/api/v1/albums/" + album["id"]),
             ("Queue", "/api/v1/admin/queue"),
-            ("Playlists", "/api/playlists"),
-            ("Local search", "/api/search?q=" + artist["name"].split()[0]),
+            ("Playlists", "/api/v1/playlists"),
+            ("Local search", "/api/v1/search?q=" + artist["name"].split()[0]),
             ("Migration inventory", "/api/v1/admin/migration"),
             ("Organisation review", "/api/v1/admin/library/organisation"),
         ]

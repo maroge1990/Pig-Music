@@ -3,6 +3,10 @@
 Requires exact-image Unraid acceptance. Preserves a fresh stopped appdata backup,
 old container and template; verifies attribution on a disposable copy only.
 The real owner creates their password later in the private HTTPS WebUI.
+
+HISTORICAL: calls unversioned /api/... routes that U01-4 (R17) retired, so it
+fails against images built from c62a8ac onward. Kept for migration history;
+do not reuse without migrating it to /api/v1 and re-reviewing it.
 """
 
 import argparse

@@ -62,7 +62,7 @@ Each release has two steps:
 
 `deploy_release.py --retention 2` lists backups and containers older than the two newest releases. It always keeps `pre-first-run-20261007-v1` and legacy manager material, and it **never deletes**. Remove listed items by hand once the owner agrees.
 
-Historical tools, kept for migration history only: `deploy_unraid.py --deploy` (the old Compose path, which refuses account releases), `deploy_first_run_unraid.py`, `adopt_unraid_template.py`, `package_unraid_preview.py`, `unraid_preview_smoke.py` and `export_library_snapshot.py`.
+Historical tools, kept for migration history only: `deploy_unraid.py --deploy` (the old Compose path, which refuses account releases), `deploy_first_run_unraid.py`, `adopt_unraid_template.py`, `package_unraid_preview.py`, `unraid_preview_smoke.py` and `export_library_snapshot.py`. `deploy_unraid.py --deploy`, `deploy_first_run_unraid.py` and `adopt_unraid_template.py` still call the unversioned `/api/...` routes retired in U01-4, so they fail against current images; they are marked as such and must be migrated and re-reviewed before any reuse.
 
 ## Rollback and partial failures
 
