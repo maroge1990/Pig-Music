@@ -162,10 +162,19 @@ extension NativeService {
   }
 
   public func playlist(id: String) async throws -> Playlist {
+    guard case .fresh(let value, _) = try await playlist(id: id, etag: nil) else {
+      throw NativeFailure.unavailable("This playlist is unavailable. Refresh your library.")
+    }
+    return value
+  }
+  /// Sends `etag` as `If-None-Match`; `.notModified` means the saved copy is current.
+  public func playlist(id: String, etag: String?) async throws -> Conditional<Playlist> {
     switch try await client.playlist_api_v1_playlists__playlist_id__get(
-      .init(path: .init(playlist_id: id)))
+      .init(path: .init(playlist_id: id), headers: .init(if_hyphen_none_hyphen_match: etag)))
     {
-    case .ok(let value): return try LibraryCodec.convert(value.body.json)
+    case .ok(let value):
+      return .fresh(try LibraryCodec.convert(value.body.json), etag: value.headers.ETag)
+    case .notModified: return .notModified
     case .unauthorized: throw NativeFailure.authentication
     default: throw NativeFailure.unavailable("This playlist is unavailable. Refresh your library.")
     }

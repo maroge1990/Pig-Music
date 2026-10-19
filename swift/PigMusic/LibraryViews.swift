@@ -308,9 +308,9 @@ struct AlbumView: View {
         ?? tracks.lazy.compactMap(\.musicbrainzReleaseId).first
     else { return }
     // Offline, the last answer is used; without one the page shows what you own.
-    release = try? await model.cachedCatalogue(key: "release:" + releaseId) {
-      try await $0.catalogueRelease(releaseId: releaseId)
-    }
+    release = try? await model.cachedCatalogue(
+      key: "release:" + releaseId,
+      conditional: { try await $0.catalogueRelease(releaseId: releaseId, etag: $1) })
   }
   private func requestMissing() async {
     guard !requesting else { return }

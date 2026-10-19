@@ -501,14 +501,15 @@ import UIKit
         let key = "editions:\(album.id):0"
         guard peekCatalogue(key: key, as: CatalogueEditions.self) == nil else { continue }
         guard
-          let editions = try? await cachedCatalogue(key: key, load: {
-            try await $0.catalogueEditions(groupId: album.id, offset: 0)
-          }),
+          let editions = try? await cachedCatalogue(
+            key: key,
+            conditional: { try await $0.catalogueEditions(groupId: album.id, offset: 0, etag: $1) }
+          ),
           let first = editions.editions.first
         else { continue }
-        _ = try? await cachedCatalogue(key: "release:" + first.id) {
-          try await $0.catalogueRelease(releaseId: first.id)
-        }
+        _ = try? await cachedCatalogue(
+          key: "release:" + first.id,
+          conditional: { try await $0.catalogueRelease(releaseId: first.id, etag: $1) })
         _ = await artwork(.release(first.id), width: 512)
       }
     }
@@ -708,6 +709,40 @@ import UIKit
     } catch is CancellationError { throw CancellationError() } catch {
       guard generation == stamp else { throw CancellationError() }
       if let saved = try? await database?.cached("catalogue:" + key, as: T.self) { return saved }
+      throw error
+    }
+  }
+  /// Like `cachedCatalogue`, but revalidates the saved copy with its ETag, so an
+  /// unchanged album, edition list or playlist answers `304` with no body.
+  func cachedCatalogue<T: Codable & Sendable>(
+    key: String,
+    conditional load:
+      @escaping @Sendable (NativeService, _ etag: String?) async throws ->
+      Conditional<T>
+  ) async throws -> T {
+    let stamp = generation
+    guard let database = store else {
+      return try await cachedCatalogue(key: key) { service in
+        guard case .fresh(let value, _) = try await load(service, nil) else {
+          throw NativeFailure.unavailable("This page is unavailable. Try again shortly.")
+        }
+        return value
+      }
+    }
+    do {
+      let result = try await readCatalogue { service in
+        try await ConditionalCatalogue(store: database).load(key: key) {
+          try await load(service, $0)
+        }
+      }
+      guard generation == stamp else { throw CancellationError() }
+      remember(result, key: key)
+      return result
+    } catch NativeFailure.authentication {
+      throw NativeFailure.authentication
+    } catch is CancellationError { throw CancellationError() } catch {
+      guard generation == stamp else { throw CancellationError() }
+      if let saved = try? await database.cached("catalogue:" + key, as: T.self) { return saved }
       throw error
     }
   }

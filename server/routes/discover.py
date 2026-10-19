@@ -3,7 +3,7 @@
 import asyncio
 from uuid import UUID
 import httpx
-from fastapi import APIRouter, HTTPException, Request, Query
+from fastapi import APIRouter, Header, HTTPException, Request, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from ..artist_identity import Ambiguous, resolve_artist
@@ -19,6 +19,7 @@ from ..api_models import (
     CatalogueProfileDTO,
     ArtistIdentityDTO,
 )
+from ..conditional import CONDITIONAL_RESPONSES, conditional_json
 from ..user_library import track_dto
 
 ACTIVE = {"waiting_for_sources", "searching", "downloading", "validating", "importing"}
@@ -194,8 +195,17 @@ def discover_router(store, catalogue, popularity=None, warmer=None, http_client=
 
     RELEASE_INC = "recordings+artist-credits+isrcs"
 
-    @router.get("/groups/{group_id}/editions", response_model=CatalogueEditionsDTO)
-    async def editions(group_id: str, request: Request, offset: int = 0):
+    @router.get(
+        "/groups/{group_id}/editions",
+        response_model=CatalogueEditionsDTO,
+        responses=CONDITIONAL_RESPONSES,
+    )
+    async def editions(
+        group_id: str,
+        request: Request,
+        offset: int = 0,
+        if_none_match: str | None = Header(default=None),
+    ):
         if not 0 <= offset <= 10000:
             raise HTTPException(422, "invalid_page")
         result = await metadata(
@@ -203,28 +213,40 @@ def discover_router(store, catalogue, popularity=None, warmer=None, http_client=
         )
         # Ranked like the web, so the first is the recommended edition.
         ranked = sorted(result.get("releases", []), key=edition_rank)
-        return {
-            "total": result.get("release-count", 0),
-            "offset": offset,
-            "editions": [
-                {
-                    "id": r["id"],
-                    "title": r["title"],
-                    "date": r.get("date") or "",
-                    "country": r.get("country") or "",
-                    "description": r.get("disambiguation") or "",
-                    "status": r.get("status") or "",
-                    "formats": [m.get("format") or "" for m in r.get("media", [])],
-                    "track_count": sum(
-                        m.get("track-count") or 0 for m in r.get("media", [])
-                    ),
-                }
-                for r in ranked
-            ],
-        }
+        return conditional_json(
+            request,
+            CatalogueEditionsDTO,
+            {
+                "total": result.get("release-count", 0),
+                "offset": offset,
+                "editions": [
+                    {
+                        "id": r["id"],
+                        "title": r["title"],
+                        "date": r.get("date") or "",
+                        "country": r.get("country") or "",
+                        "description": r.get("disambiguation") or "",
+                        "status": r.get("status") or "",
+                        "formats": [m.get("format") or "" for m in r.get("media", [])],
+                        "track_count": sum(
+                            m.get("track-count") or 0 for m in r.get("media", [])
+                        ),
+                    }
+                    for r in ranked
+                ],
+            },
+        )
 
-    @router.get("/releases/{release_id}", response_model=CatalogueReleaseDTO)
-    async def release(release_id: str, request: Request):
+    @router.get(
+        "/releases/{release_id}",
+        response_model=CatalogueReleaseDTO,
+        responses=CONDITIONAL_RESPONSES,
+    )
+    async def release(
+        release_id: str,
+        request: Request,
+        if_none_match: str | None = Header(default=None),
+    ):
         result = await metadata(
             request, "release/" + valid(release_id), inc=RELEASE_INC
         )
@@ -274,22 +296,26 @@ def discover_router(store, catalogue, popularity=None, warmer=None, http_client=
                     }
                 ).model_dump(mode="json")
             )
-        return {
-            "id": result["id"],
-            "title": result["title"],
-            "artist": credit(result.get("artist-credit", [])),
-            "artist_id": next(
-                (
-                    item["artist"]["id"]
-                    for item in result.get("artist-credit", [])
-                    if isinstance(item, dict)
-                    and isinstance(item.get("artist"), dict)
-                    and item["artist"].get("id")
+        return conditional_json(
+            request,
+            CatalogueReleaseDTO,
+            {
+                "id": result["id"],
+                "title": result["title"],
+                "artist": credit(result.get("artist-credit", [])),
+                "artist_id": next(
+                    (
+                        item["artist"]["id"]
+                        for item in result.get("artist-credit", [])
+                        if isinstance(item, dict)
+                        and isinstance(item.get("artist"), dict)
+                        and item["artist"].get("id")
+                    ),
+                    "",
                 ),
-                "",
-            ),
-            "tracks": tracks,
-        }
+                "tracks": tracks,
+            },
+        )
 
     async def warm_album(group_id):
         """Cache an album's first editions page and its recommended edition."""

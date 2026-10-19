@@ -255,9 +255,8 @@ struct PlaylistView: View {
     defer { loading = false }
     let id = playlist.id
     do {
-      playlist = try await model.cachedCatalogue(key: "playlist:" + id) {
-        try await $0.playlist(id: id)
-      }
+      playlist = try await model.cachedCatalogue(
+        key: "playlist:" + id, conditional: { try await $0.playlist(id: id, etag: $1) })
       name = playlist.name
       message = nil
     } catch is CancellationError {} catch { message = error.userMessage }

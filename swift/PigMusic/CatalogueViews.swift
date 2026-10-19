@@ -485,9 +485,9 @@ struct CatalogueAlbumView: View {
     }
     do {
       // Editions arrive ranked; the first is the recommended one.
-      editions = try await model.cachedCatalogue(key: "editions:\(groupId):0") {
-        try await $0.catalogueEditions(groupId: groupId, offset: 0)
-      }
+      editions = try await model.cachedCatalogue(
+        key: "editions:\(groupId):0",
+        conditional: { try await $0.catalogueEditions(groupId: groupId, offset: 0, etag: $1) })
     } catch is CancellationError {} catch { self.error = error.userMessage }
   }
 }
@@ -539,9 +539,9 @@ struct CatalogueEditionsView: View {
     defer { loading = false }
     let next = reset ? 0 : offset
     do {
-      let page = try await model.cachedCatalogue(key: "editions:\(groupId):\(next)") {
-        try await $0.catalogueEditions(groupId: groupId, offset: next)
-      }
+      let page = try await model.cachedCatalogue(
+        key: "editions:\(groupId):\(next)",
+        conditional: { try await $0.catalogueEditions(groupId: groupId, offset: next, etag: $1) })
       editions = reset ? page.editions : editions + page.editions
       offset = page.offset + page.editions.count
       total = page.editions.isEmpty ? offset : page.total
@@ -683,9 +683,9 @@ struct CatalogueReleaseView: View {
     defer { loading = false }
     if release == nil { release = await model.storedCatalogue(key: "release:" + releaseId) }
     do {
-      release = try await model.cachedCatalogue(key: "release:" + releaseId) {
-        try await $0.catalogueRelease(releaseId: releaseId)
-      }
+      release = try await model.cachedCatalogue(
+        key: "release:" + releaseId,
+        conditional: { try await $0.catalogueRelease(releaseId: releaseId, etag: $1) })
     } catch is CancellationError {} catch { self.error = error.userMessage }
   }
 }

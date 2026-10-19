@@ -221,17 +221,39 @@ public actor NativeService: LibrarySource {
   }
   public func catalogueEditions(groupId: String, offset: Int = 0) async throws -> CatalogueEditions
   {
+    guard
+      case .fresh(let value, _) = try await catalogueEditions(
+        groupId: groupId, offset: offset, etag: nil)
+    else { throw NativeFailure.unavailable("Album editions are unavailable. Try again shortly.") }
+    return value
+  }
+  /// Sends `etag` as `If-None-Match`; `.notModified` means the saved copy is current.
+  public func catalogueEditions(groupId: String, offset: Int, etag: String?) async throws
+    -> Conditional<CatalogueEditions>
+  {
     switch try await client.editions_api_v1_catalogue_groups__group_id__editions_get(
-      .init(path: .init(group_id: groupId), query: .init(offset: offset)))
+      .init(
+        path: .init(group_id: groupId), query: .init(offset: offset),
+        headers: .init(if_hyphen_none_hyphen_match: etag)))
     {
-    case .ok(let response): return try LibraryCodec.convert(response.body.json)
+    case .ok(let response):
+      return .fresh(try LibraryCodec.convert(response.body.json), etag: response.headers.ETag)
+    case .notModified: return .notModified
     case .unauthorized: throw NativeFailure.authentication
     default: throw NativeFailure.unavailable("Album editions are unavailable. Try again shortly.")
     }
   }
   public func catalogueRelease(releaseId: String) async throws -> CatalogueRelease {
+    guard case .fresh(let value, _) = try await catalogueRelease(releaseId: releaseId, etag: nil)
+    else { throw NativeFailure.unavailable("This album is unavailable. Try again shortly.") }
+    return value
+  }
+  /// Sends `etag` as `If-None-Match`; `.notModified` means the saved copy is current.
+  public func catalogueRelease(releaseId: String, etag: String?) async throws
+    -> Conditional<CatalogueRelease>
+  {
     switch try await client.release_api_v1_catalogue_releases__release_id__get(
-      .init(path: .init(release_id: releaseId)))
+      .init(path: .init(release_id: releaseId), headers: .init(if_hyphen_none_hyphen_match: etag)))
     {
     case .ok(let response):
       let value = try response.body.json
@@ -251,9 +273,12 @@ public actor NativeService: LibrarySource {
           id: item.id, track: track, availability: item.server_state?.rawValue ?? "not_in_library")
       }
       let artistId = value.artist_id ?? ""
-      return CatalogueRelease(
-        id: value.id, title: value.title, artist: value.artist,
-        artistId: artistId.isEmpty ? nil : artistId, songs: songs)
+      return .fresh(
+        CatalogueRelease(
+          id: value.id, title: value.title, artist: value.artist,
+          artistId: artistId.isEmpty ? nil : artistId, songs: songs),
+        etag: response.headers.ETag)
+    case .notModified: return .notModified
     case .unauthorized: throw NativeFailure.authentication
     default: throw NativeFailure.unavailable("This album is unavailable. Try again shortly.")
     }

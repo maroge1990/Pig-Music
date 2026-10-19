@@ -4,7 +4,7 @@ import asyncio
 import os
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request, Response, Query
+from fastapi import APIRouter, Header, HTTPException, Request, Response, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -35,6 +35,7 @@ from ..api_models import (
     LookupResultDTO,
     ServerInfoDTO,
 )
+from ..conditional import CONDITIONAL_RESPONSES, conditional_json
 from ..playlists import Playlists, PlaylistConflict, PlaylistFull
 
 # Apps compare these to explain which features need a server update.
@@ -395,15 +396,23 @@ def personal_router(store, artist_jobs, recovery):
             await run(Playlists(store, identity(request)).create, body.name)
         )
 
-    @router.get("/playlists/{playlist_id}", response_model=PlaylistDTO)
-    async def playlist(playlist_id: str, request: Request):
+    @router.get(
+        "/playlists/{playlist_id}",
+        response_model=PlaylistDTO,
+        responses=CONDITIONAL_RESPONSES,
+    )
+    async def playlist(
+        playlist_id: str,
+        request: Request,
+        if_none_match: str | None = Header(default=None),
+    ):
         try:
             value = await asyncio.to_thread(
                 Playlists(store, identity(request)).detail, playlist_id
             )
         except ValueError:
             raise HTTPException(404, "Playlist not found")
-        return playlist_dto(value)
+        return conditional_json(request, PlaylistDTO, playlist_dto(value))
 
     @router.post("/playlists/{playlist_id}/songs", response_model=PlaylistDTO)
     async def add_song(

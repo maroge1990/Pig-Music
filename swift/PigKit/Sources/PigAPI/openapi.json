@@ -6700,6 +6700,16 @@
               "title": "Offset",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "if-none-match",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "title": "If-None-Match",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -6711,7 +6721,18 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "Validator for this exact body; send it back as If-None-Match.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified: the copy saved with this ETag is current."
           },
           "400": {
             "content": {
@@ -7087,6 +7108,16 @@
               "title": "Release Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "if-none-match",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "title": "If-None-Match",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -7098,7 +7129,18 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "Validator for this exact body; send it back as If-None-Match.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified: the copy saved with this ETag is current."
           },
           "400": {
             "content": {
@@ -12069,6 +12111,16 @@
               "title": "Playlist Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "if-none-match",
+            "required": false,
+            "schema": {
+              "nullable": true,
+              "title": "If-None-Match",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -12080,7 +12132,18 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "ETag": {
+                "description": "Validator for this exact body; send it back as If-None-Match.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not modified: the copy saved with this ETag is current."
           },
           "400": {
             "content": {
