@@ -61,14 +61,18 @@ def candidate_for(job, response, file):
     size = file.get("size", 0)
     if not isinstance(size, int) or not 0 < size <= 256_000_000:
         return None
+    from .matching import lead_artist, recording_kind, same_length, strip_edition
+
     path_words = set(words(name))
-    # Any edition's folder will do unless this edition was asked for.
+    # Any edition's folder and title will do unless this edition was asked
+    # for: the shared edition-free title and lead artist decide (matching).
     strict = job.get("explicit_edition")
-    if not set(words(job["artist"])).issubset(path_words) or (
+    artist = job["artist"] if strict else lead_artist(job["artist"])
+    if not set(words(artist)).issubset(path_words) or (
         strict and not set(words(job["album"])).issubset(path_words)
     ):
         return None
-    title = words(job["title"])
+    title = words(job["title"] if strict else strip_edition(job["title"]))
     stem = words(path.stem)
     if not title or not any(
         stem[i : i + len(title)] == title for i in range(len(stem))
@@ -92,17 +96,24 @@ def candidate_for(job, response, file):
         return None
     from .downloader import EDITION_WORDS, VERSION_WORDS
 
-    versions = VERSION_WORDS if strict else VERSION_WORDS - EDITION_WORDS
-    expected = set(words(job["title"] + " " + job["album"])) & versions
+    if strict:
+        expected = set(words(job["title"] + " " + job["album"])) & VERSION_WORDS
+        versions = VERSION_WORDS
+    else:
+        # Distinct recordings (live, remix, demo...) stay distinct: by title
+        # qualifier, album title or known release type.
+        versions = VERSION_WORDS - EDITION_WORDS
+        expected = (
+            set(words(strip_edition(job["title"]))) | set(recording_kind(job))
+        ) & versions
     if path_words & versions != expected:
         return None
     length = file.get("length", 0)
-    if (
-        not isinstance(length, (int, float))
-        or length <= 0
-        or job.get("duration")
-        and abs(length - job["duration"]) > 5
-    ):
+    if not isinstance(length, (int, float)) or length <= 0:
+        return None
+    if strict and job.get("duration") and abs(length - job["duration"]) > 5:
+        return None
+    if not strict and not same_length({"duration": length}, job):
         return None
     bitrate = file.get("bitRate", 0) or 0
     if profile == "native_standard" and not satisfies(

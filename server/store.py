@@ -24,7 +24,14 @@ from .media import settings as media_settings, public_settings
 from .quality import policy, actual_profile, rank, PROFILES, satisfies
 from .providers import REGISTRY, supports
 from .storage import file_sha256, library_root
-from .matching import LibraryIndex, exclusion_key, same_length, same_song, song_key
+from .matching import (
+    LibraryIndex,
+    compatible,
+    exclusion_key,
+    request_intent,
+    same_song,
+    song_key,
+)
 
 
 class Store:
@@ -315,6 +322,8 @@ class Store:
             metadata["cover_sha"] = job["cover_sha"]
         if job.get("explicit_edition"):
             metadata["explicit_edition"] = True
+        if job.get("recording_kind"):
+            metadata["recording_kind"] = job["recording_kind"]
         metadata["_request_id"] = job["id"]
         metadata["_claim_token"] = job.get("claim_token")
         metadata["quality_policy"] = job.get(
@@ -1155,9 +1164,7 @@ class Store:
                 }
                 if track.get("explicit_edition"):
                     payload["explicit_edition"] = True
-                else:
-                    # Any edition will do: one request per song.
-                    payload["song_key"] = list(song_key(track))
+                payload["song_key"] = list(song_key(track))
                 if user_id:
                     payload["requested_by"] = [user_id]
                     payload["request_scope"] = {user_id: scope}
@@ -1178,7 +1185,14 @@ class Store:
                     payload["duration"],
                 )
                 same = None
-                if "song_key" in payload:
+                if payload.get("explicit_edition"):
+                    # Only this edition will do: never one ordinary job's twin.
+                    key = identifier(
+                        key, "explicit", payload.get("musicbrainz_release_id") or ""
+                    )
+                else:
+                    # Any edition will do: join a queued request for the same
+                    # song (an explicit one satisfies it too).
                     same = next(
                         (
                             row[0]
@@ -1189,7 +1203,7 @@ class Store:
                                 "ORDER BY created_at,id",
                                 (json.dumps(payload["song_key"]),),
                             )
-                            if same_length(json.loads(row[1]), payload)
+                            if compatible(request_intent(json.loads(row[1])), payload)
                         ),
                         None,
                     )

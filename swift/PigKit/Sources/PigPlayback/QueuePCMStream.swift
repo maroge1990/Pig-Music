@@ -108,18 +108,39 @@ public actor QueuePCMStream {
     passedOver = 0
     prepare(following(index))
   }
-  /// The upcoming song couldn't be prepared (not on this device or the server):
-  /// prepare the one after it while the current song still plays, so the gap
-  /// is never heard. Gives up once every other song has been tried.
-  private func passOver(_ error: Error) -> Bool {
-    guard repeatMode != .one, let failed = upcomingIndex, passedOver + 1 < items.count,
-      let candidate = following(failed), candidate != index
+  /// Moves the upcoming choice past a song that couldn't be prepared (not on
+  /// this device or the server). False once every other song has been tried.
+  private func passOver() -> Bool {
+    guard !closed, repeatMode != .one, let failed = upcomingIndex,
+      passedOver + 1 < items.count, let candidate = following(failed), candidate != index
     else { return false }
     passedOver += 1
-    prepare(candidate)
+    choose(candidate)
     return true
   }
   private func prepare(_ nextIndex: Int?) {
+    choose(nextIndex)
+    guard upcomingOccurrence != nil else {
+      upcoming = nil
+      return
+    }
+    upcoming = Task { try await self.acquireViable() }
+  }
+  /// The upcoming song's source. A failure moves straight on to the next
+  /// viable song while the current one keeps playing, so the gap is never
+  /// heard; only when none is left does the failure reach the transition.
+  private func acquireViable() async throws -> PreparedAudioSource {
+    while true {
+      guard let occurrence = upcomingOccurrence else { throw AudioPipelineFailure.stalled }
+      do {
+        return try await acquire(occurrence)
+      } catch {
+        try Task.checkCancellation()
+        guard passOver() else { throw error }
+      }
+    }
+  }
+  private func choose(_ nextIndex: Int?) {
     holdFrames = 0
     upcomingIndex = nextIndex
     guard let nextIndex else {
@@ -135,8 +156,6 @@ public actor QueuePCMStream {
       albumOrder: TransitionPlanner.albumOrder(outgoing: items[index].track, incoming: next.track),
       duration: fadeSeconds)
     if case .crossfade(let seconds) = mode { holdFrames = Int(seconds * rate) }
-    let acquire = acquire
-    upcoming = Task { try await acquire(next) }
   }
 
   public func next() async throws -> QueuePCMBlock? {
@@ -175,8 +194,9 @@ public actor QueuePCMStream {
             upcoming.cancel()
           }
         } catch {
+          // Every remaining song was tried while the current one played.
           try Task.checkCancellation()
-          if !passOver(error) { sourceFailure = error }
+          sourceFailure = error
           continue
         }
         // close() also awaits this task; ownership remains here only while the stream is open.
@@ -189,7 +209,11 @@ public actor QueuePCMStream {
           self.upcoming = nil
           incomingLease = nil
           await release(source)
-          if !passOver(error) { sourceFailure = error }
+          if passOver() {
+            self.upcoming = Task { try await self.acquireViable() }
+          } else {
+            sourceFailure = error
+          }
           continue
         }
         incomingDecoder = next

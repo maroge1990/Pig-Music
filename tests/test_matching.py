@@ -48,7 +48,6 @@ def test_all_consumers_find_the_same_song_on_another_edition(tmp_path):
     playlists = Playlists(store)
     for requested in (
         song(musicbrainz_release_id="edition-b"),
-        song(musicbrainz_recording_id="recording-b"),
         song(album="Album (Deluxe Edition)", musicbrainz_release_id=None),
         song(album="Greatest Hits", album_artist="Various Artists", duration=103),
         song(title="Song - 2011 Remaster", album="Album (Remastered)"),
@@ -73,6 +72,10 @@ def test_other_recordings_stay_distinct_across_editions():
         song(album="Demos"),
         song(duration=160),
         song(artist="Someone Else", album_artist="Someone Else"),
+        # A known, different recording is another recording.
+        song(album="Greatest Hits", musicbrainz_recording_id="recording-b"),
+        # A live release type names a live recording, whatever the album title.
+        song(album="Wembley 1986", recording_kind=["live"]),
     ):
         assert index.match(requested).status != "downloaded", requested
 

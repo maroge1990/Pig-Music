@@ -13,6 +13,8 @@ DELUXE = "22222222-2222-4222-8222-222222222222"
 HITS = "33333333-3333-4333-8333-333333333333"
 LIVE = "44444444-4444-4444-8444-444444444444"
 RECORDING = "55555555-5555-4555-8555-555555555555"
+WEMBLEY = "77777777-7777-4777-8777-777777777777"
+DANCE = "88888888-8888-4888-8888-888888888888"
 
 
 def release(release_id, title, group, primary="Album", secondary=(), date="1977"):
@@ -62,7 +64,7 @@ def test_choose_files_a_song_under_the_studio_album_not_the_compilation():
                 release(HITS, "Greatest Hits", "g-hits", secondary=["Compilation"]),
                 release(DELUXE, "Rumours (Deluxe)", "g-rumours", date="2013"),
                 release(STUDIO, "Rumours", "g-rumours"),
-                release(LIVE, "The Dance", "g-dance", secondary=["Live"]),
+                release(LIVE, "The Dance", DANCE, secondary=["Live"]),
             ]
         )
     ]
@@ -72,7 +74,7 @@ def test_choose_files_a_song_under_the_studio_album_not_the_compilation():
 
 
 def test_choose_keeps_live_and_other_lengths_apart():
-    live = [recording([release(LIVE, "The Dance", "g-dance", secondary=["Live"])])]
+    live = [recording([release(LIVE, "The Dance", DANCE, secondary=["Live"])])]
     assert choose(live, requested()) is None
     assert choose(live, requested(album="The Dance (Live)"))[0]["id"] == LIVE
     long = [recording([release(STUDIO, "Rumours", "g")], length=400000)]
@@ -148,7 +150,7 @@ def test_resolver_retags_to_the_chosen_edition_with_a_cover(tmp_path):
     changes = asyncio.run(resolver(tmp_path, store).prepare(requested()))
     assert changes["album"] == "Rumours" and changes["track_number"] == 2
     assert changes["musicbrainz_release_id"] == STUDIO
-    assert changes["requested_album"] == "Greatest Hits"
+    assert changes["requested"]["album"] == "Greatest Hits"
     assert changes["year"] == "1977" and changes["edition_resolved"]
     assert store.covers.path(changes["cover_sha"])
 
@@ -285,3 +287,146 @@ def test_album_cover_falls_back_to_the_release_holding_its_songs(tmp_path):
         "tracks": [{"title": "Dreams", "artist": "Fleetwood Mac", "duration": 257}],
     }
     assert asyncio.run(artwork.from_songs(None, album)) == STUDIO
+
+
+def test_queue_keeps_distinct_recordings_of_one_title_apart(tmp_path):
+    store = Store(tmp_path)
+    studio = store.submit_catalogue(
+        [
+            {
+                **requested(album="Rumours", musicbrainz_recording_id=RECORDING),
+                "status": "missing",
+            }
+        ]
+    )
+    live = store.submit_catalogue(
+        [{**requested(album="Live at Home"), "status": "missing"}]
+    )
+    kind = store.submit_catalogue(
+        [{**requested(album="Wembley", recording_kind=["live"]), "status": "missing"}]
+    )
+    other = store.submit_catalogue(
+        [
+            {
+                **requested(album="Tusk", musicbrainz_recording_id="other-recording"),
+                "status": "missing",
+            }
+        ]
+    )
+    assert studio["created"] == live["created"] == other["created"] == 1
+    # A known live release type is the same kind as an album called "Live ...".
+    assert kind["existing"] == 1
+    assert len(store.queue()["items"]) == 3
+
+
+def test_explicit_and_ordinary_requests_never_share_an_unconstrained_job(tmp_path):
+    store = Store(tmp_path)
+    same = {**requested(), "status": "missing", "musicbrainz_release_id": DELUXE}
+    assert store.submit_catalogue([same])["created"] == 1
+    explicit = store.submit_catalogue([{**same, "explicit_edition": True}])
+    assert explicit["created"] == 1
+    jobs = store.queue()["items"]
+    assert sorted(bool(j.get("explicit_edition")) for j in jobs) == [False, True]
+    # Asking again for either keeps to its own job.
+    assert store.submit_catalogue([{**same, "explicit_edition": True}])["existing"] == 1
+    assert store.submit_catalogue([same])["existing"] == 1
+    assert len(store.queue()["items"]) == 2
+
+
+def test_an_ordinary_request_is_satisfied_by_a_queued_explicit_one(tmp_path):
+    store = Store(tmp_path)
+    explicit = {**requested(), "status": "missing", "explicit_edition": True}
+    store.submit_catalogue([explicit])
+    assert (
+        store.submit_catalogue([{**requested(), "status": "missing"}])["existing"] == 1
+    )
+    (job,) = store.queue()["items"]
+    assert job["explicit_edition"]
+
+
+def live_detail(release_id, title, group):
+    return {
+        "id": release_id,
+        "title": title,
+        "date": "1986-07-12",
+        "artist-credit": [{"name": "Fleetwood Mac", "joinphrase": ""}],
+        "release-group": {
+            "id": group,
+            "title": title,
+            "primary-type": "Album",
+            "secondary-types": ["Live"],
+        },
+        "media": [
+            {
+                "position": 1,
+                "tracks": [
+                    {
+                        "id": "t9",
+                        "position": 9,
+                        "title": "Dreams",
+                        "length": 300000,
+                        "recording": {"id": LIVE, "title": "Dreams"},
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_a_known_live_recording_stays_live_and_keeps_its_identity(tmp_path):
+    store = Store(tmp_path)
+    remaster = "66666666-6666-4666-8666-666666666666"
+    catalogue = FakeCatalogue(
+        {
+            "release/" + HITS: live_detail(HITS, "Wembley 1986", WEMBLEY),
+            "release/" + remaster: live_detail(remaster, "Wembley 1986", WEMBLEY),
+            "recording/" + LIVE: {"releases": [{"id": HITS}, {"id": remaster}]},
+            "release": {
+                "releases": [
+                    {**release(HITS, "Wembley 1986", WEMBLEY), "date": "1987"},
+                    {**release(remaster, "Wembley 1986", WEMBLEY), "date": "1986"},
+                    release(STUDIO, "Rumours", "g-rumours"),
+                ]
+            },
+        }
+    )
+    resolve = EditionResolver(store, catalogue, FakeArtwork(jpeg(tmp_path)), None)
+    job = requested(
+        title="Dreams",
+        album="Wembley 1986",
+        duration=300,
+        musicbrainz_release_id=HITS,
+        musicbrainz_recording_id=LIVE,
+    )
+    changes = asyncio.run(resolve.prepare(job))
+    # Same group, its recommended edition holding this recording; never a
+    # title search, never the studio album.
+    assert changes["musicbrainz_recording_id"] == LIVE
+    assert changes["musicbrainz_release_id"] == remaster
+    assert changes["recording_kind"] == ["live"]
+    assert changes["requested"]["musicbrainz_release_id"] == HITS
+    assert "recording/" not in catalogue.calls
+
+
+def test_a_recording_only_released_live_is_filed_as_live(tmp_path):
+    store = Store(tmp_path)
+    lookup = recording(
+        [release(LIVE, "The Dance", DANCE, secondary=["Live"])],
+        recording_id=LIVE,
+    )
+    catalogue = FakeCatalogue(
+        {
+            "recording/" + LIVE: lookup,
+            "release/"
+            + LIVE: {
+                **live_detail(LIVE, "The Dance", DANCE),
+            },
+        }
+    )
+    resolve = EditionResolver(store, catalogue, FakeArtwork(jpeg(tmp_path)), None)
+    job = requested(
+        title="Dreams", album="", duration=300, musicbrainz_recording_id=LIVE
+    )
+    changes = asyncio.run(resolve.prepare(job))
+    assert changes["album"] == "The Dance" and changes["recording_kind"] == ["live"]
+    assert changes["musicbrainz_recording_id"] == LIVE

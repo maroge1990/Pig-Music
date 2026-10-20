@@ -178,6 +178,37 @@ enum PlayOrigin: Hashable {
     } catch { message = error.userMessage }
   }
   func cachePreferences() async { try? await store?.cache(preferences, key: "preferences") }
+  /// Local preference choices, so the latest wins over slower saves and syncs.
+  @ObservationIgnored private var preferenceChanges = LatestChange()
+  /// Applies a choice at once, keeps it on this phone and queues it for the
+  /// server. Returns whether the server confirmed it, or nil once a newer
+  /// choice has replaced it.
+  func choosePreferences(_ value: AccountPreferences) async -> Bool? {
+    let change = preferenceChanges.begin()
+    preferences = value
+    await cachePreferences()
+    // Edits are queued and sent in order, so the server ends on the latest.
+    let confirmed = (try? await saveEdit(OfflineMutation(action: "preferences", preferences: value)))
+    guard preferenceChanges.isLatest(change) else { return nil }
+    if preferences.appearance != value.appearance {
+      // A sync replaced it while this save was sending: the choice stands.
+      preferences = value
+      await cachePreferences()
+    }
+    return confirmed ?? false
+  }
+  /// The server's preferences, unless a local choice is still waiting to send
+  /// or was made while they were being read.
+  private func adoptServerPreferences(_ service: NativeService, generation stamp: Int) async {
+    let change = preferenceChanges.current
+    guard !pendingEdits.contains(where: { $0.mutation.action == "preferences" }),
+      let settings = try? await service.preferences(), generation == stamp,
+      preferenceChanges.isLatest(change),
+      !pendingEdits.contains(where: { $0.mutation.action == "preferences" })
+    else { return }
+    preferences = settings
+    await cachePreferences()
+  }
   func join(invitation: String, password: String) async {
     guard !busy else { return }
     busy = true
@@ -425,12 +456,7 @@ enum PlayOrigin: Hashable {
         await player.invalidateSources()
       }
       guard generation == stamp else { return }
-      if !pendingEdits.contains(where: { $0.mutation.action == "preferences" }),
-        let settings = try? await service.preferences(), generation == stamp
-      {
-        preferences = settings
-        await cachePreferences()
-      }
+      await adoptServerPreferences(service, generation: stamp)
       let editsApplied = await flushEdits()
       guard generation == stamp else { return }
       if editsApplied {
@@ -438,12 +464,7 @@ enum PlayOrigin: Hashable {
         try await sync.refresh()
         try await loadCache(
           artworkChanged: (try? await store?.artworkRevision()) != artworkBefore)
-        if !pendingEdits.contains(where: { $0.mutation.action == "preferences" }),
-          let settings = try? await service.preferences(), generation == stamp
-        {
-          preferences = settings
-          await cachePreferences()
-        }
+        await adoptServerPreferences(service, generation: stamp)
       }
       try await watch?.reconcile()
       await flushHistory()

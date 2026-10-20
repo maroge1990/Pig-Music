@@ -29,14 +29,9 @@ struct PreferencesView: View {
     }
   }
   private func save(_ value: AccountPreferences) async {
-    model.preferences = value
-    await model.cachePreferences()
-    do {
-      let confirmed = try await model.saveEdit(
-        OfflineMutation(action: "preferences", preferences: value))
-      model.preferences = value
-      message = confirmed ? "Saved." : "Saved on this phone; it will sync when connected."
-    } catch { message = "Saved on this phone; it will sync when connected." }
+    // nil: a newer choice replaced this one, and its own save reports.
+    guard let confirmed = await model.choosePreferences(value) else { return }
+    message = confirmed ? "Saved." : "Saved on this phone; it will sync when connected."
   }
 }
 struct PasswordView: View {

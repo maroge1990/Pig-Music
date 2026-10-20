@@ -10,15 +10,18 @@ private actor QueueSources {
   var active: Set<UUID> = []
   var peak = 0
   var acquired: [String] = []
-  var failed: String?
+  var failed: Set<String>
   var delayed: String?
   var gate: CheckedContinuation<Void, Never>?
   var gated = false
   var entered = false
-  init(files: [String: URL], gated: Bool = false, failed: String? = nil, delayed: String? = nil) {
+  init(
+    files: [String: URL], gated: Bool = false, failed: String? = nil,
+    failing: Set<String> = [], delayed: String? = nil
+  ) {
     self.files = files
     self.gated = gated
-    self.failed = failed
+    self.failed = failing.union(failed.map { [$0] } ?? [])
     self.delayed = delayed
   }
   func get(_ item: PlaybackOccurrence) async throws -> PreparedAudioSource {
@@ -33,7 +36,7 @@ private actor QueueSources {
       try await Task.sleep(for: .seconds(30))
     }
     try Task.checkCancellation()
-    if item.track.id == failed { throw AudioSourceFailure.unavailable }
+    if failed.contains(item.track.id) { throw AudioSourceFailure.unavailable }
     let id = UUID()
     active.insert(id)
     peak = max(peak, active.count)
@@ -499,6 +502,85 @@ private func queueRoot() throws -> URL {
     #expect(markers.map(\.index) == [0, 2])
     #expect(samples.count == 96000)
     #expect(abs(samples[48000] - 0.6) < 0.00001)
+    #expect(await sources.acquired == ["a", "b", "c"])
+    #expect(await sources.active.isEmpty)
+  }
+  /// Polls an actor-held condition (the stream's prefetch runs on its own).
+  private func eventually(_ condition: () async -> Bool) async throws {
+    let deadline = ContinuousClock.now + .seconds(5)
+    while !(await condition()) {
+      guard ContinuousClock.now < deadline else { throw AudioPipelineFailure.stalled }
+      try await Task.sleep(for: .milliseconds(10))
+    }
+  }
+  @Test func theNextViableSongIsPreparedAsSoonAsAPrefetchFails() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(
+      files: [
+        "a": try queueFixture(root, id: "a", value: 0.2),
+        "d": try queueFixture(root, id: "d", value: 0.8),
+      ], failing: ["b", "c"])
+    let stream = try await QueuePCMStream(
+      items: [queueTrack("a"), queueTrack("b"), queueTrack("c"), queueTrack("d")],
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    // Nothing of "a" has been read: "d" is already being prepared.
+    try await eventually { await sources.acquired == ["a", "b", "c", "d"] }
+    #expect(await sources.peak == 2)
+    var markers: [QueueAudioMarker] = []
+    while let block = try await stream.next() { markers += block.markers }
+    await stream.close()
+    #expect(markers.map(\.index) == [0, 3])
+    #expect(await sources.active.isEmpty)
+  }
+  @Test func closingDuringADelayedReplacementReleasesEverySource() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(
+      files: ["a": try queueFixture(root, id: "a", value: 0.2)], failed: "b", delayed: "c")
+    let stream = try await QueuePCMStream(
+      items: [queueTrack("a"), queueTrack("b"), queueTrack("c")],
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    try await eventually { await sources.entered }
+    let started = ContinuousClock.now
+    await stream.close()
+    #expect(ContinuousClock.now - started < .seconds(2))
+    #expect(await sources.acquired == ["a", "b", "c"])
+    #expect(await sources.active.isEmpty)
+  }
+  @Test func repeatAllPassesOverAFailedSongAcrossTheWrap() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(
+      files: [
+        "a": try queueFixture(root, id: "a", value: 0.2, frames: 4800),
+        "b": try queueFixture(root, id: "b", value: 0.4, frames: 4800),
+      ], failed: "c")
+    let stream = try await QueuePCMStream(
+      items: [queueTrack("a"), queueTrack("b"), queueTrack("c")], startingAt: 1,
+      repeatMode: .all,
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    var markers: [QueueAudioMarker] = []
+    while markers.count < 3, let block = try await stream.next() { markers += block.markers }
+    await stream.close()
+    #expect(markers.map(\.index) == [1, 0, 1])
+    #expect(await sources.active.isEmpty)
+  }
+  @Test func repeatAllWithNothingElsePlayableEndsAfterTheCurrentSong() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(
+      files: ["a": try queueFixture(root, id: "a", value: 0.2)], failing: ["b", "c"])
+    let stream = try await QueuePCMStream(
+      items: [queueTrack("a"), queueTrack("b"), queueTrack("c")], repeatMode: .all,
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    var frames = 0
+    await #expect(throws: AudioSourceFailure.self) {
+      while let block = try await stream.next() { frames += block.pcm.frameCount }
+    }
+    await stream.close()
+    #expect(frames == 48000)
+    // Never retried "a" as its own replacement.
     #expect(await sources.acquired == ["a", "b", "c"])
     #expect(await sources.active.isEmpty)
   }

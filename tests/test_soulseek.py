@@ -56,7 +56,7 @@ def test_filename_recording_album_and_quality_gates():
         file("Song Two"),
         file("Song (Live)"),
         {**file(), "bitRate": 128},
-        {**file(), "length": 10},
+        {**file(), "length": 60},
         {**file(), "filename": "Other\\Other Album\\Song.mp3"},
         file(codec="flac"),
     ):
@@ -239,3 +239,18 @@ def test_album_only_search_skipped_when_artist_search_has_responses(tmp_path):
     adapter, posts = fallback_adapter(tmp_path, [], real)
     assert adapter.search(song(), lambda: None)
     assert posts == ["Example Studio"]
+
+
+def test_any_edition_requests_use_the_edition_free_title_and_lead_artist():
+    response = {"username": "peer"}
+    remaster = {**song("Song - 2004 Remaster"), "artist": "Example feat. Guest"}
+    assert candidate_for(remaster, response, file())
+    assert candidate_for(remaster, response, file("Song (2004 Remaster)"))
+    for other in (file("Song (Live)"), file("Song Two"), file("Song (Remix)")):
+        assert candidate_for(remaster, response, other) is None
+    live = {**song(), "recording_kind": ["live"]}
+    assert candidate_for(live, response, file()) is None
+    # An explicit edition still needs its exact title.
+    assert (
+        candidate_for({**remaster, "explicit_edition": True}, response, file()) is None
+    )

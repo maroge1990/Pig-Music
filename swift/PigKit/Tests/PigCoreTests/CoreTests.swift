@@ -149,3 +149,26 @@ private actor FailedSource: LibrarySource {
   #expect(sessions[0].current == true && sessions[0].platformName == "iPhone or iPad app")
   #expect(sessions[1].current == nil && sessions[1].platformName == "Web")
 }
+
+@Test func onlyTheLatestPreferenceChoiceKeepsItsOutcome() async {
+  // Two quick appearance choices: the first save finishes last.
+  actor Model {
+    var changes = LatestChange()
+    var appearance = "system"
+    func choose(_ value: String, delay: Duration) async -> Bool {
+      let change = changes.begin()
+      appearance = value
+      try? await Task.sleep(for: delay)
+      guard changes.isLatest(change) else { return false }
+      appearance = value
+      return true
+    }
+  }
+  let model = Model()
+  async let first = model.choose("dark", delay: .milliseconds(80))
+  try? await Task.sleep(for: .milliseconds(10))
+  async let second = model.choose("light", delay: .milliseconds(5))
+  let (stale, latest) = await (first, second)
+  #expect(!stale && latest)
+  #expect(await model.appearance == "light")
+}

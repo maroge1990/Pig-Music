@@ -8,6 +8,19 @@ public struct AccountPreferences: Codable, Sendable {
     self.defaultTab = defaultTab
   }
 }
+/// Numbers successive local changes so that only the latest one's outcome is
+/// kept: a slower save or a server read that began before a newer change
+/// must not put back an older value.
+public struct LatestChange: Sendable {
+  public private(set) var current = 0
+  public init() {}
+  /// Starts a change and returns its number.
+  public mutating func begin() -> Int {
+    current += 1
+    return current
+  }
+  public func isLatest(_ change: Int) -> Bool { change == current }
+}
 public struct AccountSession: Codable, Sendable, Identifiable {
   public let id: String
   public let kind: String

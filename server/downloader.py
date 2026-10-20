@@ -44,7 +44,7 @@ from .providers.contracts import Context, ProviderError
 from .providers.runtime import Runtime
 from .providers.legacy import search as legacy_search
 from .providers.network import transfer as http_transfer
-from .matching import primary_artist, title_key
+from .matching import primary_artist, recording_kind, title_key
 from .quality import CODEC_EXTENSIONS, policy, satisfies
 from .storage import download_root, file_sha256, library_root
 
@@ -127,8 +127,9 @@ def matches(target, candidate):
         return False
     versions = VERSION_WORDS if strict else VERSION_WORDS - EDITION_WORDS
     expected_versions = (
-        set(folded(target["title"] + " " + target["album"]).split()) & versions
-    )
+        set(folded(target["title"] + " " + target["album"]).split())
+        | (set() if strict else set(recording_kind(target)))
+    ) & versions
     actual_versions = (
         set(
             folded(

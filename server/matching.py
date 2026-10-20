@@ -93,9 +93,39 @@ FLAVOURS = {
 }
 
 
+def recording_kind(track):
+    """The kinds of recording a song is: named by its album title ("Live at
+    Leeds") or known from its release type (`recording_kind`, set when a
+    release group is Live, Remix or Demo). Title qualifiers are part of
+    `title_key` already."""
+    return flavour(track.get("album")) | frozenset(track.get("recording_kind") or ())
+
+
 def song_key(track):
-    """Edition-free identity of a song: lead artist and edition-free title."""
-    return (primary_artist(track.get("artist")), title_key(track.get("title")))
+    """Edition-free identity of a song: lead artist, edition-free title and
+    recording kind. JSON-friendly, so queued requests can store it."""
+    return (
+        primary_artist(track.get("artist")),
+        title_key(track.get("title")),
+        ",".join(sorted(recording_kind(track))),
+    )
+
+
+def request_intent(payload):
+    """What a queued request originally asked for: resolution files it under
+    another edition (`requested` keeps the values it replaced)."""
+    return {**payload, **(payload.get("requested") or {})}
+
+
+def compatible(left, right):
+    """The one song-compatibility policy for any edition: library matching,
+    queue deduplication, duplicate detection and source selection. Same lead
+    artist, edition-free title and recording kind; known recording IDs agree;
+    lengths agree when both are known."""
+    if song_key(left) != song_key(right):
+        return False
+    a, b = (t.get("musicbrainz_recording_id") for t in (left, right))
+    return not (a and b and a != b) and same_length(left, right)
 
 
 def context(track):
@@ -166,7 +196,8 @@ class LibraryIndex:
                     key = context(track)
                     self.by_context[key].append(track)
                     self.by_recording[key[:2]].append(track)
-                    self.by_song[song_key(track)].append((size, album, track))
+                    filed = {**track, "album": album.get("title") or track.get("album")}
+                    self.by_song[song_key(filed)].append((size, album, filed, track))
 
     def match(self, requested):
         key = context(requested)
@@ -188,11 +219,10 @@ class LibraryIndex:
         albums, then the fullest album, then the oldest."""
         album_title = title_key(requested.get("album"))
         artist = primary_artist(requested.get("artist"))
-        kind = flavour(requested.get("album"))
         candidates = [
             (size, album, track)
-            for size, album, track in self.by_song.get(song_key(requested), ())
-            if flavour(album.get("title")) == kind and same_length(track, requested)
+            for size, album, filed, track in self.by_song.get(song_key(requested), ())
+            if compatible(filed, requested)
         ]
         if not candidates:
             return None

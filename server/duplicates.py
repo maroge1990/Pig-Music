@@ -11,7 +11,7 @@ import time
 from collections import defaultdict
 
 from .library import year_order
-from .matching import flavour, primary_artist, same_length, song_key
+from .matching import compatible, primary_artist, song_key
 
 
 def acquired(store):
@@ -29,7 +29,8 @@ def find(store):
     for album in store.library["albums"]:
         for track in album["tracks"]:
             if track.get("available") is not False:
-                songs[(song_key(track), flavour(album["title"]))].append((album, track))
+                filed = {**track, "album": album["title"]}
+                songs[song_key(filed)].append((album, filed))
 
     def keep_rank(item):
         album, track = item
@@ -45,7 +46,7 @@ def find(store):
     for copies in songs.values():
         while len(copies) > 1:
             first = min(copies, key=keep_rank)
-            same = [c for c in copies if same_length(c[1], first[1])]
+            same = [c for c in copies if compatible(c[1], first[1])]
             copies = [c for c in copies if c not in same]
             for album, track in same:
                 if (
