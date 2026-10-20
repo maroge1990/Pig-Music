@@ -30,8 +30,8 @@ def test_all_consumers_agree_on_conflicting_editions_and_recordings(tmp_path):
     store = Store(tmp_path)
     playlists = Playlists(store)
     for requested in (
-        song(musicbrainz_release_id="edition-b"),
-        song(musicbrainz_recording_id="recording-b"),
+        song(musicbrainz_release_id="edition-b", explicit_edition=True),
+        song(musicbrainz_recording_id="recording-b", explicit_edition=True),
     ):
         migration = build_migration({"tracks": [requested]}, store.library, set())
         assert migration["albums"][0]["tracks"][0]["status"] == "review"
@@ -42,11 +42,65 @@ def test_all_consumers_agree_on_conflicting_editions_and_recordings(tmp_path):
         )
 
 
+def test_all_consumers_find_the_same_song_on_another_edition(tmp_path):
+    (tmp_path / "library-snapshot.json").write_text(json.dumps({"tracks": [song()]}))
+    store = Store(tmp_path)
+    playlists = Playlists(store)
+    for requested in (
+        song(musicbrainz_release_id="edition-b"),
+        song(musicbrainz_recording_id="recording-b"),
+        song(album="Album (Deluxe Edition)", musicbrainz_release_id=None),
+        song(album="Greatest Hits", album_artist="Various Artists", duration=103),
+        song(title="Song - 2011 Remaster", album="Album (Remastered)"),
+        song(title="Song (feat. Guest)", artist="Artist feat. Guest"),
+    ):
+        migration = build_migration({"tracks": [requested]}, store.library, set())
+        assert migration["albums"][0]["tracks"][0]["status"] == "downloaded"
+        presence = Catalogue(store).presence([dict(requested)])[0]
+        assert presence["status"] == "downloaded" and presence["saved_id"] == "saved"
+        playlist = playlists.create("Test " + requested["title"] + requested["album"])
+        entry = playlists.add(playlist["id"], requested)["entries"][0]
+        assert entry["status"] == "downloaded" and entry["saved_id"] == "saved"
+
+
+def test_other_recordings_stay_distinct_across_editions():
+    index = LibraryIndex(build_library({"tracks": [song()]}))
+    for requested in (
+        song(title="Song (Live)", musicbrainz_release_id=None),
+        song(title="Song - Acoustic Version"),
+        song(title="Song (Remix)"),
+        song(album="Live at Leeds"),
+        song(album="Demos"),
+        song(duration=160),
+        song(artist="Someone Else", album_artist="Someone Else"),
+    ):
+        assert index.match(requested).status != "downloaded", requested
+
+
+def test_edition_match_prefers_the_requested_album_then_the_artists_own():
+    tracks = [
+        song(id="hits", album="Greatest Hits", album_artist="Various Artists"),
+        song(id="studio", album="Album", musicbrainz_release_id="edition-a"),
+        song(id="deluxe", album="Album (Deluxe)", musicbrainz_release_id="edition-d"),
+        song(id="other", album="Other Album", track_number=2),
+    ]
+    index = LibraryIndex(build_library({"tracks": tracks}))
+    deluxe = song(album="Album (Super Deluxe)", musicbrainz_release_id="x")
+    assert index.match(deluxe).track["id"] in {"studio", "deluxe"}
+    compiled = song(album="Now 45", album_artist="Various Artists")
+    assert index.match(compiled).track["id"] in {"studio", "deluxe", "other"}
+
+
 def test_duplicate_unknown_bytes_require_review_and_identical_bytes_match():
     tracks = [song(), song(id="second")]
     assert (
-        LibraryIndex(build_library({"tracks": tracks})).match(song()).kind == "conflict"
+        LibraryIndex(build_library({"tracks": tracks}))
+        .match(song(explicit_edition=True))
+        .kind
+        == "conflict"
     )
+    # Without an explicit edition either copy of the same song will do.
+    assert LibraryIndex(build_library({"tracks": tracks})).match(song()).track
     tracks = [{**t, "sha256": "same-bytes"} for t in tracks]
     assert (
         LibraryIndex(build_library({"tracks": tracks})).match(song()).status
@@ -112,11 +166,12 @@ def test_removal_does_not_cancel_other_edition_and_exclusions_restore_independen
     data.mkdir()
     (data / "library-snapshot.json").write_text(json.dumps({"tracks": tracks}))
     store = Store(data)
-    store.submit_catalogue([{**t, "status": "missing"} for t in tracks])
+    explicit = [{**t, "status": "missing", "explicit_edition": True} for t in tracks]
+    store.submit_catalogue(explicit)
     recovery = Recovery(store)
     first = recovery.remove("saved")
     states = {t["musicbrainz_release_id"]: t["status"] for t in store.queue()["items"]}
     assert states == {"edition-a": "cancelled", "edition-b": "waiting_for_sources"}
     recovery.remove("second")
     recovery.restore(first["id"])
-    assert store.submit_catalogue([{**tracks[1], "status": "missing"}])["skipped"] == 1
+    assert store.submit_catalogue([explicit[1]])["skipped"] == 1

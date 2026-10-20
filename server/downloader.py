@@ -5,6 +5,7 @@ and publication are app-owned. Preview/test storage remains isolated by default.
 """
 
 import asyncio
+import base64
 import hashlib
 import math
 import os
@@ -18,6 +19,7 @@ from urllib.parse import urlsplit
 
 import httpx
 from mutagen.id3 import (
+    APIC,
     ID3,
     ID3NoHeaderError,
     TALB,
@@ -29,8 +31,8 @@ from mutagen.id3 import (
     TRCK,
     TXXX,
 )
-from mutagen.mp4 import MP4, MP4FreeForm
-from mutagen.flac import FLAC
+from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
+from mutagen.flac import FLAC, Picture
 from mutagen.oggopus import OggOpus
 from mutagen.oggvorbis import OggVorbis
 from .soulseek import Soulseek
@@ -42,6 +44,7 @@ from .providers.contracts import Context, ProviderError
 from .providers.runtime import Runtime
 from .providers.legacy import search as legacy_search
 from .providers.network import transfer as http_transfer
+from .matching import primary_artist, title_key
 from .quality import CODEC_EXTENSIONS, policy, satisfies
 from .storage import download_root, file_sha256, library_root
 
@@ -57,6 +60,8 @@ VERSION_WORDS = {
     "instrumental",
     "cover",
 }
+# Words naming another edition of the same recording, not another recording.
+EDITION_WORDS = {"remaster", "remastered"}
 
 
 def folded(text):
@@ -102,19 +107,27 @@ def matches(target, candidate):
         and requested_isrcs.isdisjoint(candidate_isrcs)
     ):
         return False
+    strict = target.get("explicit_edition")
     if (
-        candidate.get("source") in {"youtube", "soundcloud", "monochrome"}
+        strict
+        and candidate.get("source") in {"youtube", "soundcloud", "monochrome"}
         and target.get("album")
         and candidate.get("album")
         and folded(target["album"]) != folded(candidate["album"])
     ):
         return False
-    if folded(candidate.get("channel")) != folded(target["artist"]):
+    if strict:
+        if folded(candidate.get("channel")) != folded(target["artist"]):
+            return False
+        if folded(candidate.get("title")) != folded(target["title"]):
+            return False
+    elif primary_artist(candidate.get("channel")) != primary_artist(
+        target["artist"]
+    ) or title_key(candidate.get("title")) != title_key(target["title"]):
         return False
-    if folded(candidate.get("title")) != folded(target["title"]):
-        return False
+    versions = VERSION_WORDS if strict else VERSION_WORDS - EDITION_WORDS
     expected_versions = (
-        set(folded(target["title"] + " " + target["album"]).split()) & VERSION_WORDS
+        set(folded(target["title"] + " " + target["album"]).split()) & versions
     )
     actual_versions = (
         set(
@@ -122,7 +135,7 @@ def matches(target, candidate):
                 candidate.get("title", "") + " " + candidate.get("album", "")
             ).split()
         )
-        & VERSION_WORDS
+        & versions
     )
     if expected_versions != actual_versions:
         return False
@@ -162,8 +175,11 @@ class QualityDeadline(Exception):
 
 
 class Downloader:
-    def __init__(self, store, providers=None, runtime=None):
+    def __init__(self, store, providers=None, runtime=None, resolver=None):
         self.store = store
+        # Files songs requested without an explicit edition under the
+        # recommended edition of the artist's album (see `editions`).
+        self.resolver = resolver
         self.providers = providers if providers is not None else PROVIDERS
         self.runtime = runtime or Runtime(store)
         self.soulseek = Soulseek(store)
@@ -260,7 +276,7 @@ class Downloader:
                     job = self.store.claim_request()
                     if not job:
                         break
-                    tasks.add(asyncio.create_task(asyncio.to_thread(self.process, job)))
+                    tasks.add(asyncio.create_task(self.handle(job)))
                 try:
                     await asyncio.wait_for(self.stopping.wait(), timeout=0.5)
                 except TimeoutError:
@@ -268,6 +284,30 @@ class Downloader:
         finally:
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def handle(self, job):
+        # Quality replacements keep the file's own identity.
+        if self.resolver and not job.get("library_track_id"):
+            try:
+                changes = await self.resolver.prepare(job)
+            except Exception:
+                changes = {}
+            if changes:
+                job = {**job, **changes}
+                await asyncio.to_thread(
+                    self.store.request_state,
+                    job["id"],
+                    "searching",
+                    _claim_token=job.get("claim_token"),
+                    **changes,
+                )
+            # The household may already have this song on another edition.
+            found = self.store.index.match(job).track
+            if found and await asyncio.to_thread(
+                self.store.fulfil_request, job, found["id"]
+            ):
+                return
+        await asyncio.to_thread(self.process, job)
 
     def transfer(self, job_id, candidate, path):
         source = candidate["source"]
@@ -450,6 +490,37 @@ class Downloader:
                 tags.add(TXXX(encoding=3, desc=description, text=target[field]))
         tags.save(path, v2_version=3)
 
+    def embed_cover(self, path, sha):
+        """Write the stored cover into the file, replacing any it carried."""
+        cover = self.store.covers.path(sha)
+        if not cover:
+            return
+        data = cover.read_bytes()
+        if path.suffix == ".flac":
+            audio = FLAC(path)
+            picture = Picture()
+            picture.type, picture.mime, picture.data = 3, "image/jpeg", data
+            audio.clear_pictures()
+            audio.add_picture(picture)
+            audio.save()
+        elif path.suffix == ".m4a":
+            audio = MP4(path)
+            audio["covr"] = [MP4Cover(data, imageformat=MP4Cover.FORMAT_JPEG)]
+            audio.save()
+        elif path.suffix in {".opus", ".ogg"}:
+            picture = Picture()
+            picture.type, picture.mime, picture.data = 3, "image/jpeg", data
+            audio = {".opus": OggOpus, ".ogg": OggVorbis}[path.suffix](path)
+            audio["METADATA_BLOCK_PICTURE"] = [
+                base64.b64encode(picture.write()).decode("ascii")
+            ]
+            audio.save()
+        else:
+            tags = ID3(path)
+            tags.delall("APIC")
+            tags.add(APIC(encoding=3, mime="image/jpeg", type=3, desc="", data=data))
+            tags.save(path, v2_version=3)
+
     def complete(self, job, path, extension, source, profile, provenance=None):
         self.check(job["id"])
         self.state(job["id"], "validating", effective_quality=profile)
@@ -463,6 +534,7 @@ class Downloader:
         ):
             raise ValueError("Replacement must be a genuine MP3 128 kbps source")
         self.tag(path, job, source)
+        self.embed_cover(path, job.get("cover_sha"))
         self.decode(path, lambda: self.check(job["id"]))
         probe["acquisition"] = {
             "provider": source,

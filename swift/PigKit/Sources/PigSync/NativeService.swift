@@ -272,6 +272,7 @@ public actor NativeService: LibrarySource {
         }
         track.trackNumber = item.track_number
         track.discNumber = item.disc_number
+        track.explicitEdition = item.explicit_edition == true ? true : nil
         return CatalogueSong(
           id: item.id, track: track, availability: item.server_state?.rawValue ?? "not_in_library")
       }
@@ -318,6 +319,7 @@ public actor NativeService: LibrarySource {
       album: track.album,
       album_artist: (track.albumArtist?.isEmpty == false ? track.albumArtist : track.artist),
       artist: track.artist, disc_number: track.discNumber, duration: track.duration,
+      explicit_edition: track.explicitEdition,
       musicbrainz_recording_id: track.musicbrainzRecordingId,
       musicbrainz_release_id: track.musicbrainzReleaseId,
       title: track.title, track_number: track.trackNumber, year: track.year?.text)

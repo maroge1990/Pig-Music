@@ -7,33 +7,36 @@ import SwiftUI
 struct PreferencesView: View {
   let model: AppModel
   @State private var preferences = AccountPreferences()
-  @State private var loading = false
+  @State private var loaded = false
   @State private var message: String?
   var body: some View {
     Form {
+      // Applies at once and is kept on this phone; it syncs whenever it can,
+      // so it works offline and during a sync.
       Picker("Appearance", selection: $preferences.appearance) {
         Text("System").tag("system")
         Text("Light").tag("light")
         Text("Dark").tag("dark")
       }
-      Button("Save preferences") { Task { await save() } }.disabled(loading || !model.canMutate)
       if let message { Text(message).font(PigType.footnote) }
     }.pigCanvas().navigationTitle("Appearance").task {
       preferences = model.preferences
+      loaded = true
+    }
+    .onChange(of: preferences.appearance) { _, appearance in
+      guard loaded, appearance != model.preferences.appearance else { return }
+      Task { await save(preferences) }
     }
   }
-  private func save() async {
-    loading = true
-    defer { loading = false }
-    let value = preferences
+  private func save(_ value: AccountPreferences) async {
+    model.preferences = value
+    await model.cachePreferences()
     do {
       let confirmed = try await model.saveEdit(
         OfflineMutation(action: "preferences", preferences: value))
       model.preferences = value
-      await model.cachePreferences()
-      message =
-        confirmed ? "Preferences saved." : "Preferences saved on this phone; waiting to sync."
-    } catch { message = error.userMessage }
+      message = confirmed ? "Saved." : "Saved on this phone; it will sync when connected."
+    } catch { message = "Saved on this phone; it will sync when connected." }
   }
 }
 struct PasswordView: View {
@@ -243,7 +246,11 @@ struct RemovalView: View {
           ).font(PigType.footnote)
         }
         Button("Remove from my library", role: .destructive) { confirming = true }.disabled(
-          loading || !model.canMutate)
+          loading || !model.canMutate
+        )
+        .confirmationDialog(
+          "Confirm removal and the file effects shown above?", isPresented: $confirming
+        ) { Button("Remove music", role: .destructive) { Task { await remove() } } }
       } else {
         Button("Preview removal") { Task { await load() } }.disabled(
           loading || !model.canMutate || tracks.count > 500)
@@ -251,9 +258,6 @@ struct RemovalView: View {
       if loading { ProgressView() }
       if let message { Text(message).font(PigType.footnote) }
     }.pigCanvas().navigationTitle("Remove music").task { await load() }
-      .confirmationDialog(
-        "Confirm removal and the file effects shown above?", isPresented: $confirming
-      ) { Button("Remove music", role: .destructive) { Task { await remove() } } }
   }
   private func load() async {
     guard !loading else { return }

@@ -10,6 +10,12 @@ import PigStore
 import PigSync
 import UIKit
 
+enum PlayOrigin: Hashable {
+  case library
+  /// The catalogue artist when the page knew it.
+  case catalogue(artistId: String?)
+}
+
 @MainActor @Observable final class AppModel {
   struct Connection: Codable {
     var server: String
@@ -432,7 +438,9 @@ import UIKit
         try await sync.refresh()
         try await loadCache(
           artworkChanged: (try? await store?.artworkRevision()) != artworkBefore)
-        if let settings = try? await service.preferences(), generation == stamp {
+        if !pendingEdits.contains(where: { $0.mutation.action == "preferences" }),
+          let settings = try? await service.preferences(), generation == stamp
+        {
           preferences = settings
           await cachePreferences()
         }
@@ -1068,7 +1076,14 @@ import UIKit
       if continuing { play(added) } else { player.enqueue(added) }
     }
   }
-  func play(_ tracks: [Track], at index: Int = 0, restored: PlaybackCheckpoint? = nil) {
+  /// Where the playing queue was started: the player's artist link opens the
+  /// matching artist page (library, or the full catalogue page).
+  var playOrigin: PlayOrigin = .library
+  func play(
+    _ tracks: [Track], at index: Int = 0, restored: PlaybackCheckpoint? = nil,
+    origin: PlayOrigin = .library
+  ) {
+    playOrigin = origin
     #if DEBUG
       if ProcessInfo.processInfo.arguments.contains("--demo"),
         let url = Bundle.main.url(forResource: "demo-tone", withExtension: "m4a")

@@ -9,7 +9,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from ..artist_identity import Ambiguous, cached_identities, resolve_artist
-from ..catalogue import release_tracks, credit, edition_rank
+from ..catalogue import RELEASE_INC, release_tracks, credit, edition_rank
 from ..library import normalise
 from ..releases import release_query
 from ..api_models import (
@@ -291,7 +291,20 @@ def discover_router(store, catalogue, popularity=None, warmer=None, http_client=
             "offset": offset,
         }
 
-    RELEASE_INC = "recordings+artist-credits+isrcs"
+    async def recommended(request, release):
+        """Whether this is the edition the album opens on (ranked first);
+        any other was chosen from "Other versions". Unknown counts as yes."""
+        group = (release.get("release-group") or {}).get("id")
+        if not group:
+            return True
+        try:
+            editions = await catalogue.get(
+                request.app.state.http, "release", **editions_query(group, 0)
+            )
+        except (httpx.HTTPError, ValueError, KeyError):
+            return True
+        ranked = sorted(editions.get("releases", []), key=edition_rank)
+        return not ranked or ranked[0].get("id") == release.get("id")
 
     def requested_from(user_id, release_id):
         """This person's unfinished requests from one release (not the whole
@@ -366,8 +379,10 @@ def discover_router(store, catalogue, popularity=None, warmer=None, http_client=
         projection = await asyncio.to_thread(store.user_libraries.projection, user)
         personal = {t["id"] for t in projection["tracks"]}
         active = await asyncio.to_thread(requested_from, user, result["id"])
+        explicit = not await recommended(request, result)
         tracks = []
         for raw in release_tracks(result):
+            raw = {**raw, "explicit_edition": explicit}
             matched = store.index.match(raw)
             state = "not_in_library"
             if matched.track and matched.status == "downloaded":

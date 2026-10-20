@@ -5,6 +5,7 @@ import MediaPlayer
 import Observation
 import PigDomain
 import PigPlayback
+import PigSync
 
 /// Streaming alpha with an opt-in bounded engine for comparative device testing.
 @MainActor @Observable final class PlayerController {
@@ -382,6 +383,8 @@ import PigPlayback
     refreshArtwork()
     publishNowPlaying()
   }
+  /// Songs passed over in a row while streaming because they were unavailable.
+  @ObservationIgnored private var unavailableRun = 0
   private func prepareStreaming() {
     generation += 1
     let stamp = generation
@@ -415,9 +418,22 @@ import PigPlayback
           pendingSeek = 0
         }
         if intent.canPlay { player.play() }
+        unavailableRun = 0
         startClock()
       } catch is CancellationError {} catch {
         guard generation == stamp else { return }
+        // A song that can't be fetched (not on this device or the server) is
+        // passed over, as the seamless engine does, until every song was tried.
+        if error as? NativeFailure != .authentication,
+          unavailableRun + 1 < queue.items.count,
+          queue.index + 1 < queue.items.count || repeatMode == .all
+        {
+          unavailableRun += 1
+          DiagnosticsLog.shared.record("playback", "passed over an unavailable song")
+          next()
+          return
+        }
+        unavailableRun = 0
         self.error = error.userMessage
         preparing = false
         intent.pause()

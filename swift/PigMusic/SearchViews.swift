@@ -88,7 +88,9 @@ private struct SearchResultsView: View {
               loading: session.householdLoading, error: session.householdError,
               empty: session.household.isEmpty)
             ForEach(session.household) { song in
-              SongButton(model: model, track: song) { model.play([song]) }
+              SongButton(model: model, track: song) {
+                model.play([song], origin: .catalogue(artistId: nil))
+              }
             }
             if session.householdNext != nil {
               Button("More household results") { Task { await session.moreHousehold() } }.disabled(

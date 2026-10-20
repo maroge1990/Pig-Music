@@ -26,6 +26,8 @@ export type Song = {
   release_id?: string;
   track_id?: string;
   recording_id?: string;
+  /** Chosen from Other versions: only this edition will do. */
+  explicit_edition?: boolean;
   /** Catalogue artist, so "Go to artist" skips a name search. */
   artist_id?: string;
   /** Prepared mix entry resolved against the server's validated files. */
@@ -108,6 +110,7 @@ export function songBody(s: Song) {
     year: String(s.year || t?.year || ""),
     musicbrainz_release_id: s.release_id,
     musicbrainz_recording_id: s.recording_id,
+    explicit_edition: !!s.explicit_edition,
   };
 }
 
@@ -172,6 +175,23 @@ export async function goToArtist(name: string, catalogueId?: string) {
   location.hash = exact
     ? discoverUrl(exact)
     : "/search?q=" + encodeURIComponent(name);
+}
+
+/** The playing song's artist, where playback started: a library song opens
+ * the library artist page, a catalogue song the full artist page. */
+export async function goToPlayingArtist(s: Song) {
+  if (!s.artist_id && s.saved) {
+    const library = await cachedLibrary<LibraryIndex>();
+    const names = [s.artist, s.album_artist || s.saved.album_artist];
+    for (const name of names) {
+      const found = name && library.artists.filter((a) => same(a.name, name));
+      if (found && found.length === 1) {
+        location.hash = `/library/artist/${found[0].id}`;
+        return;
+      }
+    }
+  }
+  await goToArtist(s.artist, s.artist_id);
 }
 
 export async function goToAlbum(

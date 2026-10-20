@@ -149,10 +149,14 @@ struct LibraryShell: View {
   @State private var selection: Destination = .home
   @State private var showPlayer = false
   @State private var showAccount = false
+  /// The player's artist link: pushed onto the selected tab once the player closes.
+  @State private var artistRoute: ArtistRoute?
   private var playing: Bool { model.player.queue.current != nil }
   var body: some View {
     tabs
-      .sheet(isPresented: $showPlayer) { NowPlayingView(model: model) }
+      .sheet(isPresented: $showPlayer) {
+        NowPlayingView(model: model) { artistRoute = $0 }
+      }
       .sheet(isPresented: $showAccount) {
         NavigationStack {
           AccountView(model: model).pigCanvas()
@@ -223,6 +227,9 @@ struct LibraryShell: View {
         }
       }
       .pigCanvas()
+      .navigationDestination(item: destination == selection ? $artistRoute : .constant(nil)) {
+        ArtistRouteView(model: model, route: $0)
+      }
       // Older systems: the player docks directly above the tab bar inside each
       // tab, so it never covers the tabs or the end of a list.
       .safeAreaInset(edge: .bottom, spacing: 0) {

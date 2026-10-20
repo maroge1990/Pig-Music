@@ -168,7 +168,13 @@ def test_same_title_on_different_release_is_not_downloaded():
         for a in migration["albums"]
         for t in a["tracks"]
     }
-    assert statuses == {"0": "downloaded", "1": "review", "2": "missing", "3": "review"}
+    # A compilation copy is the same song; a live title or another length is not.
+    assert statuses == {
+        "0": "downloaded",
+        "1": "downloaded",
+        "2": "missing",
+        "3": "review",
+    }
     assert migration["stats"]["selected"] == 0
 
 

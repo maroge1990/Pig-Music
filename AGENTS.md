@@ -48,7 +48,7 @@ Tests mark provider rate limits off by default; `@pytest.mark.real_rate_limits` 
 
 - Owner sees the member experience plus an Admin section; admin-only options always go at the bottom of shared views. Native apps have no admin tools.
 - Layout: integrated phone player/tab dock, settings below the music on detail pages, compact headers, Home shows artists and albums (no song recommendations).
-- Never transcode to reach a quality; favourites and imports never trigger downloads; preserve edition/recording identity. Full contract: blueprint.
+- Never transcode to reach a quality; favourites and imports never trigger downloads; a song matches any edition of itself unless the request is `explicit_edition` (Other versions); live/remix/demo recordings stay distinct. Full contract: blueprint.
 - Match surrounding code style: Black (Python), Prettier (web), existing Swift formatting.
 
 ## Gotchas

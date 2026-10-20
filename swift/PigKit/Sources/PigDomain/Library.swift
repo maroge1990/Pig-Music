@@ -19,6 +19,8 @@ public struct Track: Codable, Sendable, Identifiable, Hashable {
   public var musicbrainzReleaseId: String?
   public var musicbrainzRecordingId: String?
   public var libraryTrackId: String?
+  /// On a catalogue edition other than the recommended one: a request keeps it.
+  public var explicitEdition: Bool?
   public var actionTrack: Track {
     var result = self
     if let libraryTrackId {

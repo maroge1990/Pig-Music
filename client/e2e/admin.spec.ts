@@ -214,3 +214,47 @@ test("Admin follows the shell's event stream without a timer", async ({
   await expect(tile("Failed requests")).toContainText("2");
   expect(queueCalls).toBe(1);
 });
+
+test("the owner reviews duplicate songs and moves them to Removed music", async ({
+  page,
+}) => {
+  const duplicate = {
+    track: { id: "dl", title: "Dreams", artist: "Fleetwood Mac" },
+    album: "Greatest Hits",
+    keeper: { id: "nas", title: "Dreams", artist: "Fleetwood Mac" },
+    keeper_album: "Rumours",
+  };
+  let removed: string[] = [];
+  await mockApi(page, {
+    role: "owner",
+    answers: {
+      "/v1/admin/library/duplicates/remove": (route) => {
+        removed = route.request().postDataJSON().track_ids;
+        return route.fulfill({ json: { removed: 1, skipped: 0 } });
+      },
+      "/v1/admin/library/trash": (route) => route.fulfill({ json: [] }),
+      "/v1/admin/library/organisation/history": (route) =>
+        route.fulfill({ json: [] }),
+      "/v1/admin/unassigned": (route) =>
+        route.fulfill({ json: { albums: [], next_offset: null } }),
+      "/v1/admin/library/duplicates": (route) =>
+        route.fulfill({
+          json: { duplicates: removed.length ? [] : [duplicate] },
+        }),
+    },
+  });
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.goto("/#/admin/library");
+  const panel = page
+    .locator(".system-panel")
+    .filter({ has: page.getByRole("heading", { name: "Duplicate songs" }) });
+  await panel.getByRole("button", { name: "Find duplicates" }).click();
+  await expect(panel).toContainText("Fleetwood Mac · Greatest Hits");
+  await expect(panel).toContainText("Kept on Rumours");
+  await expect(panel.getByRole("checkbox")).toBeChecked();
+  await panel
+    .getByRole("button", { name: "Move to Removed music · 1" })
+    .click();
+  await expect(panel).toContainText("No duplicate songs.");
+  expect(removed).toEqual(["dl"]);
+});

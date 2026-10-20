@@ -128,6 +128,7 @@
           }
         }
         await recoverFiles()
+        await applyCellularSetting()
         ready = true
         await onUpdate?(nil, nil, nil)
       }
@@ -154,7 +155,12 @@
         data: Data((request.value(forHTTPHeaderField: "Authorization") ?? "").utf8)
       ).map { String(format: "%02x", $0) }.joined()
       let existing = jobs.values.first { $0.record.id == record.id }
-      if let existing, tasks[existing.id] != nil { return }
+      if let existing, let live = tasks[existing.id] {
+        if existing.allowsCellular == allowsCellular { return }
+        // Started under the other cellular setting: start again under this one.
+        live.cancel()
+        removeJob(existing.id)
+      }
       let matches =
         existing.map {
           $0.record.quality == record.quality
@@ -185,6 +191,18 @@
       task.taskDescription = job.id
       tasks[job.id] = task
       task.resume()
+    }
+    /// A transfer keeps the network rules it started with: one started while
+    /// cellular was off would wait for Wi-Fi after cellular is allowed (the
+    /// system resumes such transfers after a relaunch). Requeue those under the
+    /// current setting.
+    func applyCellularSetting() async {
+      for (id, task) in tasks {
+        guard let job = jobs[id], job.allowsCellular != allowsCellular else { continue }
+        task.cancel()
+        removeJob(id)
+        try? await archive.requeue(id: job.record.id)
+      }
     }
     func pause() async {
       let active = tasks

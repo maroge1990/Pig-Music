@@ -25,6 +25,29 @@ def words(value):
     )
 
 
+# Filename words beside the title that name an edition, not another song.
+EDITION_NAMES = {
+    "remaster",
+    "remastered",
+    "deluxe",
+    "edition",
+    "expanded",
+    "anniversary",
+    "bonus",
+    "track",
+    "album",
+    "version",
+    "explicit",
+    "clean",
+    "mono",
+    "stereo",
+    "original",
+    "digital",
+    "special",
+    "reissue",
+}
+
+
 def candidate_for(job, response, file):
     name = file.get("filename", "")
     path = PureWindowsPath(name.replace("/", "\\"))
@@ -39,9 +62,11 @@ def candidate_for(job, response, file):
     if not isinstance(size, int) or not 0 < size <= 256_000_000:
         return None
     path_words = set(words(name))
-    if not set(words(job["artist"])).issubset(path_words) or not set(
-        words(job["album"])
-    ).issubset(path_words):
+    # Any edition's folder will do unless this edition was asked for.
+    strict = job.get("explicit_edition")
+    if not set(words(job["artist"])).issubset(path_words) or (
+        strict and not set(words(job["album"])).issubset(path_words)
+    ):
         return None
     title = words(job["title"])
     stem = words(path.stem)
@@ -52,6 +77,12 @@ def candidate_for(job, response, file):
     start = next(i for i in range(len(stem)) if stem[i : i + len(title)] == title)
     remainder = stem[:start] + stem[start + len(title) :]
     allowed = set(words(job["artist"] + " " + job["album"]))
+    if not strict:
+        allowed |= EDITION_NAMES
+        # "Song (feat. Guest)": a featured credit, not another title.
+        for marker in ("feat", "ft", "featuring", "with"):
+            if marker in remainder:
+                remainder = remainder[: remainder.index(marker)]
     if any(
         w not in allowed
         and not w.isdigit()
@@ -59,10 +90,11 @@ def candidate_for(job, response, file):
         for w in remainder
     ):
         return None
-    from .downloader import VERSION_WORDS
+    from .downloader import EDITION_WORDS, VERSION_WORDS
 
-    expected = set(words(job["title"] + " " + job["album"])) & VERSION_WORDS
-    if path_words & VERSION_WORDS != expected:
+    versions = VERSION_WORDS if strict else VERSION_WORDS - EDITION_WORDS
+    expected = set(words(job["title"] + " " + job["album"])) & versions
+    if path_words & versions != expected:
         return None
     length = file.get("length", 0)
     if (
@@ -186,6 +218,20 @@ class Soulseek:
             self.cache[key] = (time.monotonic(), responses)
             if len(self.cache) > 50:
                 self.cache.pop(next(iter(self.cache)))
+        if not job.get("explicit_edition") and not any(
+            candidate_for(job, r, f) for r in responses for f in r.get("files", [])
+        ):
+            # No folder of that album has it: look for the song on any album.
+            from .matching import lead_artist, strip_edition
+
+            text = f"{lead_artist(job['artist'])} {strip_edition(job['title'])}"
+            key = ("song", text)
+            cached = self.cache.get(key)
+            if cached and time.monotonic() - cached[0] < 600:
+                responses = cached[1]
+            else:
+                responses = self._run_search(text, check)
+                self.cache[key] = (time.monotonic(), responses)
         siblings = [
             t
             for t in self.store.queue()["items"]

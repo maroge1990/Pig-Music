@@ -44,3 +44,15 @@ test("repeat cycles off, all and one, and is remembered", async ({ page }) => {
     await page.evaluate(() => localStorage.getItem("pig-music-repeat")),
   ).toBe("one");
 });
+
+test("the player's artist link opens the library artist for library playback", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto(`/#/library/album/${album.id}`);
+  await page.getByText("Von dutch").first().click();
+  await page.locator(".mini-player").getByRole("button").first().click();
+  const dialog = page.getByRole("dialog", { name: "Now playing" });
+  await dialog.getByRole("button", { name: "Charli xcx", exact: true }).click();
+  await expect(page).toHaveURL(/#\/library\/artist\/artist-1$/);
+});

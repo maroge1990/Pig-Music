@@ -22,6 +22,9 @@ const Organisation = lazy(() =>
 const RemovedMusic = lazy(() =>
   import("./RemovedMusic").then((m) => ({ default: m.RemovedMusic })),
 );
+const DuplicateSongs = lazy(() =>
+  import("./DuplicateSongs").then((m) => ({ default: m.DuplicateSongs })),
+);
 export type DownloadSettings = {
   enabled: boolean;
   profile: string;
@@ -296,6 +299,7 @@ export function ServerLibraryTools({
       <LibraryScan refresh={refresh} />
       <ToolBoundary>
         <Suspense fallback={<p>Loading library tools…</p>}>
+          <DuplicateSongs notify={setToast} />
           <RemovedMusic notify={setToast} />
           <Organisation notify={setToast} />
         </Suspense>

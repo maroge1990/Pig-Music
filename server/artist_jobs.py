@@ -8,6 +8,7 @@ import uuid
 
 from .catalogue import (
     Catalogue,
+    RELEASE_INC,
     edition_rank,
     release_tracks,
     mbid,
@@ -185,7 +186,7 @@ class ArtistJobs:
                 release = await self.catalogue.get(
                     client,
                     "release/" + ranked[0]["id"],
-                    inc="recordings+artist-credits+isrcs",
+                    inc=RELEASE_INC,
                 )
                 tracks = Catalogue(self.store).presence(release_tracks(release))
             # No await between generation validation and queue submission.

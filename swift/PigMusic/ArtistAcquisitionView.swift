@@ -36,6 +36,13 @@ struct ArtistAcquisitionView: View {
       Section {
         Button("Save monitoring settings") { Task { await save(request: false) } }
         Button("Request selected catalogue") { confirm = true }
+          .confirmationDialog("Request all selected releases?", isPresented: $confirm) {
+            Button("Request catalogue") { Task { await save(request: true) } }
+          } message: {
+            Text(
+              "This can create many server downloads. Files already available in the household are shared with your library."
+            )
+          }
         Button("Cancel artist request and monitoring", role: .destructive) {
           Task { await cancel() }
         }
@@ -44,13 +51,6 @@ struct ArtistAcquisitionView: View {
       if loading { ProgressView() }
       if let message { Text(message).font(.footnote) }
     }.pigCanvas().navigationTitle("Artist requests").task { await load() }
-      .confirmationDialog("Request all selected releases?", isPresented: $confirm) {
-        Button("Request catalogue") { Task { await save(request: true) } }
-      } message: {
-        Text(
-          "This can create many server downloads. Files already available in the household are shared with your library."
-        )
-      }
   }
   private func apply(_ value: ArtistAcquisition) {
     state = value

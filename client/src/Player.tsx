@@ -31,7 +31,7 @@ import {
   fromMixTrack,
   fromTrack,
   goToAlbum,
-  goToArtist,
+  goToPlayingArtist,
   songBody,
   type Song,
 } from "./songs";
@@ -723,9 +723,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
                   className="music-text-link"
                   onClick={() => {
                     collapse();
-                    void goToArtist(song.artist, song.artist_id).catch(
-                      () => {},
-                    );
+                    void goToPlayingArtist(song).catch(() => {});
                   }}
                 >
                   {song.artist}

@@ -59,12 +59,13 @@ def test_downloads_group_by_request_and_collapse_repeats(tmp_path, monkeypatch):
                         "UPDATE queue SET status='completed',payload=? WHERE id=?",
                         (json.dumps(payload), key),
                     )
-                if payload["title"] == "Foreword" and payload["duration"] == 200:
+                if payload["title"] == "Somewhere":
                     conn.execute(
                         "UPDATE queue SET status='failed',payload=? WHERE id=?",
                         (json.dumps({**payload, "error": "secret detail"}), key),
                     )
-        assert client.get("/api/v1/requests").json()["total"] == 5
+        # The repeat joined the first request: no second job for it.
+        assert client.get("/api/v1/requests").json()["total"] == 4
         page = client.get("/api/v1/requests/groups")
         assert page.status_code == 200, page.text
         groups = page.json()["groups"]
@@ -72,7 +73,7 @@ def test_downloads_group_by_request_and_collapse_repeats(tmp_path, monkeypatch):
         album = next(g for g in groups if g["kind"] == "album")
         single = next(g for g in groups if g["kind"] == "song")
         assert album["title"] == "Meteora" and album["artist"] == "Linkin Park"
-        assert album["songs"] == 3 and album["done"] == 1 and album["failed"] == 0
+        assert album["songs"] == 3 and album["done"] == 1 and album["failed"] == 1
         assert album["state"] == "waiting"
         assert album["release_id"]
         assert 0 < album["progress"] < 1
@@ -108,7 +109,10 @@ def member_store(tmp_path):
 def test_distinct_editions_stay_distinct_groups(tmp_path):
     store, member = member_store(tmp_path)
     original = [song("Foreword", 1), song("Don't Stay", 2)]
-    deluxe = [{**t, "musicbrainz_release_id": EDITION} for t in original]
+    deluxe = [
+        {**t, "musicbrainz_release_id": EDITION, "explicit_edition": True}
+        for t in original
+    ]
     store.submit_catalogue(original, user_id=member)
     store.submit_catalogue(deluxe, user_id=member)
     mark(

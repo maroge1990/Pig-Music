@@ -24,6 +24,10 @@ def credit(items):
     )
 
 
+# One include set for every release read, so they share one cached answer.
+RELEASE_INC = "recordings+artist-credits+isrcs+release-groups"
+
+
 def release_tracks(release):
     album_artist = credit(release.get("artist-credit", []))
     year = (

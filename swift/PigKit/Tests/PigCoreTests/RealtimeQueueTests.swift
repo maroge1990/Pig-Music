@@ -476,6 +476,34 @@ private func queueRoot() throws -> URL {
   }
 }
 
+@Suite struct UnavailableSongTests {
+  @Test func anUnavailableUpcomingSongIsPassedOverWithoutAGap() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(
+      files: [
+        "a": try queueFixture(root, id: "a", value: 0.2),
+        "c": try queueFixture(root, id: "c", value: 0.6),
+      ], failed: "b")
+    let stream = try await QueuePCMStream(
+      items: [queueTrack("a"), queueTrack("b"), queueTrack("c")],
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    var samples: [Float] = []
+    var markers: [QueueAudioMarker] = []
+    while let block = try await stream.next() {
+      samples += block.pcm.channels[0]
+      markers += block.markers
+    }
+    await stream.close()
+    // "c" follows "a" directly, sample for sample.
+    #expect(markers.map(\.index) == [0, 2])
+    #expect(samples.count == 96000)
+    #expect(abs(samples[48000] - 0.6) < 0.00001)
+    #expect(await sources.acquired == ["a", "b", "c"])
+    #expect(await sources.active.isEmpty)
+  }
+}
+
 @Suite struct RepeatQueueTests {
   @Test func repeatAllKeepsBoundedSourcesAndContinuousFramesAcrossWrap() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

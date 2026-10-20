@@ -150,7 +150,13 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             enrichment.start()
             await asyncio.to_thread(recovery.recover)
             await asyncio.to_thread(organisation.recover)
-            downloader = Downloader(store, runtime=source_runtime)
+            from .editions import EditionResolver
+
+            downloader = Downloader(
+                store,
+                runtime=source_runtime,
+                resolver=EditionResolver(store, music_catalogue, artwork, client),
+            )
             task = asyncio.create_task(downloader.run())
             export_task = asyncio.create_task(exporter.run())
             artist_task = asyncio.create_task(artist_jobs.run(client))
@@ -484,6 +490,21 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
                 409,
                 "Removal stopped; check the library mount and file. Existing recovery data is retained.",
             )
+
+    @app.get("/api/v1/admin/library/duplicates")
+    async def duplicate_songs():
+        from .duplicates import find
+
+        return {"duplicates": await asyncio.to_thread(find, store)}
+
+    class DuplicateRemoval(BaseModel):
+        track_ids: list[str] = Field(min_length=1, max_length=2000)
+
+    @app.post("/api/v1/admin/library/duplicates/remove")
+    async def remove_duplicates(body: DuplicateRemoval):
+        from .duplicates import remove
+
+        return await asyncio.to_thread(remove, store, recovery, body.track_ids)
 
     @app.post("/api/v1/admin/library/trash/{identity}/restore")
     async def restore_song(identity: str):

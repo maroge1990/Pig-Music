@@ -24,7 +24,7 @@ from .media import settings as media_settings, public_settings
 from .quality import policy, actual_profile, rank, PROFILES, satisfies
 from .providers import REGISTRY, supports
 from .storage import file_sha256, library_root
-from .matching import LibraryIndex, exclusion_key, same_song
+from .matching import LibraryIndex, exclusion_key, same_length, same_song, song_key
 
 
 class Store:
@@ -311,6 +311,10 @@ class Store:
         )
         if probe.get("acquisition"):
             metadata["acquisition"] = probe["acquisition"]
+        if self.covers.path(job.get("cover_sha")):
+            metadata["cover_sha"] = job["cover_sha"]
+        if job.get("explicit_edition"):
+            metadata["explicit_edition"] = True
         metadata["_request_id"] = job["id"]
         metadata["_claim_token"] = job.get("claim_token")
         metadata["quality_policy"] = job.get(
@@ -402,6 +406,30 @@ class Store:
         journal.unlink(missing_ok=True)
         self.refresh_library()
         self.cleanup_replacements()
+
+    def fulfil_request(self, job, track_id):
+        """Complete a claimed request with a song the household already has
+        (another edition): its requesters gain that song, nothing downloads."""
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT status,payload FROM queue WHERE id=?", (job["id"],)
+            ).fetchone()
+            if (
+                not row
+                or row[0] != "searching"
+                or json.loads(row[1]).get("claim_token") != job.get("claim_token")
+            ):
+                return False
+            self._grant_request_membership(conn, row[1], track_id)
+            conn.execute(
+                "UPDATE queue SET status='completed',payload=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (
+                    json.dumps({**json.loads(row[1]), "fulfilled_by": track_id}),
+                    job["id"],
+                ),
+            )
+        return True
 
     def _grant_request_membership(self, conn, payload, track_id):
         from .user_library import bump
@@ -1123,8 +1151,13 @@ class Store:
                 payload = {
                     k: v
                     for k, v in track.items()
-                    if k not in {"id", "status", "presence_note"}
+                    if k not in {"id", "status", "presence_note", "explicit_edition"}
                 }
+                if track.get("explicit_edition"):
+                    payload["explicit_edition"] = True
+                else:
+                    # Any edition will do: one request per song.
+                    payload["song_key"] = list(song_key(track))
                 if user_id:
                     payload["requested_by"] = [user_id]
                     payload["request_scope"] = {user_id: scope}
@@ -1144,13 +1177,33 @@ class Store:
                     payload["track_number"],
                     payload["duration"],
                 )
+                same = None
+                if "song_key" in payload:
+                    same = next(
+                        (
+                            row[0]
+                            for row in conn.execute(
+                                "SELECT id,payload FROM queue WHERE status NOT IN "
+                                "('cancelled','failed') AND "
+                                "json_extract(payload,'$.song_key')=json(?) "
+                                "ORDER BY created_at,id",
+                                (json.dumps(payload["song_key"]),),
+                            )
+                            if same_length(json.loads(row[1]), payload)
+                        ),
+                        None,
+                    )
+                    if same:
+                        key = same
                 prior = conn.execute(
                     "SELECT status,payload FROM queue WHERE id=?", (key,)
                 ).fetchone()
-                if prior and json.loads(prior[1]).get("musicbrainz_release_id") not in {
-                    None,
-                    payload.get("musicbrainz_release_id"),
-                }:
+                if (
+                    not same
+                    and prior
+                    and json.loads(prior[1]).get("musicbrainz_release_id")
+                    not in {None, payload.get("musicbrainz_release_id")}
+                ):
                     key = identifier(key, payload["musicbrainz_release_id"])
                     prior = conn.execute(
                         "SELECT status,payload FROM queue WHERE id=?", (key,)

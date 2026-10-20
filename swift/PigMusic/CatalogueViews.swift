@@ -51,11 +51,13 @@ struct CatalogueArtistView: View {
             HStack(spacing: 10) {
               Text("Popular songs").font(.title3.weight(.bold))
               Spacer()
-              PlayCapsule { model.play(popularSongs) }
+              PlayCapsule { model.play(popularSongs, origin: .catalogue(artistId: artistId)) }
             }.padding(.bottom, 6)
             ForEach(Array(popularSongs.prefix(10).enumerated()), id: \.element.id) {
               index, track in
-              SongRow(model: model, track: track) { model.play(popularSongs, at: index) }
+              SongRow(model: model, track: track) {
+                model.play(popularSongs, at: index, origin: .catalogue(artistId: artistId))
+              }
               Divider()
             }
           }
@@ -619,10 +621,10 @@ struct CatalogueReleaseView: View {
             $0.availability != "in_library" && $0.availability != "requested"
           }.map(\.track)
           HStack(spacing: 10) {
-            PlayCapsule { model.play(release.songs.map(\.track)) }
+            PlayCapsule { model.play(release.songs.map(\.track), origin: origin) }
               .disabled(release.songs.isEmpty)
             RoundIcon(label: "Shuffle", systemImage: "shuffle") {
-              model.play(release.songs.map(\.track).shuffled())
+              model.play(release.songs.map(\.track).shuffled(), origin: origin)
             }.disabled(release.songs.isEmpty)
             // The request is shown only by its mark: sending, then the song
             // states (clock = requested), or a warning that retries.
@@ -661,7 +663,7 @@ struct CatalogueReleaseView: View {
         Section {
           ForEach(Array(release.songs.enumerated()), id: \.offset) { index, song in
             SongRow(model: model, track: track(song), number: index + 1) {
-              model.play(release.songs.map(\.track), at: index)
+              model.play(release.songs.map(\.track), at: index, origin: origin)
             }
           }
         }
@@ -688,6 +690,7 @@ struct CatalogueReleaseView: View {
       if let savedAlbumId { savedAlbum = try? await model.store?.album(id: savedAlbumId) }
     }
   }
+  private var origin: PlayOrigin { .catalogue(artistId: release?.artistId) }
   private func request(_ tracks: [Track]) async {
     guard !requesting else { return }
     requesting = true

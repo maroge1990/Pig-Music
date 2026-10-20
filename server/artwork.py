@@ -13,6 +13,7 @@ from PIL import Image, ImageOps
 
 from .catalogue import credit, mbid
 from .library import normalise, identifier
+from .matching import lead_artist, strip_edition, title_key
 
 
 def quoted(value):
@@ -38,6 +39,7 @@ def archive_url(value):
 
 def artwork_title(value):
     # Display-only aliases; never alter file tags or acquisition identity.
+    value = strip_edition(value)
     value = re.sub(
         r"\s*\((?:original\s+)?(?:motion picture|movie|television|video game)\s+(?:soundtrack|score)\)\s*$",
         "",
@@ -83,7 +85,8 @@ class Artwork:
         target = self.target(album)
         if target.exists():
             return target
-        key = "missing-artwork:v4:" + album["id"]
+        # v5: edition-free titles and the song fallback retry every miss.
+        key = "missing-artwork:v5:" + album["id"]
         if self.store.read_document(key).get("retry_after", 0) > time.time():
             return None
         lock = self.locks.setdefault(album["id"], asyncio.Lock())
@@ -108,7 +111,7 @@ class Artwork:
                     else:
                         query = (
                             "releasegroup:"
-                            + quoted(artwork_title(album["title"]))
+                            + quoted(strip_edition(album["title"]))
                             + " AND artistname:"
                             + quoted(album["artist"])
                         )
@@ -133,10 +136,17 @@ class Artwork:
                                 for r in candidates
                                 if (r.get("first-release-date") or "")[:4] == year
                             }
-                        if len(matches) != 1 or data.get("count", 0) > 100:
-                            self.remember_missing(key, 86400)
-                            return None
-                        kind, selected = "release-group", mbid(next(iter(matches)))
+                        if len(matches) == 1 and data.get("count", 0) <= 100:
+                            kind = "release-group"
+                            selected = mbid(next(iter(matches)))
+                        else:
+                            # Its songs name the release: the album's own
+                            # release group, on its recommended edition.
+                            selected = await self.from_songs(client, album)
+                            if not selected:
+                                self.remember_missing(key, 86400)
+                                return None
+                            kind = "release"
                     content = await self.front(client, kind, selected)
                     await asyncio.to_thread(self.save, content, target)
                     return target
@@ -153,6 +163,36 @@ class Artwork:
                 ):
                     self.remember_missing(key, 300)
                 return None
+
+    async def from_songs(self, client, album):
+        """The release of this album that holds its songs, or None."""
+        from .editions import choose
+
+        wanted = title_key(album["title"])
+        for track in album["tracks"][:2]:
+            query = (
+                "recording:"
+                + quoted(strip_edition(track["title"]))
+                + " AND artist:"
+                + quoted(lead_artist(track.get("artist") or album["artist"]))
+            )
+            data = await self.catalogue.get(client, "recording/", query=query, limit=50)
+            recordings = [
+                {
+                    **r,
+                    "releases": [
+                        release
+                        for release in r.get("releases") or []
+                        if title_key((release.get("release-group") or {}).get("title"))
+                        == wanted
+                    ],
+                }
+                for r in data.get("recordings", [])
+            ]
+            chosen = choose(recordings, {**track, "album": album["title"]})
+            if chosen:
+                return mbid(chosen[0]["id"])
+        return None
 
     async def catalogue_cover(self, client, kind, item_id):
         item_id = mbid(item_id)

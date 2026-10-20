@@ -199,6 +199,14 @@ public actor DownloadArchive {
     }
     try persist()
   }
+  /// One transfer goes back to the queue (its network rules changed).
+  public func requeue(id: String) throws {
+    guard let index = records.firstIndex(where: { $0.id == id && $0.state == "downloading" })
+    else { return }
+    records[index].state = "queued"
+    records[index].bytes = 0
+    try persist()
+  }
   public func fail(id: String, message: String) throws {
     guard let index = records.firstIndex(where: { $0.id == id }) else { return }
     records[index].state = "failed"

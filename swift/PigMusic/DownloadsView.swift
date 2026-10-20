@@ -91,7 +91,8 @@ private struct DownloadList: View {
         }
         Text(
           (downloads.allowsCellular
-            ? "Downloads can use Wi-Fi and cellular. " : "Downloads use Wi-Fi. ")
+            ? "Downloads can use Wi-Fi and cellular (not while Low Data Mode is on). "
+            : "Downloads use Wi-Fi. ")
             + "Originals are the default; AAC copies use less storage. Use AAC for originals your device cannot decode. Scheduled file transfers continue in the background. Preparing new downloads and AAC copies resumes when the app opens. Access changes reconcile when you next connect."
         ).font(PigType.footnote)
         if downloads.running || downloads.records.contains(where: { $0.state == "downloading" }) {

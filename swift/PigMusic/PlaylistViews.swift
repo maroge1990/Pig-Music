@@ -228,7 +228,11 @@ struct PlaylistView: View {
             Button("Rename") { Task { await edit(name: name) } }.disabled(
               locked || name.isEmpty || name == playlist.name)
           }
+          // Anchored to its button, so it opens there rather than at the top.
           Button("Delete playlist", role: .destructive) { deleting = true }.disabled(locked)
+            .confirmationDialog("Delete \(playlist.name)?", isPresented: $deleting) {
+              Button("Delete playlist", role: .destructive) { Task { await delete() } }
+            }
         }
       }
     }.pigCanvas().navigationTitle(playlist.name)
@@ -244,9 +248,6 @@ struct PlaylistView: View {
         guard reload else { return }
         reloadAfterEdit = false
         Task { await load() }
-      }
-      .confirmationDialog("Delete \(playlist.name)?", isPresented: $deleting) {
-        Button("Delete playlist", role: .destructive) { Task { await delete() } }
       }
   }
   private func load() async {

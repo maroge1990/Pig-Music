@@ -172,7 +172,11 @@ def test_saved_presence_and_same_title_different_editions(tmp_path):
     store = Store(tmp_path)
     catalogue = Catalogue(store)
     assert catalogue.presence([dict(track)])[0]["status"] == "downloaded"
+    # Another edition of the same song is already in the library ...
     other = {**track, "musicbrainz_release_id": OTHER}
+    assert catalogue.presence([dict(other)])[0]["status"] == "downloaded"
+    # ... unless that edition was explicitly chosen.
+    other["explicit_edition"] = True
     assert catalogue.presence([other])[0]["status"] == "review"
     first = {**track, "status": "missing"}
     assert store.submit_catalogue([first])["created"] == 1

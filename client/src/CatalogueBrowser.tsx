@@ -45,6 +45,7 @@ function releaseSongs(release: Release, artistId: string): Row[] {
     track_id: t.id,
     recording_id: t.musicbrainz_recording_id,
     artist_id: artistId,
+    explicit_edition: t.explicit_edition,
   }));
 }
 
@@ -81,6 +82,8 @@ type Song = {
   received_bytes?: number;
   total_bytes?: number;
   musicbrainz_recording_id?: string;
+  /** On an edition other than the recommended one: requests keep it. */
+  explicit_edition?: boolean;
 };
 type Release = {
   id: string;

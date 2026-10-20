@@ -355,6 +355,8 @@ class CatalogueEditionsDTO(BaseModel):
 
 class CatalogueTrackDTO(TrackDTO):
     id: str
+    # True on an edition other than the recommended one: a request keeps it.
+    explicit_edition: bool = False
     # Only populated for a file in the caller's personal library.
     saved_track: TrackDTO | None = None
     household_track: TrackDTO | None = None

@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from ..artist_identity import Ambiguous, resolve_artist
 from ..releases import release_query
-from ..catalogue import mbid
+from ..catalogue import RELEASE_INC, mbid
 from ..artwork import quoted
 from ..media import public_settings, save_settings
 from ..portraits import portrait_target
@@ -229,9 +229,7 @@ def catalogue_router(
         return await image_response(target, w)
 
     async def release_data(release_id):
-        return await metadata(
-            "release/" + valid_id(release_id), inc="recordings+artist-credits+isrcs"
-        )
+        return await metadata("release/" + valid_id(release_id), inc=RELEASE_INC)
 
     class CatalogueRequest(BaseModel):
         track_ids: list[str] | None = Field(default=None, max_length=500)

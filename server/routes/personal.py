@@ -64,6 +64,8 @@ class TrackInput(BaseModel):
     musicbrainz_release_id: str | None = Field(default=None, max_length=36)
     musicbrainz_recording_id: str | None = Field(default=None, max_length=36)
     isrcs: list[str] = Field(default_factory=list, max_length=50)
+    # Chosen from "Other versions": only this edition will do.
+    explicit_edition: bool = False
 
 
 class Tracks(BaseModel):

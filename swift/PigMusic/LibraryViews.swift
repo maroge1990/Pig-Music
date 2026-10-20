@@ -484,6 +484,8 @@ struct MiniPlayer: View {
 
 struct NowPlayingView: View {
   @Bindable var model: AppModel
+  /// Opens the playing song's artist where playback started (library or catalogue).
+  var openArtist: (ArtistRoute) -> Void = { _ in }
   private var player: PlayerController { model.player }
   @Environment(\.dismiss) private var dismiss
   @Environment(\.colorScheme) private var scheme
@@ -520,7 +522,17 @@ struct NowPlayingView: View {
   private var titles: some View {
     VStack(spacing: 4) {
       Text(current?.title ?? "").font(.title2.weight(.bold)).multilineTextAlignment(.center)
-      Text(current?.artist ?? "").font(.headline).foregroundStyle(PigBrand.textAccent(scheme))
+      Button {
+        if let current {
+          openArtist(ArtistRoute(track: current, origin: model.playOrigin))
+          dismiss()
+        }
+      } label: {
+        Text(current?.artist ?? "").font(.headline)
+          .foregroundStyle(PigBrand.textAccent(scheme))
+      }
+      .buttonStyle(.plain).disabled(current == nil)
+      .accessibilityHint("Opens the artist")
     }
   }
   private var progress: some View {
@@ -713,6 +725,57 @@ private struct LibrarySortPicker: View {
     case .title: "Title A–Z"
     case .titleDescending: "Title Z–A"
     case .artist: "Artist, then title"
+    }
+  }
+}
+
+/// The artist page the player's artist link opens.
+struct ArtistRoute: Identifiable, Hashable {
+  let id = UUID()
+  /// Names to look for in the library, most specific first.
+  let names: [String]
+  let origin: PlayOrigin
+  init(track: Track, origin: PlayOrigin) {
+    var names = [track.artist]
+    if let albumArtist = track.albumArtist, !albumArtist.isEmpty, albumArtist != track.artist {
+      names.append(albumArtist)
+    }
+    self.names = names
+    self.origin = origin
+  }
+}
+
+/// Library playback opens the library artist page; catalogue playback opens the
+/// full artist page (by the page's catalogue ID, else the library artist's).
+struct ArtistRouteView: View {
+  let model: AppModel
+  let route: ArtistRoute
+  @State private var artist: Artist?
+  @State private var searched = false
+  var body: some View {
+    if case .catalogue(let id?) = route.origin {
+      CatalogueArtistView(model: model, artistId: id, name: route.names[0])
+    } else if let artist {
+      if route.origin == .library {
+        SavedArtistView(model: model, artist: artist)
+      } else {
+        SearchArtistView(model: model, artist: artist)
+      }
+    } else if searched {
+      ContentUnavailableView(
+        route.names[0], systemImage: "music.mic",
+        description: Text("This artist isn't in your library yet. Search to find them."))
+    } else {
+      ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).pigCanvas()
+        .task {
+          for name in route.names {
+            if let found = await model.savedArtist(name: name) {
+              artist = found
+              break
+            }
+          }
+          searched = true
+        }
     }
   }
 }

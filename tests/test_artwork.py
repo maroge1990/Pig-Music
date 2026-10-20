@@ -188,9 +188,9 @@ def test_ambiguous_or_wrong_artist_does_not_fetch_cover(tmp_path):
         url = client.get("/api/v1/admin/library").json()["albums"][0]["cover_url"]
         assert settled_get(client, app, url).status_code == 404
         assert client.get(url).status_code == 404
-        assert (
-            len(calls) == 1
-        )  # Missing matches are cached rather than retried per tile.
+        # One album search, one look-up of its song; then the miss is cached
+        # rather than retried per tile.
+        assert len(calls) == 2
         app.state.http = original_client
 
 

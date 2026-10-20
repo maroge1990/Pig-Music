@@ -29,6 +29,10 @@ public actor QueuePCMStream {
   private let repeatMode: PlaybackRepeat
   private var cycle = 0
   private var upcomingOccurrence: PlaybackOccurrence?
+  /// The queue position being prepared to follow; unavailable songs are passed over.
+  private var upcomingIndex: Int?
+  /// Upcoming songs passed over since the current one started.
+  private var passedOver = 0
   private let crossfade: Bool
   private let fadeSeconds: Double
   private var index: Int
@@ -95,13 +99,29 @@ public actor QueuePCMStream {
     }
   }
 
-  private var nextIndex: Int? {
-    if repeatMode == .one { return index }
-    if index + 1 < items.count { return index + 1 }
+  private func following(_ position: Int) -> Int? {
+    if repeatMode == .one { return position }
+    if position + 1 < items.count { return position + 1 }
     return repeatMode == .all ? 0 : nil
   }
   private func configureUpcoming() {
+    passedOver = 0
+    prepare(following(index))
+  }
+  /// The upcoming song couldn't be prepared (not on this device or the server):
+  /// prepare the one after it while the current song still plays, so the gap
+  /// is never heard. Gives up once every other song has been tried.
+  private func passOver(_ error: Error) -> Bool {
+    guard repeatMode != .one, let failed = upcomingIndex, passedOver + 1 < items.count,
+      let candidate = following(failed), candidate != index
+    else { return false }
+    passedOver += 1
+    prepare(candidate)
+    return true
+  }
+  private func prepare(_ nextIndex: Int?) {
     holdFrames = 0
+    upcomingIndex = nextIndex
     guard let nextIndex else {
       upcomingOccurrence = nil
       return
@@ -137,7 +157,7 @@ public actor QueuePCMStream {
           ended = true
         }
       }
-      guard let followingIndex = nextIndex else {
+      guard let followingIndex = upcomingIndex else {
         if tail.count > 0 { return emit(tail.pop(min(blockFrames, tail.count))) }
         return nil
       }
@@ -156,7 +176,7 @@ public actor QueuePCMStream {
           }
         } catch {
           try Task.checkCancellation()
-          sourceFailure = error
+          if !passOver(error) { sourceFailure = error }
           continue
         }
         // close() also awaits this task; ownership remains here only while the stream is open.
@@ -166,7 +186,10 @@ public actor QueuePCMStream {
         try Task.checkCancellation()
         let next: PCMFileDecoder
         do { next = try PCMFileDecoder(url: source.file, format: format) } catch {
-          sourceFailure = error
+          self.upcoming = nil
+          incomingLease = nil
+          await release(source)
+          if !passOver(error) { sourceFailure = error }
           continue
         }
         incomingDecoder = next
