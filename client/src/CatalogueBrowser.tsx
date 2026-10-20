@@ -46,6 +46,7 @@ function releaseSongs(release: Release, artistId: string): Row[] {
     recording_id: t.musicbrainz_recording_id,
     artist_id: artistId,
     explicit_edition: t.explicit_edition,
+    recording_kind: t.recording_kind,
   }));
 }
 
@@ -84,6 +85,8 @@ type Song = {
   musicbrainz_recording_id?: string;
   /** On an edition other than the recommended one: requests keep it. */
   explicit_edition?: boolean;
+  /** A Live, Remix or Demo release's songs are those recordings. */
+  recording_kind?: string[];
 };
 type Release = {
   id: string;

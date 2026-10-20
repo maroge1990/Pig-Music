@@ -16,6 +16,7 @@ private actor HomeTransport: ClientTransport {
   let status: Int
   let json: String
   var paths: [String] = []
+  var bodies: [Data] = []
   init(status: Int = 200, json: String) {
     self.status = status
     self.json = json
@@ -24,6 +25,7 @@ private actor HomeTransport: ClientTransport {
     -> (HTTPResponse, HTTPBody?)
   {
     paths.append(request.path ?? "")
+    if let body { bodies.append(try await Data(collecting: body, upTo: 1_000_000)) }
     var response = HTTPResponse(status: .init(code: status))
     response.headerFields[.contentType] = "application/json"
     return (response, HTTPBody(json))
@@ -171,6 +173,23 @@ struct CatalogueContractTests {
     #expect(release.songs[0].track.trackNumber == 2)
     #expect(release.songs[1].availability == "requested")
     #expect(release.songs[1].track.serverState == "not_in_library")
+  }
+  @Test func aLiveReleaseTypeTravelsFromTheCatalogueToTheRequest() async throws {
+    let release = try await service(
+      #"{"id":"release","title":"Concert Night","artist":"Artist","tracks":[{"id":"t1","title":"Song","artist":"Artist","duration":200,"track_number":1,"disc_number":1,"musicbrainz_release_id":"release","server_state":"not_in_library","recording_kind":["live"],"saved_track":null}]}"#
+    ).catalogueRelease(releaseId: "release")
+    let track = release.songs[0].track
+    #expect(track.recordingKind == ["live"])
+    let transport = HomeTransport(
+      json: #"{"created":1,"existing":0,"skipped":0,"downloads_enabled":true}"#)
+    let origin = URL(string: "https://fixture.invalid")!
+    _ = try await NativeService(
+      server: origin, client: Client(serverURL: origin, transport: transport), vault: HomeTokens()
+    ).requestMusic([track])
+    let sent = try #require(await transport.bodies.first)
+    let body = try JSONSerialization.jsonObject(with: sent) as? [String: Any]
+    let tracks = try #require(body?["tracks"] as? [[String: Any]])
+    #expect(tracks[0]["recording_kind"] as? [String] == ["live"])
   }
   @Test func groupsAndEditionsPreservePagingAndEditionMetadata() async throws {
     let groups = try await service(

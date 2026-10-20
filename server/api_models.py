@@ -357,6 +357,8 @@ class CatalogueTrackDTO(TrackDTO):
     id: str
     # True on an edition other than the recommended one: a request keeps it.
     explicit_edition: bool = False
+    # Other recordings than the studio ones (a Live, Remix or Demo release).
+    recording_kind: list[str] = Field(default_factory=list)
     # Only populated for a file in the caller's personal library.
     saved_track: TrackDTO | None = None
     household_track: TrackDTO | None = None

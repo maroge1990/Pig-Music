@@ -28,8 +28,33 @@ def credit(items):
 RELEASE_INC = "recordings+artist-credits+isrcs+release-groups"
 
 
+# Release-group types that make its songs other recordings (`recording_kind`).
+RELEASE_KINDS = {"Live": "live", "Remix": "remix", "DJ-mix": "remix", "Demo": "demo"}
+
+
+def group_kinds(group):
+    """Recording kinds a release group's secondary types name (a Live album)."""
+    return frozenset(
+        RELEASE_KINDS[t]
+        for t in (group or {}).get("secondary-types") or []
+        if t in RELEASE_KINDS
+    )
+
+
+def cached_release_kind(store, release_id):
+    """The recording kinds of a release this server has already read (its
+    catalogue page), or None when it has not: requests from clients that do
+    not send `recording_kind` are reconstructed from it."""
+    key = "catalogue:release/" + str(release_id) + repr([("inc", RELEASE_INC)])
+    cached = store.read_document(key)
+    if not cached or "release-group" not in (cached.get("data") or {}):
+        return None
+    return sorted(group_kinds(cached["data"]["release-group"]))
+
+
 def release_tracks(release):
     album_artist = credit(release.get("artist-credit", []))
+    kinds = sorted(group_kinds(release.get("release-group")))
     year = (
         int(release.get("date", "")[:4]) if release.get("date", "")[:4].isdigit() else 0
     )
@@ -56,6 +81,7 @@ def release_tracks(release):
                     "musicbrainz_release_id": release["id"],
                     "musicbrainz_recording_id": recording.get("id"),
                     "isrcs": recording.get("isrcs", []),
+                    "recording_kind": kinds,
                 }
             )
     return tracks

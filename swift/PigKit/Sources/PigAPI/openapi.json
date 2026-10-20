@@ -1083,6 +1083,13 @@
             "title": "Musicbrainz Release Id",
             "type": "string"
           },
+          "recording_kind": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Recording Kind",
+            "type": "array"
+          },
           "request_progress": {
             "nullable": true,
             "title": "Request Progress",
@@ -1816,11 +1823,27 @@
             "title": "Artist",
             "type": "string"
           },
+          "duration": {
+            "default": 0,
+            "maximum": 86400.0,
+            "minimum": 0.0,
+            "title": "Duration",
+            "type": "number"
+          },
           "musicbrainz_recording_id": {
             "maxLength": 36,
             "nullable": true,
             "title": "Musicbrainz Recording Id",
             "type": "string"
+          },
+          "recording_kind": {
+            "items": {
+              "pattern": "^(live|remix|demo|unplugged|acoustic|karaoke|session|instrumental)$",
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Recording Kind",
+            "type": "array"
           },
           "title": {
             "maxLength": 500,
@@ -3915,6 +3938,15 @@
             "nullable": true,
             "title": "Musicbrainz Release Id",
             "type": "string"
+          },
+          "recording_kind": {
+            "items": {
+              "pattern": "^(live|remix|demo|unplugged|acoustic|karaoke|session|instrumental)$",
+              "type": "string"
+            },
+            "maxItems": 8,
+            "title": "Recording Kind",
+            "type": "array"
           },
           "title": {
             "maxLength": 500,

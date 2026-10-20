@@ -38,7 +38,17 @@ public actor QueuePCMStream {
   private var index: Int
   private var lease: PreparedAudioSource?
   private var decoder: PCMFileDecoder?
-  private var upcoming: Task<PreparedAudioSource, Error>?
+  /// The song that follows, as one value: which queue position and occurrence
+  /// the prepared source belongs to. Passing over a failed song changes the
+  /// choice during preparation, so the transition must use these together.
+  private struct Upcoming: Sendable {
+    let index: Int
+    let occurrence: PlaybackOccurrence
+    let source: PreparedAudioSource
+  }
+  private var upcoming: Task<Upcoming, Error>?
+  /// The prepared following song, from when its source arrives until it plays.
+  private var incoming: (index: Int, occurrence: PlaybackOccurrence)?
   private var incomingLease: PreparedAudioSource?
   private var incomingDecoder: PCMFileDecoder?
   private var tail: FrameRing
@@ -129,11 +139,14 @@ public actor QueuePCMStream {
   /// The upcoming song's source. A failure moves straight on to the next
   /// viable song while the current one keeps playing, so the gap is never
   /// heard; only when none is left does the failure reach the transition.
-  private func acquireViable() async throws -> PreparedAudioSource {
+  private func acquireViable() async throws -> Upcoming {
     while true {
-      guard let occurrence = upcomingOccurrence else { throw AudioPipelineFailure.stalled }
+      guard let position = upcomingIndex, let occurrence = upcomingOccurrence else {
+        throw AudioPipelineFailure.stalled
+      }
       do {
-        return try await acquire(occurrence)
+        let source = try await acquire(occurrence)
+        return Upcoming(index: position, occurrence: occurrence, source: source)
       } catch {
         try Task.checkCancellation()
         guard passOver() else { throw error }
@@ -176,7 +189,7 @@ public actor QueuePCMStream {
           ended = true
         }
       }
-      guard let followingIndex = upcomingIndex else {
+      guard upcomingIndex != nil || incoming != nil else {
         if tail.count > 0 { return emit(tail.pop(min(blockFrames, tail.count))) }
         return nil
       }
@@ -186,9 +199,9 @@ public actor QueuePCMStream {
       }
       if !transitionReady {
         guard let upcoming else { throw AudioPipelineFailure.stalled }
-        let source: PreparedAudioSource
+        let prepared: Upcoming
         do {
-          source = try await withTaskCancellationHandler {
+          prepared = try await withTaskCancellationHandler {
             try await upcoming.value
           } onCancel: {
             upcoming.cancel()
@@ -202,12 +215,15 @@ public actor QueuePCMStream {
         // close() also awaits this task; ownership remains here only while the stream is open.
         guard !closed else { throw CancellationError() }
         self.upcoming = nil
+        let source = prepared.source
         incomingLease = source
+        incoming = (prepared.index, prepared.occurrence)
         try Task.checkCancellation()
         let next: PCMFileDecoder
         do { next = try PCMFileDecoder(url: source.file, format: format) } catch {
           self.upcoming = nil
           incomingLease = nil
+          incoming = nil
           await release(source)
           if passOver() {
             self.upcoming = Task { try await self.acquireViable() }
@@ -231,14 +247,15 @@ public actor QueuePCMStream {
           sourceFailure = error
           continue
         }
+        guard let incoming else { throw AudioPipelineFailure.stalled }
         overlap = min(tail.count, head.count)
         prefix = tail.count - overlap
         let origin = outputFrames + Int64(prefix)
         pendingMarkers.append(
           QueueAudioMarker(
-            index: followingIndex,
+            index: incoming.index,
             switchFrame: origin + Int64(overlap / 2), originFrame: origin,
-            durationFrames: next.expectedFrames, occurrenceID: upcomingOccurrence?.id))
+            durationFrames: next.expectedFrames, occurrenceID: incoming.occurrence.id))
         transitionReady = true
       }
       if prefix > 0 {
@@ -261,6 +278,8 @@ public actor QueuePCMStream {
         mixed += count
         return emit(outgoing)
       }
+      guard let followingIndex = incoming?.index else { throw AudioPipelineFailure.stalled }
+      incoming = nil
       let old = lease
       lease = incomingLease
       decoder = incomingDecoder
@@ -303,6 +322,6 @@ public actor QueuePCMStream {
       self.incomingLease = nil
       await release(incomingLease)
     }
-    if let pending, let source = try? await pending.value { await release(source) }
+    if let pending, let prepared = try? await pending.value { await release(prepared.source) }
   }
 }

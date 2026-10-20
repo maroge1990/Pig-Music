@@ -191,3 +191,112 @@ test("a member is told the owner links an ambiguous artist", async ({
     0,
   );
 });
+
+test("a live release's songs are requested as live recordings", async ({
+  page,
+}) => {
+  let looked: unknown;
+  let requested: unknown;
+  const live = {
+    id: "t-live",
+    title: "Von dutch",
+    artist: artist.name,
+    duration: 180,
+    track_number: 1,
+    disc_number: 1,
+    musicbrainz_release_id: "r-live",
+    server_state: "not_in_library",
+    recording_kind: ["live"],
+    saved_track: null,
+  };
+  await mockApi(page, {
+    answers: {
+      [`/v1/artists/${artist.id}`]: (route) =>
+        route.fulfill({
+          json: {
+            ...artist,
+            albums: [album],
+            tracks: [],
+            compilation_tracks: [],
+          },
+        }),
+      [`/v1/catalogue/library-artists/${artist.id}`]: (route) =>
+        route.fulfill({ json: { id: "mb-1", name: artist.name } }),
+      "/v1/catalogue/artists/mb-1/releases": (route) =>
+        route.fulfill({
+          json: {
+            total: 1,
+            offset: 0,
+            releases: [
+              {
+                id: "g-live",
+                title: "Concert Night",
+                date: "2025",
+                type: "Album",
+              },
+            ],
+          },
+        }),
+      "/v1/catalogue/groups/g-live/editions": (route) =>
+        route.fulfill({
+          json: {
+            total: 1,
+            offset: 0,
+            editions: [
+              {
+                id: "r-live",
+                title: "Concert Night",
+                date: "2025",
+                country: "",
+                description: "",
+                status: "Official",
+                formats: ["Digital Media"],
+                track_count: 1,
+              },
+            ],
+          },
+        }),
+      "/v1/catalogue/releases/r-live": (route) =>
+        route.fulfill({
+          json: {
+            id: "r-live",
+            title: "Concert Night",
+            artist: artist.name,
+            artist_id: "mb-1",
+            tracks: [live],
+          },
+        }),
+      // The studio "Von dutch" is in the library: the lookup must be told
+      // this one is live (the server then finds no match).
+      "/v1/library/lookup": (route) => {
+        looked = route.request().postDataJSON();
+        return route.fulfill({ json: { tracks: [null] } });
+      },
+      "/v1/requests": (route) => {
+        requested = route.request().postDataJSON();
+        return route.fulfill({
+          json: {
+            created: 1,
+            existing: 0,
+            skipped: 0,
+            downloads_enabled: true,
+          },
+        });
+      },
+    },
+  });
+  await page.goto(`/#/library/artist/${artist.id}`);
+  await page
+    .getByRole("button", { name: `Find more by ${artist.name}` })
+    .click();
+  await page.getByRole("button", { name: /Concert Night/ }).click();
+  await expect.poll(() => looked).toBeTruthy();
+  expect(looked).toMatchObject({
+    songs: [{ title: "Von dutch", duration: 180, recording_kind: ["live"] }],
+  });
+  await page.getByRole("button", { name: "Download album" }).click();
+  await expect.poll(() => requested).toBeTruthy();
+  expect(requested).toMatchObject({
+    tracks: [{ title: "Von dutch", recording_kind: ["live"] }],
+  });
+});

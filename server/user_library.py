@@ -759,25 +759,41 @@ class UserLibrary:
 
         A recording ID is decisive; otherwise title and artist must both match.
         """
+        from .matching import compatible
+
         data = self.projection(user_id)
         cached = self.lookup_cache.get(user_id)
         if not cached or cached[0] != data["revision"]:
-            recordings, names = {}, {}
+            albums = {a["id"]: a.get("title") for a in data["albums"]}
+            recordings, names = {}, defaultdict(list)
             for track in data["tracks"]:
                 if track.get("available", True) is False:
                     continue
                 if track.get("musicbrainz_recording_id"):
                     recordings.setdefault(track["musicbrainz_recording_id"], track)
-                names.setdefault(
-                    (normalise(track["title"]), normalise(track["artist"])), track
+                # Compared as filed: a "Live at ..." album is a live recording.
+                filed = {**track, "album": albums.get(track.get("album_id"))}
+                names[(normalise(track["title"]), normalise(track["artist"]))].append(
+                    (filed, track)
                 )
             cached = (data["revision"], recordings, names)
             self.lookup_cache[user_id] = cached
         _, recordings, names = cached
         found = []
         for song in songs:
-            track = recordings.get(song.get("musicbrainz_recording_id") or "") or (
-                names.get((normalise(song["title"]), normalise(song["artist"])))
+            # The shared policy: a live (remix, demo) song is not the studio one.
+            track = recordings.get(song.get("musicbrainz_recording_id") or "") or next(
+                (
+                    track
+                    for filed, track in names.get(
+                        (normalise(song["title"]), normalise(song["artist"])), ()
+                    )
+                    if compatible(
+                        {**song, "musicbrainz_recording_id": None},
+                        {**filed, "musicbrainz_recording_id": None},
+                    )
+                ),
+                None,
             )
             found.append(track_dto(track) if track else None)
         return found
@@ -1052,8 +1068,18 @@ class UserLibrary:
         }
 
     def request(self, user_id, tracks):
+        from .catalogue import cached_release_kind
+
         prepared = []
         for track in tracks:
+            if not track.get("recording_kind") and track.get("musicbrainz_release_id"):
+                # Older clients do not send the release type: the release
+                # page this server served has it.
+                kinds = cached_release_kind(self.store, track["musicbrainz_release_id"])
+                if kinds:
+                    track = {**track, "recording_kind": kinds}
+            if not track.get("recording_kind"):
+                track = {k: v for k, v in track.items() if k != "recording_kind"}
             result = self.store.index.match(track)
             prepared.append({**track, "status": result.status})
         return self.store.submit_catalogue(prepared, user_id=user_id)

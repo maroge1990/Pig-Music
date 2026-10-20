@@ -2,7 +2,7 @@
 
 import asyncio
 import os
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response, Query
 from fastapi.responses import JSONResponse
@@ -52,6 +52,14 @@ from ..personal_removal import PersonalRemoval, RemovalChanged
 from ..household_policy import HouseholdPolicy
 
 
+RecordingKind = Annotated[
+    str,
+    Field(
+        pattern="^(live|remix|demo|unplugged|acoustic|karaoke|session|instrumental)$"
+    ),
+]
+
+
 class TrackInput(BaseModel):
     title: str = Field(min_length=1, max_length=500)
     artist: str = Field(min_length=1, max_length=500)
@@ -66,6 +74,8 @@ class TrackInput(BaseModel):
     isrcs: list[str] = Field(default_factory=list, max_length=50)
     # Chosen from "Other versions": only this edition will do.
     explicit_edition: bool = False
+    # From the release type: a live/remix/demo recording, not the studio one.
+    recording_kind: list[RecordingKind] = Field(default_factory=list, max_length=8)
 
 
 class Tracks(BaseModel):
@@ -76,6 +86,8 @@ class LookupSong(BaseModel):
     title: str = Field(min_length=1, max_length=500)
     artist: str = Field(min_length=1, max_length=500)
     musicbrainz_recording_id: str | None = Field(default=None, max_length=36)
+    duration: float = Field(default=0, ge=0, le=86400)
+    recording_kind: list[RecordingKind] = Field(default_factory=list, max_length=8)
 
 
 class Lookup(BaseModel):

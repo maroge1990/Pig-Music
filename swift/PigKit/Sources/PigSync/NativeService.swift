@@ -273,6 +273,7 @@ public actor NativeService: LibrarySource {
         track.trackNumber = item.track_number
         track.discNumber = item.disc_number
         track.explicitEdition = item.explicit_edition == true ? true : nil
+        track.recordingKind = item.recording_kind?.isEmpty == false ? item.recording_kind : nil
         return CatalogueSong(
           id: item.id, track: track, availability: item.server_state?.rawValue ?? "not_in_library")
       }
@@ -322,6 +323,7 @@ public actor NativeService: LibrarySource {
       explicit_edition: track.explicitEdition,
       musicbrainz_recording_id: track.musicbrainzRecordingId,
       musicbrainz_release_id: track.musicbrainzReleaseId,
+      recording_kind: track.recordingKind,
       title: track.title, track_number: track.trackNumber, year: track.year?.text)
   }
   public func favourite(_ track: Track, value: Bool? = nil) async throws -> Bool {

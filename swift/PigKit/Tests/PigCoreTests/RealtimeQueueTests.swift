@@ -12,13 +12,16 @@ private actor QueueSources {
   var acquired: [String] = []
   var failed: Set<String>
   var delayed: String?
+  /// Songs whose preparation takes a while and then fails.
+  var slowFailures: Set<String> = []
   var gate: CheckedContinuation<Void, Never>?
   var gated = false
   var entered = false
   init(
     files: [String: URL], gated: Bool = false, failed: String? = nil,
-    failing: Set<String> = [], delayed: String? = nil
+    failing: Set<String> = [], delayed: String? = nil, slowFailures: Set<String> = []
   ) {
+    self.slowFailures = slowFailures
     self.files = files
     self.gated = gated
     self.failed = failing.union(failed.map { [$0] } ?? [])
@@ -34,6 +37,10 @@ private actor QueueSources {
     if item.track.id == delayed {
       entered = true
       try await Task.sleep(for: .seconds(30))
+    }
+    if slowFailures.contains(item.track.id) {
+      try await Task.sleep(for: .milliseconds(200))
+      throw AudioSourceFailure.unavailable
     }
     try Task.checkCancellation()
     if failed.contains(item.track.id) { throw AudioSourceFailure.unavailable }
@@ -564,6 +571,113 @@ private func queueRoot() throws -> URL {
     while markers.count < 3, let block = try await stream.next() { markers += block.markers }
     await stream.close()
     #expect(markers.map(\.index) == [1, 0, 1])
+    #expect(await sources.active.isEmpty)
+  }
+  /// Reads the whole stream at once, so the current song ends before the
+  /// upcoming one fails: the replacement must play once, at its own position.
+  private func drain(_ stream: QueuePCMStream, limit: Int = .max) async throws -> (
+    markers: [QueueAudioMarker], frames: Int, samples: [Float]
+  ) {
+    var markers: [QueueAudioMarker] = []
+    var samples: [Float] = []
+    while markers.count < limit, let block = try await stream.next() {
+      markers += block.markers
+      samples += block.pcm.channels[0]
+    }
+    return (markers, samples.count, samples)
+  }
+  @Test func aLateFailurePlaysTheReplacementOnce() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(
+      files: [
+        "a": try queueFixture(root, id: "a", value: 0.2, frames: 256),
+        "c": try queueFixture(root, id: "c", value: 0.6, frames: 256),
+      ], slowFailures: ["b"])
+    let stream = try await QueuePCMStream(
+      items: [queueTrack("a"), queueTrack("b"), queueTrack("c")], blockFrames: 256,
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    let result = try await drain(stream)
+    await stream.close()
+    #expect(result.markers.map(\.index) == [0, 2])
+    #expect(result.frames == 512)
+    #expect(await sources.acquired == ["a", "b", "c"])
+    #expect(await sources.active.isEmpty)
+  }
+  @Test func severalLateFailuresInARowAreAllPassedOver() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(
+      files: [
+        "a": try queueFixture(root, id: "a", value: 0.2, frames: 256),
+        "d": try queueFixture(root, id: "d", value: 0.8, frames: 256),
+      ], slowFailures: ["b", "c"])
+    let stream = try await QueuePCMStream(
+      items: [queueTrack("a"), queueTrack("b"), queueTrack("c"), queueTrack("d")],
+      blockFrames: 256,
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    let result = try await drain(stream)
+    await stream.close()
+    #expect(result.markers.map(\.index) == [0, 3])
+    #expect(result.markers.map(\.occurrenceID).allSatisfy { $0 != nil })
+    #expect(result.frames == 512)
+    #expect(await sources.active.isEmpty)
+  }
+  @Test func aLateFailureAcrossTheRepeatWrapKeepsPositions() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(
+      files: [
+        "a": try queueFixture(root, id: "a", value: 0.2, frames: 256),
+        "b": try queueFixture(root, id: "b", value: 0.4, frames: 256),
+      ], slowFailures: ["c"])
+    let stream = try await QueuePCMStream(
+      items: [queueTrack("a"), queueTrack("b"), queueTrack("c")], startingAt: 1,
+      repeatMode: .all, blockFrames: 256,
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    let result = try await drain(stream, limit: 3)
+    await stream.close()
+    #expect(result.markers.map(\.index) == [1, 0, 1])
+    #expect(result.frames == 768)
+    #expect(await sources.active.isEmpty)
+  }
+  @Test func aLateFailureCrossfadesIntoTheReplacement() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(
+      files: [
+        "a": try queueFixture(root, id: "a", value: 0.2),
+        "c": try queueFixture(root, id: "c", value: 0.6),
+      ], slowFailures: ["b"])
+    let stream = try await QueuePCMStream(
+      items: [queueTrack("a"), queueTrack("b"), queueTrack("c")], crossfade: true,
+      fadeSeconds: 0.25,
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    let result = try await drain(stream)
+    await stream.close()
+    #expect(result.markers.map(\.index) == [0, 2])
+    #expect(result.markers.map(\.originFrame) == [0, 36000])
+    #expect(result.markers.map(\.switchFrame) == [0, 42000])
+    #expect(result.frames == 84000)
+    #expect(abs(result.samples[83999] - 0.6) < 0.00001)
+    #expect(await sources.active.isEmpty)
+  }
+  @Test func closingWhileWaitingOnALateReplacementReleasesEverything() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(
+      files: ["a": try queueFixture(root, id: "a", value: 0.2, frames: 256)],
+      delayed: "c", slowFailures: ["b"])
+    let stream = try await QueuePCMStream(
+      items: [queueTrack("a"), queueTrack("b"), queueTrack("c")], blockFrames: 256,
+      acquire: { try await sources.get($0) }, release: { await sources.release($0) })
+    let reader = Task { try await drain(stream) }
+    try await eventually { await sources.entered }
+    let started = ContinuousClock.now
+    await stream.close()
+    #expect(ContinuousClock.now - started < .seconds(2))
+    await #expect(throws: (any Error).self) { _ = try await reader.value }
+    #expect(await sources.acquired == ["a", "b", "c"])
     #expect(await sources.active.isEmpty)
   }
   @Test func repeatAllWithNothingElsePlayableEndsAfterTheCurrentSong() async throws {

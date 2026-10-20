@@ -28,6 +28,8 @@ export type Song = {
   recording_id?: string;
   /** Chosen from Other versions: only this edition will do. */
   explicit_edition?: boolean;
+  /** From the release type: a live, remix or demo recording. */
+  recording_kind?: string[];
   /** Catalogue artist, so "Go to artist" skips a name search. */
   artist_id?: string;
   /** Prepared mix entry resolved against the server's validated files. */
@@ -111,6 +113,7 @@ export function songBody(s: Song) {
     musicbrainz_release_id: s.release_id,
     musicbrainz_recording_id: s.recording_id,
     explicit_edition: !!s.explicit_edition,
+    recording_kind: s.recording_kind || [],
   };
 }
 
@@ -136,6 +139,8 @@ export async function withLibrary(songs: Song[]): Promise<Song[]> {
         title: s.title,
         artist: s.artist,
         musicbrainz_recording_id: s.recording_id,
+        duration: s.duration || 0,
+        recording_kind: s.recording_kind || [],
       })),
     }),
   });

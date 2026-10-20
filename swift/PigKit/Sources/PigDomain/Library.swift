@@ -21,6 +21,8 @@ public struct Track: Codable, Sendable, Identifiable, Hashable {
   public var libraryTrackId: String?
   /// On a catalogue edition other than the recommended one: a request keeps it.
   public var explicitEdition: Bool?
+  /// From a Live, Remix or Demo release: that recording, not the studio one.
+  public var recordingKind: [String]?
   public var actionTrack: Track {
     var result = self
     if let libraryTrackId {

@@ -165,10 +165,11 @@ private actor FailedSource: LibrarySource {
     }
   }
   let model = Model()
-  async let first = model.choose("dark", delay: .milliseconds(80))
-  try? await Task.sleep(for: .milliseconds(10))
-  async let second = model.choose("light", delay: .milliseconds(5))
-  let (stale, latest) = await (first, second)
+  let first = Task { await model.choose("dark", delay: .milliseconds(200)) }
+  // The second choice starts only once the first has begun.
+  while await model.changes.current < 1 { await Task.yield() }
+  let latest = await model.choose("light", delay: .zero)
+  let stale = await first.value
   #expect(!stale && latest)
   #expect(await model.appearance == "light")
 }

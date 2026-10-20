@@ -17,7 +17,15 @@ import httpx
 from PIL import Image
 
 from .artwork import quoted
-from .catalogue import RELEASE_INC, credit, edition_rank, mbid, release_tracks
+from .catalogue import (
+    RELEASE_INC,
+    RELEASE_KINDS,
+    credit,
+    edition_rank,
+    group_kinds,
+    mbid,
+    release_tracks,
+)
 from .matching import (
     flavour,
     lead_artist,
@@ -30,13 +38,7 @@ from .matching import (
 
 logger = logging.getLogger(__name__)
 
-# Secondary release-group types that name other recordings or other contexts.
-DISTINCT_TYPES = {
-    "Live": "live",
-    "Remix": "remix",
-    "DJ-mix": "remix",
-    "Demo": "demo",
-}
+DISTINCT_TYPES = RELEASE_KINDS
 SKIPPED_TYPES = {
     "Interview",
     "Audiobook",
@@ -59,15 +61,6 @@ def tier(group, wanted):
         base = max(base, 3)
     # A live/remix request prefers a release of that kind when there is one.
     return base + (0 if wanted <= kinds else 5)
-
-
-def group_kinds(group):
-    """Recording kinds a release group's type names (a Live album)."""
-    return frozenset(
-        DISTINCT_TYPES[t]
-        for t in (group or {}).get("secondary-types") or []
-        if t in DISTINCT_TYPES
-    )
 
 
 def choose(recordings, job, kinds=frozenset(), recording_id=None):
