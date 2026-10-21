@@ -67,6 +67,8 @@ enum PlayOrigin: Hashable {
   @ObservationIgnored private(set) var store: LibraryStore?
   @ObservationIgnored private var sync: SyncCoordinator?
   @ObservationIgnored private var generation = 0
+  /// One refresh at a time; one asked for meanwhile runs after it (RV23).
+  @ObservationIgnored private let refreshLoop = RefreshLoop()
   @ObservationIgnored private var restoring = false
   @ObservationIgnored private var liveTask: Task<Void, Never>?
   @ObservationIgnored private var activeScene = true
@@ -264,6 +266,7 @@ enum PlayOrigin: Hashable {
   }
   private func attach(_ user: Person, service: NativeService) async throws {
     generation += 1
+    refreshLoop.reset()
     let stamp = generation
     let base = try FileManager.default.url(
       for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
@@ -398,8 +401,15 @@ enum PlayOrigin: Hashable {
     try await loadCache(artworkChanged: true)
     pendingEdits = (try? await database.pendingMutations()) ?? []
   }
+  /// A refresh asked for while one runs (a live revision event during a
+  /// pull-to-refresh, say) is not dropped: the running one goes round again,
+  /// because the delta it already read cannot contain that change.
   func refresh(afterMutation: Bool = false) async {
-    guard !syncing, !mutationActive || afterMutation, let service, let sync else { return }
+    guard !mutationActive || afterMutation, service != nil, sync != nil else { return }
+    await refreshLoop.run { await refreshOnce() }
+  }
+  private func refreshOnce() async {
+    guard let service, let sync else { return }
     let stamp = generation
     syncing = true
     defer { if generation == stamp { syncing = false } }
@@ -1153,6 +1163,7 @@ enum PlayOrigin: Hashable {
   private func detach() {
     watch?.disconnect()
     generation += 1
+    refreshLoop.reset()
     liveTask?.cancel()
     liveTask = nil
     if let downloads { Task { await downloads.clear() } }
