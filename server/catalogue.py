@@ -1,6 +1,7 @@
 """Cached MusicBrainz browsing; queue payloads are built from server metadata."""
 
 import asyncio
+from urllib.parse import urljoin, urlsplit
 from contextvars import ContextVar
 import time
 from uuid import UUID
@@ -101,6 +102,10 @@ def still_fresh(age, lifetime, margin=RENEW):
 class Catalogue:
     # MusicBrainz allows one request per second per client.
     min_interval = 1.05
+    # Its 503/429 answers are retried this many times, pausing this long
+    # (seconds, growing) unless it says how long in Retry-After.
+    retries = 2
+    retry_pause = 2.0
 
     def __init__(self, store):
         self.store = store
@@ -123,17 +128,9 @@ class Catalogue:
                 cached = self.store.read_document(key)
                 if cached and still_fresh(time.time() - cached["time"], 86400):
                     return cached["data"]
-                delay = max(
-                    0, self.min_interval - (time.monotonic() - self.last_request)
+                response = await self.fetch(
+                    client, "https://musicbrainz.org/ws/2/" + path, params
                 )
-                if delay:
-                    await asyncio.sleep(delay)
-                self.last_request = time.monotonic()
-                response = await client.get(
-                    "https://musicbrainz.org/ws/2/" + path,
-                    params={"fmt": "json", **params},
-                )
-                response.raise_for_status()
                 data = response.json()
                 import json
 
@@ -146,6 +143,47 @@ class Catalogue:
         finally:
             if not background:
                 self.foreground_waiters -= 1
+
+    async def pace(self):
+        delay = max(0, self.min_interval - (time.monotonic() - self.last_request))
+        if delay:
+            await asyncio.sleep(delay)
+        self.last_request = time.monotonic()
+
+    async def fetch(self, client, url, params):
+        """One answer, paced. MusicBrainz's own redirects (a merged release
+        group or artist) are followed on musicbrainz.org only; a 503 or 429
+        (its rate limiting) is retried after a pause before it fails."""
+        query = {"fmt": "json", **params}
+        for attempt in range(self.retries + 1):
+            await self.pace()
+            response = await client.get(url, params=query)
+            for _ in range(3):
+                if not response.is_redirect:
+                    break
+                target = urljoin(str(response.url), response.headers["location"])
+                parts = urlsplit(target)
+                if (
+                    parts.scheme != "https"
+                    or parts.hostname != "musicbrainz.org"
+                    or parts.username
+                    or parts.password
+                    or parts.port not in {None, 443}
+                ):
+                    break
+                await self.pace()
+                response = await client.get(
+                    target, params=None if parts.query else query
+                )
+            if response.status_code in {429, 503} and attempt < self.retries:
+                try:
+                    wait = float(response.headers.get("retry-after", ""))
+                except ValueError:
+                    wait = self.retry_pause * (attempt + 1)
+                await asyncio.sleep(min(max(wait, 0), 10))
+                continue
+            response.raise_for_status()
+            return response
 
     def presence(self, tracks):
         for track in tracks:

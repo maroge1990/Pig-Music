@@ -289,8 +289,15 @@ class Downloader:
     async def handle(self, job):
         # Quality replacements keep the file's own identity.
         if self.resolver and not job.get("library_track_id"):
+            from .editions import Deferred
+
             try:
                 changes = await self.resolver.prepare(job)
+            except Deferred as later:
+                await asyncio.to_thread(
+                    self.store.defer_request, job, later.seconds, later.attempts
+                )
+                return
             except Exception:
                 changes = {}
             if changes:

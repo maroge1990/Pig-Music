@@ -27,6 +27,7 @@ from .catalogue import (
     release_tracks,
 )
 from .matching import (
+    album_title,
     flavour,
     lead_artist,
     primary_artist,
@@ -72,7 +73,7 @@ def choose(recordings, job, kinds=frozenset(), recording_id=None):
     artist = primary_artist(job.get("artist"))
     title = title_key(job.get("title"))
     wanted = recording_kind(job) | flavour(job.get("title")) | kinds
-    album = title_key(job.get("album"))
+    album = title_key(album_title(job.get("album"), job.get("album_artist")))
     options = []
     for recording in recordings:
         if recording_id:
@@ -127,6 +128,28 @@ def choose(recordings, job, kinds=frozenset(), recording_id=None):
     return release, recording
 
 
+# A song whose lookup keeps failing is filed as requested after this many
+# tries (about half an hour of waiting in all), so it never blocks for good.
+RESOLUTION_ATTEMPTS = 5
+RETRY_SECONDS = 60
+
+
+class Deferred(Exception):
+    """The catalogue is unavailable for now: retry the request later."""
+
+    def __init__(self, attempts, seconds):
+        super().__init__("Edition lookup deferred")
+        self.attempts, self.seconds = attempts, seconds
+
+
+def transient(error):
+    """A network failure or a 429/5xx answer, not a missing or bad entry."""
+    if isinstance(error, httpx.HTTPStatusError):
+        code = error.response.status_code
+        return code == 429 or code >= 500
+    return isinstance(error, httpx.TransportError)
+
+
 class EditionResolver:
     def __init__(self, store, catalogue, artwork, client):
         self.store, self.catalogue, self.artwork = store, catalogue, artwork
@@ -140,6 +163,16 @@ class EditionResolver:
             try:
                 changes.update(await self.resolve(job) or {})
             except (httpx.HTTPError, ValueError, KeyError, TypeError) as error:
+                attempts = job.get("resolution_attempts", 0) + 1
+                if transient(error) and attempts < RESOLUTION_ATTEMPTS:
+                    # Filing it under the request's own album now would bring
+                    # back the duplicate and the missing cover: try later.
+                    logger.info(
+                        "Edition lookup deferred (%s), attempt %d",
+                        type(error).__name__,
+                        attempts,
+                    )
+                    raise Deferred(attempts, RETRY_SECONDS * 2 ** (attempts - 1))
                 logger.info("Edition lookup failed (%s)", type(error).__name__)
             changes["edition_resolved"] = True
         release = changes.get("musicbrainz_release_id") or job.get(

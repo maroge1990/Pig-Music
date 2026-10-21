@@ -233,7 +233,10 @@ class Store:
         with self.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
-                "SELECT id,payload FROM queue WHERE status='waiting_for_sources' ORDER BY created_at,id LIMIT 1"
+                "SELECT id,payload FROM queue WHERE status='waiting_for_sources' "
+                "AND COALESCE(json_extract(payload,'$.retry_after'),0)<=? "
+                "ORDER BY created_at,id LIMIT 1",
+                (time.time(),),
             ).fetchone()
             if row:
                 payload = {**json.loads(row[1]), "claim_token": uuid.uuid4().hex}
@@ -415,6 +418,31 @@ class Store:
         journal.unlink(missing_ok=True)
         self.refresh_library()
         self.cleanup_replacements()
+
+    def defer_request(self, job, seconds, attempts):
+        """Put a claimed request back in the queue, not to be claimed again
+        for `seconds` (the catalogue it needs is unavailable for now)."""
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT status,payload FROM queue WHERE id=?", (job["id"],)
+            ).fetchone()
+            if (
+                not row
+                or row[0] != "searching"
+                or json.loads(row[1]).get("claim_token") != job.get("claim_token")
+            ):
+                return False
+            payload = {
+                **json.loads(row[1]),
+                "retry_after": time.time() + seconds,
+                "resolution_attempts": attempts,
+            }
+            conn.execute(
+                "UPDATE queue SET status='waiting_for_sources',payload=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (json.dumps(payload), job["id"]),
+            )
+        return True
 
     def fulfil_request(self, job, track_id):
         """Complete a claimed request with a song the household already has

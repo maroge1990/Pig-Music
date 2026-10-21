@@ -13,7 +13,7 @@ from PIL import Image, ImageOps
 
 from .catalogue import credit, mbid
 from .library import normalise, identifier
-from .matching import lead_artist, strip_edition, title_key
+from .matching import album_title, lead_artist, strip_edition, title_key
 
 
 def quoted(value):
@@ -85,8 +85,8 @@ class Artwork:
         target = self.target(album)
         if target.exists():
             return target
-        # v5: edition-free titles and the song fallback retry every miss.
-        key = "missing-artwork:v5:" + album["id"]
+        # v6: catalogue album titles (no " - EP", "Artist - ") retry every miss.
+        key = "missing-artwork:v6:" + album["id"]
         if self.store.read_document(key).get("retry_after", 0) > time.time():
             return None
         lock = self.locks.setdefault(album["id"], asyncio.Lock())
@@ -109,9 +109,10 @@ class Artwork:
                         self.remember_missing(key, 86400)
                         return None
                     else:
+                        wanted = album_title(album["title"], album["artist"])
                         query = (
                             "releasegroup:"
-                            + quoted(strip_edition(album["title"]))
+                            + quoted(wanted)
                             + " AND artistname:"
                             + quoted(album["artist"])
                         )
@@ -122,7 +123,7 @@ class Artwork:
                             r
                             for r in data.get("release-groups", [])
                             if artwork_title(r.get("title", ""))
-                            == artwork_title(album["title"])
+                            == artwork_title(wanted)
                             and normalise(credit(r.get("artist-credit", [])))
                             == normalise(album["artist"])
                         ]
@@ -168,7 +169,7 @@ class Artwork:
         """The release of this album that holds its songs, or None."""
         from .editions import choose
 
-        wanted = title_key(album["title"])
+        wanted = title_key(album_title(album["title"], album["artist"]))
         for track in album["tracks"][:2]:
             query = (
                 "recording:"

@@ -25,6 +25,7 @@ def isolate_startup_enrichment(monkeypatch, tmp_path_factory, request):
     # Mocked providers need no politeness delay; test_rate_limits covers it.
     if not request.node.get_closest_marker("real_rate_limits"):
         monkeypatch.setattr(Catalogue, "min_interval", 0)
+        monkeypatch.setattr(Catalogue, "retry_pause", 0)
         monkeypatch.setattr(Popularity, "min_interval", 0)
 
     # Legacy functional fixtures are deliberately unauthenticated and isolated.

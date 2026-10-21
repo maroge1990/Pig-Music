@@ -55,6 +55,20 @@ def strip_edition(title):
     return text.strip() or (title or "")
 
 
+def album_title(title, artist=None):
+    """An album title as the catalogue names it: without Apple's " - EP" and
+    " - Single" suffixes, a leading "Artist - " and edition qualifiers.
+    "The Church - The Best of the Radio Songs" by The Church is "The Best of
+    the Radio Songs"; "Paper Planes (Homeland Security Remixes) - EP" keeps
+    its remix qualifier."""
+    text = re.sub(r"\s+-\s+(EP|Single)\s*$", "", title or "", flags=re.I)
+    if artist:
+        prefix = re.match(r"\s*(.+?)\s+-\s+(.+)$", text)
+        if prefix and normalise(prefix[1]) == normalise(artist):
+            text = prefix[2]
+    return strip_edition(text) or (title or "")
+
+
 def title_key(title):
     """Titles compare without edition qualifiers (see `strip_edition`)."""
     return normalise(strip_edition(title)) or normalise(title)
