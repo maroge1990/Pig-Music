@@ -45,6 +45,7 @@ def bundle(target):
             "docs",
             "scripts",
             "swift/PigKit/Sources",
+            "swift/PigMusic/Assets.xcassets/AppIcon.appiconset",
         ):
             files.extend(
                 p
