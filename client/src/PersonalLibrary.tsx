@@ -1,3 +1,4 @@
+import { AppleImport } from "./AppleImport";
 import { FindMore } from "./FindMore";
 import { ArtistHero } from "./ArtistHero";
 import { CatalogueBrowser } from "./CatalogueBrowser";
@@ -881,33 +882,7 @@ export function PersonalLibrary({
                   ))}
               </ul>
               {tab === "playlists" && (
-                <section className="account-section">
-                  <h2>Import your playlists</h2>
-                  <p>
-                    Choose an Apple Music XML export. This saves your playlists
-                    without requesting downloads.
-                  </p>
-                  <label>
-                    Apple Music XML
-                    <input
-                      type="file"
-                      accept=".xml"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file)
-                          void action(
-                            () =>
-                              api("/v1/imports/apple", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/xml" },
-                                body: file,
-                              }),
-                            "Your playlists were imported",
-                          );
-                      }}
-                    />
-                  </label>
-                </section>
+                <AppleImport owner={owner} onImported={refresh} />
               )}
             </>
           )}

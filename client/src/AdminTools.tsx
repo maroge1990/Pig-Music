@@ -68,7 +68,13 @@ export function AdminTools({ route }: { route: Route }) {
     : "overview";
   const downloadsView = route.parts[1] === "settings" ? "settings" : "queue";
   const [library, setLibrary] = useState<Library | null>(null);
+  // Set when Library › Playlists hands over a fresh export; a plain visit
+  // starts from that single import entry point instead of a stale inventory.
   const [importLoaded, setImportLoaded] = useState(false);
+  const handedOver = route.params.get("imported") === "1";
+  useEffect(() => {
+    if (handedOver) setImportLoaded(true);
+  }, [handedOver]);
   const [migration, setMigration] = useState<Migration | null>(null);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
@@ -84,7 +90,6 @@ export function AdminTools({ route }: { route: Route }) {
     connected: boolean;
   } | null>(null);
   const [publicOrigin, setPublicOrigin] = useState<string | null | undefined>();
-  const fileInput = useRef<HTMLInputElement>(null);
   const queueSignature = useRef("");
 
   const loadLibrary = () =>
@@ -289,41 +294,6 @@ export function AdminTools({ route }: { route: Route }) {
     }
   };
 
-  const importFile = async (file?: File) => {
-    if (!file) return;
-
-    if (
-      migration?.stats.selected &&
-      !window.confirm(
-        "Importing a new inventory will clear the current selections. Continue?",
-      )
-    )
-      return;
-
-    setBusy(true);
-
-    try {
-      setMigration(
-        await api<Migration>("/v1/admin/migration/import", {
-          method: "POST",
-          headers: { "Content-Type": "application/xml" },
-          body: file,
-        }),
-      );
-
-      setExpanded(new Set());
-      setToast("Inventory imported. Choose the music you want to keep.");
-
-      setImportLoaded(true);
-      go("/admin/migration");
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-      if (fileInput.current) fileInput.current.value = "";
-    }
-  };
-
   function migrationPage() {
     if (!migration || !importLoaded)
       return (
@@ -333,16 +303,12 @@ export function AdminTools({ route }: { route: Route }) {
           </div>
           <Empty
             title="Import an Apple Music export"
-            description="Upload an XML export to import playlists and select music to add to your library."
+            description="Start from Library › Playlists › Import from Apple Music, then choose Admin: review the whole library."
           />
-          <button
-            className="primary-button"
-            disabled={busy}
-            onClick={() => fileInput.current?.click()}
-          >
-            <Upload size={16} />
-            Import XML
-          </button>
+          <a className="primary-button" href="#/library/playlists">
+            <Upload size={16} aria-hidden="true" />
+            Go to Import
+          </a>
         </>
       );
 
@@ -363,13 +329,9 @@ export function AdminTools({ route }: { route: Route }) {
           <div>
             <h2>Whole-library import</h2>
           </div>
-          <button
-            className="secondary-button"
-            disabled={busy}
-            onClick={() => fileInput.current?.click()}
-          >
-            <Upload size={16} /> Import XML
-          </button>
+          <a className="secondary-button" href="#/library/playlists">
+            <Upload size={16} aria-hidden="true" /> New import
+          </a>
         </div>
 
         <div className="migration-summary">
@@ -766,13 +728,6 @@ export function AdminTools({ route }: { route: Route }) {
 
   return (
     <main className="personal-main admin-main">
-      <input
-        type="file"
-        ref={fileInput}
-        className="sr-only"
-        accept=".xml,application/xml,text/xml"
-        onChange={(e) => importFile(e.target.files?.[0])}
-      />
       <PageHeader
         title="Admin"
         subtitle="Manage people, music and the server."
