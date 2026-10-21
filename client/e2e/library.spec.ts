@@ -300,3 +300,11 @@ test("a live release's songs are requested as live recordings", async ({
     tracks: [{ title: "Von dutch", recording_kind: ["live"] }],
   });
 });
+
+test("album tiles in the library name the artist", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/#/library/albums");
+  await expect(
+    page.locator(".album-card", { hasText: album.title }),
+  ).toContainText(`${artist.name} · 2 songs`);
+});

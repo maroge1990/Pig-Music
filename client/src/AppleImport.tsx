@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Upload } from "lucide-react";
 import { api } from "./api";
+import { formatCount } from "./format";
 import { go } from "./routes";
 
 type Preview = {
@@ -14,7 +15,7 @@ type Preview = {
 const xml = { "Content-Type": "application/xml" };
 
 function count(n: number, word: string) {
-  return `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
+  return `${formatCount(n)} ${word}${n === 1 ? "" : "s"}`;
 }
 
 /** The one place to start an Apple Music XML import: preview first, then
@@ -130,10 +131,10 @@ export function AppleImport({
         <>
           <p>
             <strong>{file.name}</strong>: {count(preview.playlists, "playlist")}
-            , {count(preview.tracks, "song")}. {preview.saved.toLocaleString()}{" "}
-            already in your library, {preview.household.toLocaleString()} on the
-            server, {preview.missing.toLocaleString()} missing. Missing songs
-            stay in the playlists without downloading.
+            , {count(preview.tracks, "song")}. {formatCount(preview.saved)}{" "}
+            already in your library, {formatCount(preview.household)} on the
+            server, {formatCount(preview.missing)} missing. Missing songs stay
+            in the playlists without downloading.
           </p>
           <div className="release-actions">
             <button

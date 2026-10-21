@@ -26,6 +26,7 @@ export const album = {
   title: "Brat",
   artist: artist.name,
   artist_id: artist.id,
+  category: "album",
   track_count: 2,
   cover_url: "/api/v1/artwork/cover-1",
   tracks: [track("t1", "Von dutch", 1), track("t2", "360", 2)],

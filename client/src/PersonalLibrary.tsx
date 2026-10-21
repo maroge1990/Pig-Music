@@ -809,7 +809,7 @@ export function PersonalLibrary({
                       <h3>{album.title}</h3>
                       <p>
                         {tab === "albums"
-                          ? `${album.track_count} songs`
+                          ? `${album.artist} · ${album.track_count} song${album.track_count === 1 ? "" : "s"}`
                           : album.artist}
                       </p>
                     </a>
