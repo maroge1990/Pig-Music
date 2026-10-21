@@ -701,6 +701,9 @@ class Store:
                 raise ValueError("This request has no upload waiting for review")
             if approve:
                 payload["source_review_approved"] = review["provider_track_id"]
+                # Approval is for this uploader; another one found at
+                # transfer goes back to review.
+                payload["source_review_approved_uploader"] = review["uploader"]
                 payload.pop("retry_after", None)
                 status = "waiting_for_sources"
             else:

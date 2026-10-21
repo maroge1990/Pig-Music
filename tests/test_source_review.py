@@ -288,6 +288,10 @@ def test_quality_filtering_the_stronger_candidate_keeps_the_upload_for_review(
     )
 
 
+# What re-extraction found: the same song, credited only by its uploader.
+FRESH = {"title": "Test Track", "channel": "Test Artist", "duration": 3.4}
+
+
 def test_weaker_credit_found_at_transfer_goes_back_to_review(tmp_path, monkeypatch):
     from server.providers.contracts import ProviderError
 
@@ -297,7 +301,7 @@ def test_weaker_credit_found_at_transfer_goes_back_to_review(tmp_path, monkeypat
 
     def weakened(job_id, candidate, path):
         assert not candidate.get("uploader_approved")
-        raise ProviderError("review_required")
+        raise ProviderError("review_required", review=FRESH)
 
     monkeypatch.setattr(worker, "transfer", weakened)
     worker.process(job)
@@ -312,7 +316,8 @@ def test_weaker_credit_found_at_transfer_goes_back_to_review(tmp_path, monkeypat
         lambda job_id, candidate, path: approved.append(candidate) or {},
     )
     worker.process(claimed(store))
-    assert approved[0]["uploader_approved"] is True
+    # The approval is bound to the uploader the owner was shown.
+    assert approved[0]["uploader_approved"] == FRESH["channel"]
     assert item(store)["status"] == "completed"
 
 
@@ -358,11 +363,11 @@ def test_the_parent_rejects_newly_weak_credit_without_approval(tmp_path, monkeyp
 
 
 def test_an_approved_uploader_only_transfer_still_works(tmp_path, monkeypatch):
-    original = {**UPLOAD, "format_id": "download", "uploader_approved": True}
+    original = {**UPLOAD, "format_id": "download", "uploader_approved": "Test Artist"}
     result, requests, target = extractor_transfer(
         tmp_path, monkeypatch, original, "uploader_name"
     )
-    assert requests[0]["uploader_approved"] is True
+    assert requests[0]["uploader_approved"] == "Test Artist"
     assert result["identity_evidence"] == "uploader_name"
     assert target.is_file()
 
@@ -435,3 +440,160 @@ def test_mix_preparation_never_downloads_an_unapproved_upload(tmp_path, monkeypa
     assert not downloader.fetch(song)
     assert [t["provider_track_id"] for t in transfers] == [STRONG["provider_track_id"]]
     assert store.queue()["items"] == []
+
+
+# RV23 review: a refusal at transfer is judged on what re-extraction found.
+
+
+def through_the_worker(store, monkeypatch, found, fresh_upload):
+    """The real worker subprocess code (yt-dlp stubbed) behind the real
+    extractor, so the refusal and its metadata travel the production path."""
+    from yt_dlp import YoutubeDL
+
+    from server.providers.contracts import Context
+    from server.providers.extractor import Extractor
+    from server.providers.extractor_worker import execute
+
+    worker, _ = engine(store, monkeypatch, found)
+    info = {
+        "duration": 3,
+        "webpage_url": "https://soundcloud.com/label/test-track",
+        "formats": [
+            {
+                "format_id": "download",
+                "format_note": "Original",
+                "ext": "m4a",
+                "acodec": "mp4a.40.2",
+                "vcodec": "none",
+                "abr": 160,
+                "protocol": "https",
+                "url": "https://cf-media.sndcdn.com/audio.m4a?Policy=expiring",
+            }
+        ],
+        **fresh_upload,
+    }
+    downloads = []
+    monkeypatch.setattr(YoutubeDL, "extract_info", lambda *a, **k: dict(info))
+    monkeypatch.setattr(YoutubeDL, "process_info", lambda *a, **k: downloads.append(1))
+    extractor = Extractor("soundcloud")
+    monkeypatch.setattr(
+        extractor,
+        "invoke",
+        lambda request, context: execute(
+            {**request, "source": "soundcloud", "profile": "native_standard"}
+        ),
+    )
+    monkeypatch.setattr(
+        worker,
+        "transfer",
+        lambda job_id, candidate, path: extractor.transfer(
+            candidate, path, Context("native_standard")
+        ),
+    )
+    return worker, downloads
+
+
+def test_a_different_uploader_found_at_transfer_is_never_offered(tmp_path, monkeypatch):
+    store = Store(tmp_path)
+    job = queued(store)
+    worker, downloads = through_the_worker(
+        store,
+        monkeypatch,
+        {"soundcloud": [{**STRONG, "format_id": "download"}]},
+        {"title": "Test Track", "uploader": "Unrelated Fan Account"},
+    )
+    worker.process(job)
+    assert downloads == []
+    assert not item(store).get("source_review")
+
+
+def test_a_qualifying_fresh_uploader_is_reviewed_as_found(tmp_path, monkeypatch):
+    store = Store(tmp_path)
+    job = queued(store)
+    worker, downloads = through_the_worker(
+        store,
+        monkeypatch,
+        {"soundcloud": [{**STRONG, "format_id": "download"}]},
+        {"title": "TEST TRACK", "uploader": "TEST ARTIST", "duration": 3.4},
+    )
+    worker.process(job)
+    assert downloads == []
+    review = item(store)["source_review"]
+    assert review["title"] == "TEST TRACK"
+    assert review["uploader"] == "TEST ARTIST"
+    assert review["duration"] == 3.4
+    assert review["url"] == "https://soundcloud.com/" + STRONG["provider_track_id"]
+    assert "sndcdn" not in json.dumps(item(store)) and "Policy" not in json.dumps(
+        item(store)
+    )
+
+
+@pytest.mark.parametrize(
+    "fresh",
+    [
+        {"title": "Another Song", "uploader": "Test Artist"},
+        {"title": "Test Track", "uploader": "Test Artist", "duration": 240},
+        {"title": "Test Track (Live)", "uploader": "Test Artist"},
+    ],
+)
+def test_fresh_metadata_that_no_longer_matches_is_rejected(
+    tmp_path, monkeypatch, fresh
+):
+    store = Store(tmp_path)
+    job = queued(store)
+    worker, downloads = through_the_worker(
+        store, monkeypatch, {"soundcloud": [{**STRONG, "format_id": "download"}]}, fresh
+    )
+    worker.process(job)
+    assert downloads == []
+    assert not item(store).get("source_review")
+
+
+def test_an_approval_is_for_the_uploader_the_owner_saw(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from server.providers.contracts import Context, ProviderError
+    from server.providers.extractor import Extractor
+
+    # Approved "Test Artist", but re-extraction now finds someone else.
+    original = {**UPLOAD, "format_id": "download", "uploader_approved": "Test Artist"}
+    fresh = {
+        **original,
+        "channel": "Unrelated Fan Account",
+        "identity_evidence": "uploader_name",
+        "original_codec": "aac",
+        "original_container": "m4a",
+        "declared_bitrate": 160,
+    }
+    extractor = Extractor("soundcloud")
+
+    def invoke(request, context):
+        (Path(request["directory"]) / "audio.m4a").write_bytes(b"fixture")
+        return {"candidate": fresh, "filename": "audio.m4a", "remuxed": False}
+
+    monkeypatch.setattr(extractor, "invoke", invoke)
+    with pytest.raises(ProviderError) as caught:
+        extractor.transfer(original, tmp_path / "out.m4a", Context("native_standard"))
+    assert caught.value.code == "review_required"
+    assert caught.value.review["channel"] == "Unrelated Fan Account"
+    assert not (tmp_path / "out.m4a").exists()
+
+
+def test_review_metadata_carries_nothing_but_safe_fields():
+    from server.providers.contracts import ProviderError, review_metadata
+
+    fresh = {
+        "title": "Song",
+        "channel": "Artist",
+        "duration": 200,
+        "url": "https://cf-media.sndcdn.com/x?Policy=secret",
+        "format_id": "download",
+        "cookies": "secret",
+    }
+    assert review_metadata(fresh) == {
+        "title": "Song",
+        "channel": "Artist",
+        "duration": 200.0,
+    }
+    assert ProviderError("no_match", review=fresh).review is None
+    assert ProviderError("review_required", review={"title": "x"}).review is None

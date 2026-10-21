@@ -23,7 +23,7 @@ from yt_dlp.networking.common import RequestHandler, Response
 from yt_dlp.networking.exceptions import HTTPError, TransportError
 from yt_dlp.utils import DownloadError
 
-from .contracts import Context, ProviderError
+from .contracts import Context, ProviderError, same_name
 from .extractor import HOSTS, formats, recording
 from .network import client, stream, validate_url
 
@@ -294,11 +294,13 @@ def execute(request):
         if not choice or not fields:
             raise ProviderError("no_match")
         # Re-extraction can find weaker credit than the search did; an
-        # uploader-only credit downloads only with the owner's approval.
-        if fields["identity_evidence"] == "uploader_name" and not request.get(
-            "uploader_approved"
+        # uploader-only credit downloads only with the owner's approval of
+        # this very uploader. The refusal carries what was found, so the
+        # review shows the fresh uploader, not the search's credit.
+        if fields["identity_evidence"] == "uploader_name" and not same_name(
+            fields["channel"], request.get("uploader_approved")
         ):
-            raise ProviderError("review_required")
+            raise ProviderError("review_required", review=fields)
         selected = next(
             f for f in info["formats"] if str(f.get("format_id")) == choice["format_id"]
         )
@@ -344,6 +346,8 @@ def main():
         value = execute(request)
     except ProviderError as exc:
         value = {"error": exc.code}
+        if exc.review:
+            value["review"] = exc.review
     except DownloadError as exc:
         text = str(exc).lower()
         code = "unavailable"

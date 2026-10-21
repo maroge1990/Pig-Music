@@ -655,9 +655,15 @@ class Downloader:
                     if c.get("identity_evidence") == "uploader_name"
                     and c.get("provider_track_id") != approved
                 ]
+                # The approval names the uploader the owner saw (an approval
+                # from before that was recorded trusts this search's credit).
+                approved_uploader = job.get("source_review_approved_uploader")
                 candidates = [
                     (
-                        {**c, "uploader_approved": True}
+                        {
+                            **c,
+                            "uploader_approved": approved_uploader or c.get("channel"),
+                        }
                         if approved and c.get("provider_track_id") == approved
                         else c
                     )
@@ -703,15 +709,23 @@ class Downloader:
                     except (Cancelled, QualityDeadline):
                         raise
                     except Exception as exc:
-                        # Re-extraction found only the uploader's credit.
-                        if (
-                            isinstance(exc, ProviderError)
+                        # Re-extraction found only an uploader's credit. Judge
+                        # (and show) what it found, never the search's credit:
+                        # the uploader may be someone else entirely.
+                        fresh = (
+                            exc.review
+                            if isinstance(exc, ProviderError)
                             and exc.code == "review_required"
-                            and reviewable(job, candidate)
-                        ):
-                            held.append(
-                                {**candidate, "identity_evidence": "uploader_name"}
-                            )
+                            else None
+                        )
+                        if fresh:
+                            again = {
+                                **candidate,
+                                **fresh,
+                                "identity_evidence": "uploader_name",
+                            }
+                            if matches(job, again) and reviewable(job, again):
+                                held.append(again)
                         if transferred:
                             self.runtime.health.outcome(
                                 source, error=ProviderError("no_match"), transfer=True

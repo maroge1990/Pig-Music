@@ -6,7 +6,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from .contracts import ProviderError
+from .contracts import ProviderError, same_name
 from .process import run_checked
 from ..quality import satisfies
 
@@ -201,7 +201,9 @@ class Extractor:
             except (ValueError, UnicodeError) as exc:
                 raise ProviderError("invalid_response") from exc
             if result.returncode or "error" in value:
-                raise ProviderError(value.get("error", "unavailable"))
+                raise ProviderError(
+                    value.get("error", "unavailable"), review=value.get("review")
+                )
             return value
 
     def search(self, target, context, limit=8):
@@ -236,17 +238,17 @@ class Extractor:
                     "provider_track_id": candidate["provider_track_id"],
                     "format_id": candidate["format_id"],
                     "directory": directory,
-                    "uploader_approved": bool(candidate.get("uploader_approved")),
+                    "uploader_approved": candidate.get("uploader_approved") or None,
                 },
                 context,
             )
             fresh = result["candidate"]
             # The parent never trusts the worker alone: weaker credit than
             # the search found needs the owner's approval (SC1).
-            if fresh.get("identity_evidence") == "uploader_name" and not candidate.get(
-                "uploader_approved"
+            if fresh.get("identity_evidence") == "uploader_name" and not same_name(
+                fresh.get("channel"), candidate.get("uploader_approved")
             ):
-                raise ProviderError("review_required")
+                raise ProviderError("review_required", review=fresh)
             expected = {
                 "artist": candidate["channel"],
                 "title": candidate["title"],
