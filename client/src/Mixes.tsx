@@ -21,20 +21,20 @@ type MixFeed = {
   radio?: { title: string; ready: number } | null;
 };
 
-/** Newer kinds borrow the five Pig-Branding mix palettes. */
-const PALETTES: Record<string, string> = {
-  daily: "daily",
-  artist: "artist",
-  genre: "genre",
-  popular: "popular",
-  back: "back",
-  radio: "popular",
-  fresh: "genre",
-  releases: "artist",
-  decade: "back",
-  deep: "artist",
-  recent: "daily",
-};
+/** Each kind has its own pair of Pig-Branding roles (tokens.css). */
+const KINDS = new Set([
+  "daily",
+  "artist",
+  "genre",
+  "popular",
+  "back",
+  "radio",
+  "fresh",
+  "releases",
+  "decade",
+  "deep",
+  "recent",
+]);
 
 /** "Your 1990s" → "90s"; 2000 onwards keeps the century: "2010s". */
 export function decadeLabel(title = "") {
@@ -45,7 +45,7 @@ export function decadeLabel(title = "") {
 
 /** Cover family: one geometric motif per kind of mix. */
 export function MixArtwork({ kind, title }: { kind: string; title?: string }) {
-  const palette = PALETTES[kind] ?? "daily";
+  const palette = KINDS.has(kind) ? kind : "daily";
   const background = `var(--mix-${palette}-background)`;
   const ink = `var(--mix-${palette}-foreground)`;
   return (

@@ -45,6 +45,18 @@
   --mix-popular-foreground: #442a19;
   --mix-back-background: #f2ecf0;
   --mix-back-foreground: #d6336c;
+  --mix-radio-background: #d6336c;
+  --mix-radio-foreground: #ffffff;
+  --mix-fresh-background: #f8c7dd;
+  --mix-fresh-foreground: #442a19;
+  --mix-releases-background: #5a3926;
+  --mix-releases-foreground: #f8c7dd;
+  --mix-decade-background: #ea5048;
+  --mix-decade-foreground: #ffffff;
+  --mix-deep-background: #15111a;
+  --mix-deep-foreground: #f6b7d4;
+  --mix-recent-background: #ffffff;
+  --mix-recent-foreground: #442a19;
   --radius-compact: 0.375rem;
   --radius-control: 0.625rem;
   --radius-card: 1rem;

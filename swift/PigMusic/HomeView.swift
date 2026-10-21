@@ -250,11 +250,6 @@ struct MixDetailView: View {
 struct MixArtwork: View {
   let kind: String
   var title = ""
-  /// Newer kinds borrow the five Pig-Branding mix palettes, as on the web.
-  static let palettes = [
-    "radio": "popular", "fresh": "genre", "releases": "artist", "decade": "back",
-    "deep": "artist", "recent": "daily",
-  ]
   /// "Your 1990s" → "90s"; 2000 onwards keeps the century: "2010s".
   static func decadeLabel(_ title: String) -> String {
     guard let match = title.firstMatch(of: /(\d{2})(\d)0s/) else { return "" }
@@ -263,7 +258,7 @@ struct MixArtwork: View {
   var body: some View {
     Canvas { context, size in
       context.scaleBy(x: size.width / 200, y: size.height / 200)
-      let pair = PigMixArtwork.colours(Self.palettes[kind] ?? kind)
+      let pair = PigMixArtwork.colours(kind)
       let ink = GraphicsContext.Shading.color(pair.foreground)
       context.fill(Path(CGRect(x: 0, y: 0, width: 200, height: 200)), with: .color(pair.background))
       if kind == "daily" {

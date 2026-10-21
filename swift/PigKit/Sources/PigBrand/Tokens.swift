@@ -54,6 +54,12 @@ public enum PigMixArtwork {
         case "genre": return (Color(red: 0.08235294, green: 0.06666667, blue: 0.10196078), Color(red: 0.93725490, green: 0.47843137, blue: 0.68235294))
         case "popular": return (Color(red: 0.91764706, green: 0.31372549, blue: 0.28235294), Color(red: 0.26666667, green: 0.16470588, blue: 0.09803922))
         case "back": return (Color(red: 0.94901961, green: 0.92549020, blue: 0.94117647), Color(red: 0.83921569, green: 0.20000000, blue: 0.42352941))
+        case "radio": return (Color(red: 0.83921569, green: 0.20000000, blue: 0.42352941), Color(red: 1.00000000, green: 1.00000000, blue: 1.00000000))
+        case "fresh": return (Color(red: 0.97254902, green: 0.78039216, blue: 0.86666667), Color(red: 0.26666667, green: 0.16470588, blue: 0.09803922))
+        case "releases": return (Color(red: 0.35294118, green: 0.22352941, blue: 0.14901961), Color(red: 0.97254902, green: 0.78039216, blue: 0.86666667))
+        case "decade": return (Color(red: 0.91764706, green: 0.31372549, blue: 0.28235294), Color(red: 1.00000000, green: 1.00000000, blue: 1.00000000))
+        case "deep": return (Color(red: 0.08235294, green: 0.06666667, blue: 0.10196078), Color(red: 0.96470588, green: 0.71764706, blue: 0.83137255))
+        case "recent": return (Color(red: 1.00000000, green: 1.00000000, blue: 1.00000000), Color(red: 0.26666667, green: 0.16470588, blue: 0.09803922))
         default: return colours("daily")
         }
     }

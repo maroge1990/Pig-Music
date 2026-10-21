@@ -32,6 +32,13 @@ MIX_ARTWORK = {
     "genre": (("dark", "canvas"), ("logo", "rose")),
     "popular": (("logo", "coral"), ("logo", "brown")),
     "back": (("light", "raised"), ("light", "accent")),
+    # The six newer kinds: option B "bold", chosen by the owner on 21 Oct.
+    "radio": (("light", "accent"), ("logo", "white")),
+    "fresh": (("logo", "innerEar"), ("logo", "brown")),
+    "releases": (("logo", "brownSecondary"), ("logo", "innerEar")),
+    "decade": (("logo", "coral"), ("logo", "white")),
+    "deep": (("dark", "canvas"), ("logo", "pink")),
+    "recent": (("logo", "white"), ("logo", "brown")),
 }
 
 
