@@ -70,44 +70,67 @@ def decade_theme(tracks, day):
     )
 
 
+class TrackKeys:
+    """`song_key` once per track for one planning pass. The pass works on a
+    stable snapshot, so a track object keeps its key; the object itself is
+    kept with its key, so a reused `id()` can never return a stale one."""
+
+    def __init__(self):
+        self.known = {}
+
+    def __call__(self, track):
+        entry = self.known.get(id(track))
+        if entry is None or entry[0] is not track:
+            entry = self.known[id(track)] = (track, song_key(track))
+        return entry[1]
+
+
 def choose(
-    tracks, count, salt, history=None, weights=None, previous=None, per_artist=2
+    tracks,
+    count,
+    salt,
+    history=None,
+    weights=None,
+    previous=None,
+    per_artist=2,
+    key=song_key,
 ):
     """Daily weighted shuffle with diversity; identity is never guessed from title."""
     history = history or {}
     weights = weights or {}
     previous = previous or set()
-    unique = {
-        t.get("musicbrainz_recording_id") or song_key(t): t for t in reversed(tracks)
-    }
+    unique = {}
+    for t in reversed(tracks):
+        k = key(t)
+        unique[t.get("musicbrainz_recording_id") or k] = (t, k)
     now = time.time()
 
-    def rank(track):
-        key = song_key(track)
-        random = (int(hashlib.sha256((salt + key).encode()).hexdigest(), 16) + 1) / (
+    def rank(entry):
+        k = entry[1]
+        random = (int(hashlib.sha256((salt + k).encode()).hexdigest(), 16) + 1) / (
             2**256 + 1
         )
         return (
-            history.get(key, 0) > now - 7 * 86400,
-            key in previous,
-            -(random ** (1 / weights.get(key, 1))),
+            history.get(k, 0) > now - 7 * 86400,
+            k in previous,
+            -(random ** (1 / weights.get(k, 1))),
         )
 
-    ordered = sorted(unique.values(), key=rank)
+    ordered = [t for t, _ in sorted(unique.values(), key=rank)]
     result, artists = [], Counter()
     while ordered and len(result) < count:
-        candidate = next(
+        index = next(
             (
-                t
-                for t in ordered
+                i
+                for i, t in enumerate(ordered)
                 if artists[t["artist"]] < per_artist
                 and (not result or result[-1]["artist"] != t["artist"])
             ),
             None,
         )
-        if candidate is None:
+        if index is None:
             break
-        ordered.remove(candidate)
+        candidate = ordered.pop(index)
         result.append(candidate)
         artists[candidate["artist"]] += 1
     return result
@@ -164,7 +187,7 @@ class Mixes:
         with self.store.connect() as conn:
             return [r[0] for r in conn.execute("SELECT id FROM users WHERE disabled=0")]
 
-    def history(self, user_id, tracks):
+    def history(self, user_id, tracks, key=song_key):
         with self.store.connect() as conn:
             recent = dict(
                 conn.execute(
@@ -179,9 +202,8 @@ class Mixes:
                 )
             )
         for track in tracks:
-            history[song_key(track)] = max(
-                history.get(song_key(track), 0), recent.get(track.get("id"), 0)
-            )
+            k = key(track)
+            history[k] = max(history.get(k, 0), recent.get(track.get("id"), 0))
         return history
 
     def hidden(self, user_id):
@@ -522,12 +544,12 @@ class Mixes:
         )
 
     @staticmethod
-    def neighbourhood_fill(owned, artist, neighbourhood, salt, history):
+    def neighbourhood_fill(owned, artist, neighbourhood, salt, history, key=song_key):
         """The artist's other songs, then owned songs by their neighbours, then
         owned songs in the artist's main genre."""
         own = sorted(
             (t for t in owned if t["artist"] == artist),
-            key=lambda t: hashlib.sha256((salt + song_key(t)).encode()).hexdigest(),
+            key=lambda t: hashlib.sha256((salt + key(t)).encode()).hexdigest(),
         )
         near = {t["artist"].casefold() for t in neighbourhood}
         genres = Counter((t.get("genre") or "").casefold() for t in own)
@@ -542,6 +564,7 @@ class Mixes:
                 salt + ":near",
                 history,
                 per_artist=4,
+                key=key,
             )
             + choose(
                 [
@@ -553,6 +576,7 @@ class Mixes:
                 salt + ":genre",
                 history,
                 per_artist=3,
+                key=key,
             )
         )
 
@@ -641,6 +665,32 @@ class Mixes:
                 log.exception("Preparing one person's radio failed")
         await asyncio.to_thread(self.cache.cleanup)
 
+    def library_snapshot(self, user):
+        """This person's playable, unhidden songs and their keys: the stable
+        input every planning step of one pass works from (worker thread)."""
+        projection = self.store.user_libraries.projection(user)
+        hidden = self.hidden(user)
+        keys = TrackKeys()
+        owned = [
+            t
+            for t in projection["tracks"]
+            if t.get("available", True) and keys(t) not in hidden
+        ]
+        return projection, owned, hidden, keys
+
+    def first_back(self, user, today, owned, history, keys):
+        tracks = choose(owned, 30, f"{user}:{today}:back", history, key=keys)
+        identity = self.plan(
+            user,
+            "back",
+            today,
+            KINDS["back"],
+            "Saved music worth another listen",
+            tracks,
+        )
+        if identity:
+            self.publish(identity, tracks, today)
+
     async def prepare_person(self, client, user, today):
         deadline = time.monotonic() + PASS_SECONDS
         current = await asyncio.to_thread(self.edition, user, "daily", today)
@@ -658,10 +708,9 @@ class Mixes:
             for day in (today, today + timedelta(days=1)):
                 await self.prepare_staged(user, day, today, deadline)
             return
-        projection = await asyncio.to_thread(self.store.user_libraries.projection, user)
-        owned = [t for t in projection["tracks"] if t.get("available", True)]
-        hidden = await asyncio.to_thread(self.hidden, user)
-        owned = [t for t in owned if song_key(t) not in hidden]
+        projection, owned, hidden, keys = await asyncio.to_thread(
+            self.library_snapshot, user
+        )
         if not owned:
             # An imported inventory is still a taste signal even before its
             # files arrive. With no taste at all, label regional charts honestly.
@@ -707,22 +756,11 @@ class Mixes:
                         )
                 await self.prepare_staged(user, day, today, deadline)
             return
-        history = await asyncio.to_thread(self.history, user, owned)
+        history = await asyncio.to_thread(self.history, user, owned, keys)
         weights = await asyncio.to_thread(self.favourite_weights, user)
         # Give a new person a playable library mix before any external lookup.
         if not await asyncio.to_thread(self.edition, user, "back", today):
-            tracks = choose(owned, 30, f"{user}:{today}:back", history)
-            identity = await asyncio.to_thread(
-                self.plan,
-                user,
-                "back",
-                today,
-                KINDS["back"],
-                "Saved music worth another listen",
-                tracks,
-            )
-            if identity:
-                await asyncio.to_thread(self.publish, identity, tracks, today)
+            await asyncio.to_thread(self.first_back, user, today, owned, history, keys)
         for day in (today, today + timedelta(days=1)):
             if self.stopping.is_set():
                 return
@@ -730,265 +768,259 @@ class Mixes:
                 candidates, genre = await self.candidates(
                     client, {**projection, "mix_day": str(day)}
                 )
-                candidates = [t for t in candidates if song_key(t) not in hidden]
-                owned_keys = {
-                    t.get("musicbrainz_recording_id") or song_key(t) for t in owned
-                }
-                discoveries = [
-                    t
-                    for t in candidates
-                    if (t.get("musicbrainz_recording_id") or song_key(t))
-                    not in owned_keys
-                ]
-                salt = f"{user}:{day}"
-                previous = await asyncio.to_thread(self.exposure, user, day)
-                pool = [t for t in discoveries if t["bucket"] in DISCOVERY]
-                related = choose(pool, 15, salt, history, previous=previous)
-                popular_tracks = choose(
-                    [t for t in discoveries if t["bucket"] == "popular"],
-                    30,
-                    salt + ":popular",
-                    history,
-                )
-                chart = choose(popular_tracks, 3, salt, history, previous=previous)
-                familiar = choose(
+                await asyncio.to_thread(
+                    self.plan_library_day,
+                    user,
+                    day,
                     owned,
-                    max(12, 30 - len(related) - len(chart)),
-                    salt,
+                    hidden,
+                    candidates,
+                    genre,
                     history,
                     weights,
-                    previous,
+                    keys,
                 )
-                daily = choose(
-                    familiar + related + chart, 30, salt, history, previous=previous
-                )
-                await asyncio.to_thread(
-                    self.plan,
-                    user,
-                    "daily",
-                    day,
-                    KINDS["daily"],
-                    (
-                        "Your favourites, fresh discoveries and a little of what's current"
-                        if related and chart
-                        else (
-                            "Your library and fresh discoveries"
-                            if related
-                            else (
-                                "Your library and current chart discoveries"
-                                if chart
-                                else "A fresh selection from your library"
-                            )
-                        )
-                    ),
-                    daily,
-                    backfill=choose(
-                        owned,
-                        2 * MIN_MIX,
-                        salt + ":fill",
-                        history,
-                        weights,
-                        per_artist=3,
-                    ),
-                )
-                await asyncio.to_thread(
-                    self.plan,
-                    user,
-                    "back",
-                    day,
-                    KINDS["back"],
-                    "Saved music worth another listen",
-                    choose(owned, 30, salt + ":back", history),
-                )
-                # Discoveries only, never repeating today's Daily blend.
-                in_daily = {song_key(t) for t in daily}
-                fresh = choose(
-                    [t for t in pool if song_key(t) not in in_daily],
-                    30,
-                    salt + ":fresh",
-                    history,
-                )
-                if len(fresh) >= 10:
-                    await asyncio.to_thread(
-                        self.plan,
-                        user,
-                        "fresh",
-                        day,
-                        KINDS["fresh"],
-                        "New to you, picked from artists and genres you love",
-                        fresh,
+            await self.prepare_staged(user, day, today, deadline)
+
+    def plan_library_day(
+        self, user, day, owned, hidden, candidates, genre, history, weights, keys
+    ):
+        """Every library-backed mix for one day. Pure CPU and SQLite work on a
+        stable snapshot, so it runs on a worker thread, never the event loop."""
+        pick = lambda *args, **kwargs: choose(*args, key=keys, **kwargs)
+        candidates = [t for t in candidates if keys(t) not in hidden]
+        owned_keys = {t.get("musicbrainz_recording_id") or keys(t) for t in owned}
+        discoveries = [
+            t
+            for t in candidates
+            if (t.get("musicbrainz_recording_id") or keys(t)) not in owned_keys
+        ]
+        salt = f"{user}:{day}"
+        previous = self.exposure(user, day)
+        pool = [t for t in discoveries if t["bucket"] in DISCOVERY]
+        related = pick(pool, 15, salt, history, previous=previous)
+        popular_tracks = pick(
+            [t for t in discoveries if t["bucket"] == "popular"],
+            30,
+            salt + ":popular",
+            history,
+        )
+        chart = pick(popular_tracks, 3, salt, history, previous=previous)
+        familiar = pick(
+            owned,
+            max(12, 30 - len(related) - len(chart)),
+            salt,
+            history,
+            weights,
+            previous,
+        )
+        daily = pick(familiar + related + chart, 30, salt, history, previous=previous)
+        self.plan(
+            user,
+            "daily",
+            day,
+            KINDS["daily"],
+            (
+                "Your favourites, fresh discoveries and a little of what's current"
+                if related and chart
+                else (
+                    "Your library and fresh discoveries"
+                    if related
+                    else (
+                        "Your library and current chart discoveries"
+                        if chart
+                        else "A fresh selection from your library"
                     )
-                releases = choose(
-                    [t for t in discoveries if t["bucket"] == "release"],
-                    30,
-                    salt + ":releases",
+                )
+            ),
+            daily,
+            backfill=pick(
+                owned,
+                2 * MIN_MIX,
+                salt + ":fill",
+                history,
+                weights,
+                per_artist=3,
+            ),
+        )
+        self.plan(
+            user,
+            "back",
+            day,
+            KINDS["back"],
+            "Saved music worth another listen",
+            pick(owned, 30, salt + ":back", history),
+        )
+        # Discoveries only, never repeating today's Daily blend.
+        in_daily = {keys(t) for t in daily}
+        fresh = pick(
+            [t for t in pool if keys(t) not in in_daily],
+            30,
+            salt + ":fresh",
+            history,
+        )
+        if len(fresh) >= 10:
+            self.plan(
+                user,
+                "fresh",
+                day,
+                KINDS["fresh"],
+                "New to you, picked from artists and genres you love",
+                fresh,
+            )
+        releases = pick(
+            [t for t in discoveries if t["bucket"] == "release"],
+            30,
+            salt + ":releases",
+            history,
+            per_artist=3,
+        )
+        if len(releases) >= 3:
+            self.plan(
+                user,
+                "releases",
+                day,
+                KINDS["releases"],
+                "Recent releases by artists in your library",
+                releases,
+            )
+        seeded = [
+            t
+            for t in owned
+            if any(c.get("reason") == "Similar to " + t["artist"] for c in candidates)
+        ]
+        artist = pick(seeded or owned, 1, salt)[0]["artist"]
+        neighbourhood = [
+            t
+            for t in candidates
+            if ("Similar to " + artist).casefold() == t.get("reason", "").casefold()
+        ]
+        artist_tracks = pick(
+            [t for t in owned if t["artist"] == artist] + neighbourhood,
+            25,
+            salt,
+            history,
+            per_artist=8,
+        )
+        if len({t["artist"].casefold() for t in artist_tracks}) > 1:
+            self.plan(
+                user,
+                "artist",
+                day,
+                "Around " + artist,
+                "An artist you saved and their musical neighbourhood",
+                artist_tracks,
+                backfill=self.neighbourhood_fill(
+                    owned, artist, neighbourhood, salt, history, keys
+                ),
+            )
+        if genre:
+            same = lambda t: (t.get("genre") or "").casefold() == genre.casefold()
+            genre_new = pick([t for t in pool if same(t)], 15, salt + ":genre", history)
+            genre_owned = pick(
+                [t for t in owned if same(t)],
+                30 - len(genre_new),
+                salt + ":genre",
+                history,
+            )
+            self.plan(
+                user,
+                "genre",
+                day,
+                genre + " rotation",
+                "A genre from your library",
+                pick(genre_owned + genre_new, 30, salt, history),
+                backfill=pick(
+                    [t for t in owned if same(t)],
+                    2 * MIN_MIX,
+                    salt + ":fill",
                     history,
                     per_artist=3,
-                )
-                if len(releases) >= 3:
-                    await asyncio.to_thread(
-                        self.plan,
-                        user,
-                        "releases",
-                        day,
-                        KINDS["releases"],
-                        "Recent releases by artists in your library",
-                        releases,
-                    )
-                seeded = [
+                ),
+            )
+        decade = decade_theme(owned, day)
+        if decade:
+            decade_new = pick(
+                [t for t in pool if t.get("decade") == decade],
+                12,
+                salt + ":decade",
+                history,
+            )
+            decade_owned = pick(
+                [
                     t
                     for t in owned
-                    if any(
-                        c.get("reason") == "Similar to " + t["artist"]
-                        for c in candidates
-                    )
-                ]
-                artist = choose(seeded or owned, 1, salt)[0]["artist"]
-                neighbourhood = [
-                    t
-                    for t in candidates
-                    if ("Similar to " + artist).casefold()
-                    == t.get("reason", "").casefold()
-                ]
-                artist_tracks = choose(
-                    [t for t in owned if t["artist"] == artist] + neighbourhood,
-                    25,
-                    salt,
-                    history,
-                    per_artist=8,
-                )
-                if len({t["artist"].casefold() for t in artist_tracks}) > 1:
-                    await asyncio.to_thread(
-                        self.plan,
-                        user,
-                        "artist",
-                        day,
-                        "Around " + artist,
-                        "An artist you saved and their musical neighbourhood",
-                        artist_tracks,
-                        backfill=self.neighbourhood_fill(
-                            owned, artist, neighbourhood, salt, history
-                        ),
-                    )
-                if genre:
-                    same = (
-                        lambda t: (t.get("genre") or "").casefold() == genre.casefold()
-                    )
-                    genre_new = choose(
-                        [t for t in pool if same(t)], 15, salt + ":genre", history
-                    )
-                    genre_owned = choose(
-                        [t for t in owned if same(t)],
-                        30 - len(genre_new),
-                        salt + ":genre",
-                        history,
-                    )
-                    await asyncio.to_thread(
-                        self.plan,
-                        user,
-                        "genre",
-                        day,
-                        genre + " rotation",
-                        "A genre from your library",
-                        choose(genre_owned + genre_new, 30, salt, history),
-                        backfill=choose(
-                            [t for t in owned if same(t)],
-                            2 * MIN_MIX,
-                            salt + ":fill",
-                            history,
-                            per_artist=3,
-                        ),
-                    )
-                decade = decade_theme(owned, day)
-                if decade:
-                    decade_new = choose(
-                        [t for t in pool if t.get("decade") == decade],
-                        12,
-                        salt + ":decade",
-                        history,
-                    )
-                    decade_owned = choose(
-                        [
-                            t
-                            for t in owned
-                            if isinstance(t.get("year"), int)
-                            and t["year"] // 10 * 10 == decade
-                        ],
-                        30 - len(decade_new),
-                        salt + ":decade",
-                        history,
-                    )
-                    await asyncio.to_thread(
-                        self.plan,
-                        user,
-                        "decade",
-                        day,
-                        f"Your {decade}s",
-                        f"Music from the {decade}s, from your library and beyond",
-                        choose(decade_owned + decade_new, 30, salt, history),
-                        backfill=choose(
-                            [
-                                t
-                                for t in owned
-                                if isinstance(t.get("year"), int)
-                                and t["year"] // 10 * 10 == decade
-                            ],
-                            2 * MIN_MIX,
-                            salt + ":fill",
-                            history,
-                            per_artist=3,
-                        ),
-                    )
-                plays = await asyncio.to_thread(self.plays, user)
-                deep = choose(
+                    if isinstance(t.get("year"), int) and t["year"] // 10 * 10 == decade
+                ],
+                30 - len(decade_new),
+                salt + ":decade",
+                history,
+            )
+            self.plan(
+                user,
+                "decade",
+                day,
+                f"Your {decade}s",
+                f"Music from the {decade}s, from your library and beyond",
+                pick(decade_owned + decade_new, 30, salt, history),
+                backfill=pick(
                     [
                         t
                         for t in owned
-                        if plays[0].get(t.get("id"), 0) + plays[1].get(song_key(t), 0)
-                        <= 1
+                        if isinstance(t.get("year"), int)
+                        and t["year"] // 10 * 10 == decade
                     ],
-                    30,
-                    salt + ":deep",
+                    2 * MIN_MIX,
+                    salt + ":fill",
                     history,
-                )
-                if len(deep) >= 10:
-                    await asyncio.to_thread(
-                        self.plan,
-                        user,
-                        "deep",
-                        day,
-                        KINDS["deep"],
-                        "Songs you own but have barely played",
-                        deep,
-                    )
-                added = await asyncio.to_thread(self.recently_added, user)
-                recent = choose(
-                    [t for t in owned if t.get("id") in added],
-                    30,
-                    salt + ":recent",
-                    history,
-                )
-                if len(recent) >= 10:
-                    await asyncio.to_thread(
-                        self.plan,
-                        user,
-                        "recent",
-                        day,
-                        KINDS["recent"],
-                        "Music added to your library in the last 30 days",
-                        recent,
-                    )
-                if popular_tracks:
-                    await asyncio.to_thread(
-                        self.plan,
-                        user,
-                        "popular",
-                        day,
-                        KINDS["popular"],
-                        "Current chart music close to your taste",
-                        popular_tracks,
-                    )
-            await self.prepare_staged(user, day, today, deadline)
+                    per_artist=3,
+                ),
+            )
+        plays = self.plays(user)
+        deep = pick(
+            [
+                t
+                for t in owned
+                if plays[0].get(t.get("id"), 0) + plays[1].get(keys(t), 0) <= 1
+            ],
+            30,
+            salt + ":deep",
+            history,
+        )
+        if len(deep) >= 10:
+            self.plan(
+                user,
+                "deep",
+                day,
+                KINDS["deep"],
+                "Songs you own but have barely played",
+                deep,
+            )
+        added = self.recently_added(user)
+        recent = pick(
+            [t for t in owned if t.get("id") in added],
+            30,
+            salt + ":recent",
+            history,
+        )
+        if len(recent) >= 10:
+            self.plan(
+                user,
+                "recent",
+                day,
+                KINDS["recent"],
+                "Music added to your library in the last 30 days",
+                recent,
+            )
+        if popular_tracks:
+            self.plan(
+                user,
+                "popular",
+                day,
+                KINDS["popular"],
+                "Current chart music close to your taste",
+                popular_tracks,
+            )
 
     async def prepare_staged(self, user, day, today, deadline=None):
         deadline = deadline if deadline is not None else time.monotonic() + PASS_SECONDS
