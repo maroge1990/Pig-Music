@@ -12,7 +12,7 @@ public struct CompanionContext: Codable, Sendable, Equatable {
     self.account = account
   }
 }
-public struct CompanionSong: Codable, Sendable, Identifiable, Equatable {
+public struct CompanionSong: Codable, Sendable, Identifiable, Hashable {
   public var track: Track
   public var checksum: String
   public var bytes: Int64

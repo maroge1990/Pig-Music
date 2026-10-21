@@ -38,6 +38,11 @@ import SwiftUI
   @ObservationIgnored private var generation = 0
   @ObservationIgnored private var peerRevision: Int64 = 0
   @ObservationIgnored private var publishing = false
+  /// The ready songs and their files from the last publish, with what they
+  /// were built from. The two-second poll reuses them while nothing changed
+  /// instead of checking every file again (RV23).
+  @ObservationIgnored private var readyCache:
+    (key: [String], archive: Int, songs: [CompanionSong], files: [String: URL])?
   /// When each manifest ("manifest:<revision>") or song ("audio:<id>:<checksum>")
   /// was last handed to WatchConnectivity, so nothing is queued twice.
   @ObservationIgnored private var sent: [String: Date] = [:]
@@ -125,6 +130,7 @@ import SwiftUI
       try BackgroundTransferHub.archive(for: identifier)
       ?? DownloadArchive(directory: directory.appendingPathComponent("WatchAAC"))
     guard let service = model?.service else { return }
+    readyCache = nil
     downloads = DownloadController(archive: archive, source: service) { [weak self] error in
       self?.message = error.userMessage
     }
@@ -206,12 +212,8 @@ import SwiftUI
   func reconcile() async throws {
     guard let downloads, let store = model?.store else { return }
     let stamp = generation
-    var allowed: [String: String?] = [:]
-    for record in downloads.records {
-      if let track = try await store.track(id: record.id) {
-        allowed.updateValue(track.sourceRevision, forKey: record.id)
-      }
-    }
+    // One store query for every Watch song (each song's own query before).
+    let allowed = try await store.sourceRevisions(ids: downloads.records.map(\.id))
     guard generation == stamp else { return }
     await downloads.reconcile(allowed)
     guard generation == stamp else { return }
@@ -411,6 +413,7 @@ import SwiftUI
     poll = nil
     if let downloads { Task { await downloads.clear() } }
     downloads = nil
+    readyCache = nil
     verified = false
     namespace = nil
     receipt = nil
@@ -443,15 +446,24 @@ import SwiftUI
     let stamp = generation
     var songs: [CompanionSong] = []
     var files: [String: URL] = [:]
-    for record in downloads.records where record.state == "ready" {
-      if let checksum = record.checksum, let file = await downloads.archive.localFile(record.track)
-      {
-        songs.append(CompanionSong(track: record.track, checksum: checksum, bytes: record.total))
-        files[record.id] = file
+    let ready = downloads.records.filter { $0.state == "ready" && $0.checksum != nil }
+    let key = ready.map { "\($0.id):\($0.checksum ?? ""):\($0.track.sourceRevision ?? "")" }
+    let archiveRevision = await downloads.archive.revision
+    if !force, let cache = readyCache, cache.key == key, cache.archive == archiveRevision {
+      songs = cache.songs
+      files = cache.files
+    } else {
+      // One indexed lookup for every ready song, not a search per song.
+      files = await downloads.archive.localFiles(ready.map(\.track))
+      for record in ready {
+        if let checksum = record.checksum, files[record.id] != nil {
+          songs.append(CompanionSong(track: record.track, checksum: checksum, bytes: record.total))
+        }
       }
+      songs.sort { $0.id < $1.id }
+      readyCache = (key, archiveRevision, songs, files)
     }
     guard generation == stamp else { return }
-    songs.sort { $0.id < $1.id }
     let ids = Set(songs.map(\.id))
     var remainingOccurrences = 10000
     // Only playlists sent to the Watch appear there, including empty ones.
@@ -469,9 +481,10 @@ import SwiftUI
     let batchActive =
       downloads.running || downloads.records.contains { ["queued", "downloading"].contains($0.state) }
     let sameAccount = context.account == namespace && published?.context.account == namespace
+    let current = Set(songs)
     let growthOnly =
       sameAccount
-      && (published?.songs.allSatisfy { old in songs.contains(old) } ?? false)
+      && (published?.songs.allSatisfy { current.contains($0) } ?? false)
     // While a batch is still preparing, the Watch gets a new library version
     // at most every 45 seconds instead of one per finished song: each version
     // must be acknowledged before more audio is sent. Removals go at once.

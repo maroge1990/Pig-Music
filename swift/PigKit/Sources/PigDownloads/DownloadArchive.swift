@@ -15,7 +15,12 @@ public actor DownloadArchive {
   private let directory: URL
   private let session: URLSession
   private var records: [DownloadRecord]
-  private var invalidated: Set<String> = []
+  private var invalidated: Set<String> = [] {
+    didSet { revision += 1 }
+  }
+  /// Changes whenever a record or its usability changes, so a caller can
+  /// reuse what it derived from the archive while this stays the same.
+  public private(set) var revision = 0
   public init(directory: URL, configuration: URLSessionConfiguration = .ephemeral) throws {
     self.directory = directory
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -52,6 +57,7 @@ public actor DownloadArchive {
     records.reduce(0) { $0 + ($1.state == "ready" ? $1.total : 0) + ($1.retained?.bytes ?? 0) }
   }
   private func persist() throws {
+    revision += 1
     try LibraryCodec.encoder().encode(records).write(
       to: directory.appendingPathComponent("downloads.json"), options: .atomic)
   }
@@ -131,8 +137,23 @@ public actor DownloadArchive {
     try persist()
   }
   public func localFile(_ track: Track) -> URL? {
-    guard !invalidated.contains(track.id), let record = records.first(where: { $0.id == track.id }),
-      record.track.sourceRevision == track.sourceRevision
+    guard let record = records.first(where: { $0.id == track.id }) else { return nil }
+    return localFile(track, record: record)
+  }
+  /// `localFile` for many songs with one index instead of a search per song
+  /// (the Watch manifest asks for every ready song).
+  public func localFiles(_ tracks: [Track]) -> [String: URL] {
+    let byId = Dictionary(records.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    var files: [String: URL] = [:]
+    for track in tracks {
+      if let record = byId[track.id], let file = localFile(track, record: record) {
+        files[track.id] = file
+      }
+    }
+    return files
+  }
+  private func localFile(_ track: Track, record: DownloadRecord) -> URL? {
+    guard !invalidated.contains(track.id), record.track.sourceRevision == track.sourceRevision
     else { return nil }
     if record.state == "ready", let name = record.fileName,
       validFile(name, id: track.id, quality: record.quality, bytes: record.total)
