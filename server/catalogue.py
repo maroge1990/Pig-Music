@@ -1,7 +1,7 @@
 """Cached MusicBrainz browsing; queue payloads are built from server metadata."""
 
 import asyncio
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qsl, urljoin, urlsplit
 from contextvars import ContextVar
 import time
 from uuid import UUID
@@ -152,12 +152,15 @@ class Catalogue:
 
     async def fetch(self, client, url, params):
         """One answer, paced. MusicBrainz's own redirects (a merged release
-        group or artist) are followed on musicbrainz.org only; a 503 or 429
-        (its rate limiting) is retried after a pause before it fails."""
+        group or artist) are followed on musicbrainz.org only, keeping every
+        requested parameter the redirect does not set itself (its own `inc`
+        or `fmt` wins); a 503 or 429 (its rate limiting) is retried after a
+        pause before it fails."""
         query = {"fmt": "json", **params}
         for attempt in range(self.retries + 1):
             await self.pace()
             response = await client.get(url, params=query)
+            effective = query
             for _ in range(3):
                 if not response.is_redirect:
                     break
@@ -171,9 +174,10 @@ class Catalogue:
                     or parts.port not in {None, 443}
                 ):
                     break
+                effective = {**effective, **dict(parse_qsl(parts.query))}
                 await self.pace()
                 response = await client.get(
-                    target, params=None if parts.query else query
+                    parts._replace(query="", fragment="").geturl(), params=effective
                 )
             if response.status_code in {429, 503} and attempt < self.retries:
                 try:

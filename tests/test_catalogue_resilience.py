@@ -79,6 +79,106 @@ def test_redirects_off_musicbrainz_are_not_followed(tmp_path):
         fetch(Store(tmp_path), handler, "release-group/" + OLD)
 
 
+MID = "33333333-3333-4333-8333-333333333333"
+FULL = "recordings+artist-credits+isrcs+release-groups"
+MB = "https://musicbrainz.org/ws/2/release/"
+
+
+def merged_release(redirects):
+    """A handler that answers `redirects` (path ID → Location) with 301s and
+    the final release with tracks only when the request asks for recordings,
+    as MusicBrainz does. Every request's query items are recorded."""
+    seen = []
+
+    def handler(request):
+        seen.append((request.url.path, request.url.params.multi_items()))
+        for old, location in redirects.items():
+            if request.url.path.endswith(old):
+                return httpx.Response(301, headers={"location": location})
+        release = {"id": NEW, "title": "Merged"}
+        if "recordings" in request.url.params.get("inc", ""):
+            release["media"] = [{"tracks": [{"title": "Dreams"}]}]
+            release["release-group"] = {"primary-type": "Album"}
+        return httpx.Response(200, json=release)
+
+    return handler, seen
+
+
+def last_query(seen):
+    items = seen[-1][1]
+    assert len({key for key, _ in items}) == len(items), items
+    return dict(items)
+
+
+def test_a_redirect_keeps_the_requested_includes_and_caches_full_details(tmp_path):
+    handler, seen = merged_release({OLD: MB + NEW + "?fmt=json"})
+    store = Store(tmp_path)
+    release = fetch(store, handler, "release/" + OLD, inc=FULL)
+    assert last_query(seen) == {"fmt": "json", "inc": FULL}
+    assert release["media"][0]["tracks"][0]["title"] == "Dreams"
+    assert release["release-group"]["primary-type"] == "Album"
+    # The cached answer under the original request is the full one.
+    assert fetch(store, handler, "release/" + OLD, inc=FULL) == release
+    assert len(seen) == 2
+
+
+def test_a_redirects_own_parameters_win_without_duplicates(tmp_path):
+    handler, seen = merged_release({OLD: MB + NEW + "?fmt=json&inc=recordings"})
+    fetch(Store(tmp_path), handler, "release/" + OLD, inc=FULL, status="official")
+    assert last_query(seen) == {
+        "fmt": "json",
+        "inc": "recordings",
+        "status": "official",
+    }
+
+
+def test_a_redirect_without_a_query_keeps_every_parameter(tmp_path):
+    handler, seen = merged_release({OLD: "/ws/2/release/" + NEW})
+    fetch(Store(tmp_path), handler, "release/" + OLD, inc=FULL, status="official")
+    assert seen[-1][0] == "/ws/2/release/" + NEW
+    assert last_query(seen) == {"fmt": "json", "inc": FULL, "status": "official"}
+
+
+def test_each_hop_carries_the_effective_parameters(tmp_path):
+    handler, seen = merged_release(
+        {
+            OLD: MB + MID + "?fmt=json&inc=recordings+isrcs",
+            MID: MB + NEW,
+        }
+    )
+    release = fetch(
+        Store(tmp_path), handler, "release/" + OLD, inc=FULL, status="official"
+    )
+    assert [path for path, _ in seen] == [
+        "/ws/2/release/" + OLD,
+        "/ws/2/release/" + MID,
+        "/ws/2/release/" + NEW,
+    ]
+    # The first hop's own inc replaces the requested one and is kept onwards.
+    assert last_query(seen) == {
+        "fmt": "json",
+        "inc": "recordings isrcs",
+        "status": "official",
+    }
+    assert release["media"]
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "http://musicbrainz.org/ws/2/release/" + NEW + "?fmt=json",
+        "https://musicbrainz.org.example.com/ws/2/release/" + NEW + "?fmt=json",
+        "https://user@musicbrainz.org/ws/2/release/" + NEW,
+        "https://musicbrainz.org:8443/ws/2/release/" + NEW,
+    ],
+)
+def test_redirects_with_queries_still_stay_on_musicbrainz(tmp_path, location):
+    handler, seen = merged_release({OLD: location})
+    with pytest.raises(httpx.HTTPStatusError):
+        fetch(Store(tmp_path), handler, "release/" + OLD, inc=FULL)
+    assert len(seen) == 1
+
+
 class Unavailable:
     async def get(self, client, path, **params):
         request = httpx.Request("GET", "https://musicbrainz.org/ws/2/" + path)
