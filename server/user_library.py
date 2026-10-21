@@ -492,7 +492,7 @@ class UserLibrary:
         """Artwork a person may load, indexed once per projection revision."""
         data = self.projection(user_id)
         cached = self.artwork_cache.get(user_id)
-        if cached and cached[0] == data["revision"]:
+        if cached and cached[0] == data["music_revision"]:
             return cached[1]
         access = {
             "items": {
@@ -507,7 +507,7 @@ class UserLibrary:
                 if item.get(field)
             },
         }
-        self.artwork_cache[user_id] = (data["revision"], access)
+        self.artwork_cache[user_id] = (data["music_revision"], access)
         return access
 
     def match_index(self, user_id):
@@ -517,10 +517,10 @@ class UserLibrary:
 
         data = self.projection(user_id)
         cached = self.index_cache.get(user_id)
-        if cached and cached[0] == data["revision"]:
+        if cached and cached[0] == data["music_revision"]:
             return cached[1]
         index = LibraryIndex(data)
-        self.index_cache[user_id] = (data["revision"], index)
+        self.index_cache[user_id] = (data["music_revision"], index)
         return index
 
     def projection(self, user_id):
@@ -549,6 +549,20 @@ class UserLibrary:
                     "SELECT track_id FROM library_members WHERE user_id=?", (user_id,)
                 )
             }
+            # Playlist edits bump the membership counter (other devices must
+            # notice them) without changing any music. Then keep the very same
+            # music objects, so native capture can skip re-serialising them.
+            content = (signature[1], signature[3], signature[4], frozenset(members))
+            if previous and previous[2] == content:
+                value = {
+                    **previous[1],
+                    "revision": hashlib.sha256(
+                        json.dumps(signature).encode()
+                    ).hexdigest(),
+                }
+                self.cache[user_id] = (signature, value, content)
+                self.cache.move_to_end(user_id)
+                return value
             albums = []
             for album in self.store.library["albums"]:
                 cover_sha = stored_cover_sha(album)
@@ -640,6 +654,8 @@ class UserLibrary:
                     )
             revision = hashlib.sha256(json.dumps(signature).encode()).hexdigest()
             value = {
+                # Changes only with the music itself, not with playlist edits.
+                "music_revision": revision,
                 "artists": artists,
                 "albums": albums,
                 "tracks": list(all_tracks.values()),
@@ -664,7 +680,7 @@ class UserLibrary:
                     )
                 },
             }
-            self.cache[user_id] = (signature, value)
+            self.cache[user_id] = (signature, value, content)
             self.cache.move_to_end(user_id)
             while len(self.cache) > 8:
                 self.cache.popitem(last=False)
@@ -763,7 +779,7 @@ class UserLibrary:
 
         data = self.projection(user_id)
         cached = self.lookup_cache.get(user_id)
-        if not cached or cached[0] != data["revision"]:
+        if not cached or cached[0] != data["music_revision"]:
             albums = {a["id"]: a.get("title") for a in data["albums"]}
             recordings, names = {}, defaultdict(list)
             for track in data["tracks"]:
@@ -776,7 +792,7 @@ class UserLibrary:
                 names[(normalise(track["title"]), normalise(track["artist"]))].append(
                     (filed, track)
                 )
-            cached = (data["revision"], recordings, names)
+            cached = (data["music_revision"], recordings, names)
             self.lookup_cache[user_id] = cached
         _, recordings, names = cached
         found = []

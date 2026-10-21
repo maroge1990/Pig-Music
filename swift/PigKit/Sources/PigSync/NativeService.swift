@@ -397,7 +397,7 @@ public actor NativeService: LibrarySource {
     repeat {
       try Task.checkCancellation()
       switch try await client.tracks_api_v1_library_tracks_get(
-        .init(query: .init(cursor: cursor, limit: 200)))
+        .init(query: .init(cursor: cursor, limit: 1000)))
       {
       case .ok(let success):
         let page = try success.body.json
@@ -412,7 +412,7 @@ public actor NativeService: LibrarySource {
     repeat {
       try Task.checkCancellation()
       switch try await client.albums_api_v1_library_albums_get(
-        .init(query: .init(cursor: cursor, limit: 200)))
+        .init(query: .init(cursor: cursor, limit: 1000)))
       {
       case .ok(let success):
         let page = try success.body.json
@@ -427,7 +427,7 @@ public actor NativeService: LibrarySource {
     repeat {
       try Task.checkCancellation()
       switch try await client.artists_api_v1_library_artists_get(
-        .init(query: .init(cursor: cursor, limit: 200)))
+        .init(query: .init(cursor: cursor, limit: 1000)))
       {
       case .ok(let success):
         let page = try success.body.json

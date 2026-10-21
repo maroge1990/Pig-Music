@@ -20,6 +20,13 @@ MODELS = {
 }
 
 
+# A first sync of a large library is bounded by round trips, not bytes: 50k
+# songs took 250 sequential pages of 200. Pages now hold up to 1000 items
+# but never much more than PAGE_BYTES of JSON, whatever the metadata.
+PAGE_LIMIT = 1000
+PAGE_BYTES = 2 * 1024 * 1024
+
+
 class ResyncRequired(ValueError):
     pass
 
@@ -27,6 +34,11 @@ class ResyncRequired(ValueError):
 class NativeSync:
     def __init__(self, store):
         self.store = store
+        # Per person and collection: the projection objects whose stored
+        # payload was verified at the last committed capture. The projection
+        # keeps the same objects across playlist-only edits, so those skip
+        # validation and serialisation entirely.
+        self.clean = {}
 
     def dto(self, kind, raw):
         if kind == "tracks":
@@ -78,6 +90,8 @@ class NativeSync:
                 conn.execute("BEGIN IMMEDIATE")
                 upserts = {kind: [] for kind in MODELS}
                 deletes = {kind: [] for kind in MODELS}
+                known = self.clean.get(user_id, {})
+                verified = {kind: {} for kind in MODELS}
                 for kind, model in MODELS.items():
                     before = dict(
                         conn.execute(
@@ -85,7 +99,12 @@ class NativeSync:
                             (user_id, kind),
                         )
                     )
+                    unchanged = known.get(kind, {})
                     for raw in projection[kind]:
+                        verified[kind][id(raw)] = raw
+                        if unchanged.get(id(raw)) is raw and raw["id"] in before:
+                            del before[raw["id"]]
+                            continue
                         item = self.dto(kind, raw)
                         payload = json.dumps(
                             item, sort_keys=True, separators=(",", ":")
@@ -115,11 +134,13 @@ class NativeSync:
                     "DELETE FROM sync_revisions WHERE captured_at<?",
                     (int(time.time()) - 30 * 86400,),
                 )
+            # Only after the commit: these objects now match their rows.
+            self.clean[user_id] = verified
             return {**projection, "revision": revision}
 
     def page(self, user_id, kind, cursor=None, limit=200):
-        if not 1 <= limit <= 200:
-            raise ValueError("Page limit must be between 1 and 200")
+        if not 1 <= limit <= PAGE_LIMIT:
+            raise ValueError(f"Page limit must be between 1 and {PAGE_LIMIT}")
         data = self.capture(user_id)
         offset = 0
         if cursor:
@@ -141,7 +162,14 @@ class NativeSync:
             except (ValueError, TypeError):
                 raise ValueError("Invalid cursor")
         values = data[kind]
-        following = offset + limit
+        items, size = [], 0
+        for value in values[offset : offset + limit]:
+            item = self.dto(kind, value)
+            size += len(json.dumps(item, separators=(",", ":")))
+            if items and size > PAGE_BYTES:
+                break
+            items.append(item)
+        following = offset + len(items)
         next_cursor = (
             base64.urlsafe_b64encode(
                 json.dumps([user_id, kind, data["revision"], following]).encode()
@@ -152,7 +180,7 @@ class NativeSync:
             else None
         )
         return {
-            "items": [self.dto(kind, v) for v in values[offset:following]],
+            "items": items,
             "total": len(values),
             "revision": data["revision"],
             "next_cursor": next_cursor,
