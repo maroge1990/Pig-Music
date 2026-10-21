@@ -39,7 +39,10 @@ The Tailscale address keeps working for same-origin use (each address keeps its 
 
 - **Split DNS for home playback during internet outages:** resolve `music.markrogers.au` to a LAN reverse proxy inside the house (certificate via Cloudflare DNS challenge) so the same address and cookies work locally. Not needed for normal use; traffic otherwise loops through Cloudflare.
 - **Cloudflare terms:** household audio streaming through a tunnel is low volume; revisit if usage grows substantially.
-- **Retire the plain LAN port** `192.168.1.235:8765`: accounts require HTTPS, so it can no longer sign anyone in.
+
+## Plain LAN port (retired)
+
+The host port `192.168.1.235:8765` is removed from `unraid/PigMusic.xml` (owner, 21 Oct): accounts require HTTPS, so it could not sign anyone in, and nothing uses it. Tailscale Serve proxies to `172.25.0.2:8765`, the tunnel to `PigMusic:8765`, and `deploy_release.py` checks `192.168.1.203:8765` on `br0`; none of these is the host port. `deploy_release.py` recreates the container from the live template (`my-PigMusic.xml`), so the owner removes the port there once: Unraid › Docker › PigMusic › Edit, remove **Web UI Port**, Apply. Then confirm Tailscale and `https://music.markrogers.au/api/health` still answer.
 
 ## Security model
 

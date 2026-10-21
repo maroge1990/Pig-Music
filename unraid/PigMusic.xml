@@ -20,7 +20,6 @@
   <CPUset />
   <Requires>Existing mounted NAS share /mnt/remotes/SERVER01_Audio; existing pig-music-preview and br0 networks.</Requires>
   <TailscaleStateDir />
-  <Config Name="Web UI Port" Target="8765" Default="192.168.1.235:8765" Mode="tcp" Description="LAN access; private HTTPS is the WebUI shortcut." Type="Port" Display="always" Required="true" Mask="false">192.168.1.235:8765</Config>
   <Config Name="App Data" Target="/data" Default="/mnt/user/appdata/pig-music-preview/data" Mode="rw" Description="Existing PigMusic state. Do not change during updates." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/pig-music-preview/data</Config>
   <Config Name="Music Library" Target="/library" Default="/mnt/remotes/SERVER01_Audio" Mode="rw" Description="Existing mounted NAS music share." Type="Path" Display="always" Required="true" Mask="false">/mnt/remotes/SERVER01_Audio</Config>
   <Config Name="Data Directory" Target="PIG_MUSIC_DATA" Default="/data" Mode="" Description="Container state directory." Type="Variable" Display="always" Required="true" Mask="false">/data</Config>
