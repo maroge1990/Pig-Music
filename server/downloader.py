@@ -251,6 +251,29 @@ class Downloader:
             **details,
         )
 
+    def hold(self, job, source, candidate):
+        """Keep an upload credited only by its uploader's name for the owner
+        to approve; the search carries on with the other sources (SC1)."""
+        self.state(
+            job["id"],
+            "searching",
+            source_review={
+                "source": source,
+                "provider_track_id": candidate["provider_track_id"],
+                "title": candidate["title"],
+                "uploader": candidate["channel"],
+                "duration": candidate.get("duration"),
+                "quality": candidate.get("quality"),
+                # The public page, never a (short-lived) stream URL.
+                "url": (
+                    "https://soundcloud.com/" + candidate["provider_track_id"]
+                    if source == "soundcloud"
+                    else None
+                ),
+                "held_at": time.time(),
+            },
+        )
+
     async def run(self):
         recovered = False
         tasks = set()
@@ -610,7 +633,31 @@ class Downloader:
                                 f"{job['artist']} {job['title']}", 20
                             )
                         self.runtime.health.outcome(source)
-                candidates = [c for c in candidates if matches(job, c)]
+                rejected = set(job.get("source_review_rejected") or [])
+                candidates = [
+                    c
+                    for c in candidates
+                    if matches(job, c) and c.get("provider_track_id") not in rejected
+                ]
+                # Uploader-name credits wait for the owner unless approved,
+                # and only an exact name match is worth asking about.
+                held = [
+                    c
+                    for c in candidates
+                    if c.get("identity_evidence") == "uploader_name"
+                    and c.get("provider_track_id") != job.get("source_review_approved")
+                ]
+                candidates = [c for c in candidates if c not in held]
+                held = [
+                    c for c in held if folded(c["channel"]) == folded(job["artist"])
+                ]
+                if held and not candidates:
+                    self.hold(job, source, held[0])
+                    errors.append(
+                        f"{source}: only an upload credited by its uploader's name; "
+                        "waiting for review"
+                    )
+                    continue
                 if job.get("exact_quality") and profile == "mp3_128":
                     candidates = [
                         c

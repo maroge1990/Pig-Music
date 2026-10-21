@@ -258,3 +258,82 @@ test("the owner reviews duplicate songs and moves them to Removed music", async 
   await expect(panel).toContainText("No duplicate songs.");
   expect(removed).toEqual(["dl"]);
 });
+
+test("the owner approves or rejects uploads credited only by the uploader", async ({
+  page,
+}) => {
+  const review = {
+    source: "soundcloud",
+    provider_track_id: "artist/song",
+    title: "Song",
+    uploader: "Artist",
+    duration: 201,
+    url: "https://soundcloud.com/artist/song",
+  };
+  const held = {
+    library_revision: "1",
+    downloads_enabled: true,
+    items: [
+      {
+        id: "held",
+        status: "failed",
+        title: "Song",
+        artist: "Artist",
+        album: "Album",
+        source_review: review,
+      },
+      // A running search and a completed request are never offered.
+      {
+        id: "busy",
+        status: "searching",
+        title: "Busy",
+        artist: "Artist",
+        album: "Album",
+        source_review: review,
+      },
+      {
+        id: "done",
+        status: "completed",
+        title: "Done",
+        artist: "Artist",
+        album: "Album",
+        source_review: review,
+      },
+    ],
+  };
+  const decisions: string[] = [];
+  await mockApi(page, {
+    role: "owner",
+    answers: {
+      "/v1/admin/queue": (route) => route.fulfill({ json: held }),
+      "/v1/admin/queue/held/source-review/approve": (route) => {
+        decisions.push(route.request().method());
+        return route.fulfill({
+          json: {
+            ...held,
+            items: [
+              {
+                ...held.items[0],
+                status: "waiting_for_sources",
+                source_review: null,
+              },
+            ],
+          },
+        });
+      },
+    },
+  });
+  await page.goto("/#/admin/downloads");
+  const list = page.getByRole("region", { name: "Needs review" });
+  await expect(list.locator(".result-row")).toHaveCount(1);
+  await expect(list).toContainText("uploaded by Artist · 3:21");
+  await expect(list.getByRole("link", { name: "Open upload" })).toHaveAttribute(
+    "href",
+    review.url,
+  );
+  await list.getByRole("button", { name: "Approve" }).click();
+  expect(decisions).toEqual(["POST"]);
+  await expect(page.getByRole("region", { name: "Needs review" })).toHaveCount(
+    0,
+  );
+});

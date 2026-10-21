@@ -244,6 +244,9 @@ class MixDownloader(Downloader):
         if details.get("error"):
             self.error = details["error"]
 
+    def hold(self, job, source, candidate):
+        pass  # Mix preparation never asks the owner; it skips the upload.
+
     def progress(self, job_id, received, total):
         self.check(job_id)
 

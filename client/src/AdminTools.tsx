@@ -16,7 +16,7 @@ import { Cover } from "./Cover";
 import { Empty } from "./EmptyState";
 import { MediaSettings } from "./MediaSettings";
 import { AdminGlance } from "./AdminGlance";
-import { QueueView, type Queue } from "./QueueView";
+import { QueueView, type Queue, type QueueAction } from "./QueueView";
 import {
   DownloadSettingsPanel,
   ServerLibraryTools,
@@ -648,7 +648,7 @@ export function AdminTools({ route }: { route: Route }) {
     );
   }
 
-  const queueAction = async (id: string, action: string) => {
+  const queueAction = async (id: string, action: QueueAction) => {
     setBusy(true);
     try {
       setQueue(

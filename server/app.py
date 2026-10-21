@@ -5,6 +5,7 @@ import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -856,6 +857,15 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     def retry(request_id: str):
         try:
             return store.retry_request(request_id)
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.post("/api/v1/admin/queue/{request_id}/source-review/{decision}")
+    def review_source(request_id: str, decision: Literal["approve", "reject"]):
+        try:
+            return store.review_source(request_id, decision == "approve")
+        except LookupError as exc:
+            raise HTTPException(404, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
 

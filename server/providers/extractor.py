@@ -62,6 +62,12 @@ def recording(info, source):
         if len(parts) == 2 and all(parts):
             artist, title = parts
             evidence = "explicit_credit"
+        elif info.get("uploader") and info.get("title"):
+            # Official uploads often carry only the song title. The uploader's
+            # name is weak evidence (fan accounts look the same), so the worker
+            # never transfers these without the owner's review (SC1).
+            artist, title = info["uploader"], info["title"]
+            evidence = "uploader_name"
     if not (isinstance(artist, str) and isinstance(title, str) and artist and title):
         return None
     if (

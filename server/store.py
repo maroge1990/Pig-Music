@@ -33,6 +33,9 @@ from .matching import (
     song_key,
 )
 
+# A held upload is decided only while its request has stopped (SC1).
+REVIEWABLE = {"failed", "waiting_for_sources"}
+
 
 class Store:
     """Durable application state and revisioned projection of the music library."""
@@ -240,7 +243,13 @@ class Store:
             ).fetchone()
             if row:
                 payload = {**json.loads(row[1]), "claim_token": uuid.uuid4().hex}
-                for key in ("error", "source", "received_bytes", "total_bytes"):
+                for key in (
+                    "error",
+                    "source",
+                    "received_bytes",
+                    "total_bytes",
+                    "source_review",  # Held again if the upload is still found.
+                ):
                     payload.pop(key, None)
                 conn.execute(
                     "UPDATE queue SET status='searching',payload=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
@@ -671,6 +680,39 @@ class Store:
             )
             if not result.rowcount:
                 raise ValueError("Only failed or cancelled requests can be retried")
+        return self.queue()
+
+    def review_source(self, request_id, approve):
+        """Approve or reject the upload a request is holding for review (SC1).
+
+        Only a request that has stopped (failed or waiting) can be decided,
+        so a running search never races the owner. Approving requeues a
+        failed request with that upload allowed; rejecting rules it out."""
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT status,payload FROM queue WHERE id=?", (request_id,)
+            ).fetchone()
+            if not row:
+                raise LookupError("Request not found")
+            status, payload = row[0], json.loads(row[1])
+            review = payload.get("source_review")
+            if not review or status not in REVIEWABLE:
+                raise ValueError("This request has no upload waiting for review")
+            if approve:
+                payload["source_review_approved"] = review["provider_track_id"]
+                payload.pop("retry_after", None)
+                status = "waiting_for_sources"
+            else:
+                payload["source_review_rejected"] = [
+                    *payload.get("source_review_rejected", []),
+                    review["provider_track_id"],
+                ]
+            payload["source_review"] = None
+            conn.execute(
+                "UPDATE queue SET status=?,payload=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+                (status, json.dumps(payload), request_id),
+            )
         return self.queue()
 
     def album_key(self, track):
