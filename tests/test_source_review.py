@@ -233,3 +233,205 @@ def test_only_the_owner_can_decide_a_held_upload(tmp_path, monkeypatch):
         entry = next(i for i in decided.json()["items"] if i["id"] == "held")
         assert entry["source_review_rejected"] == [UPLOAD["provider_track_id"]]
         assert owner.post(path + "reject").status_code == 409
+
+
+# Review of 5f01c36: the held upload must survive stronger candidates failing,
+# and re-extraction must never download weaker credit without approval.
+
+STRONG = {
+    **UPLOAD,
+    "identity_evidence": "structured",
+    "provider_track_id": "label/test-track",
+}
+
+
+def test_a_failing_stronger_candidate_still_leaves_the_upload_for_review(
+    tmp_path, monkeypatch
+):
+    store = Store(tmp_path)
+    job = queued(store)
+    worker, _ = engine(store, monkeypatch, {"soundcloud": [STRONG, UPLOAD]})
+    tried = []
+
+    def fail(job_id, candidate, path):
+        tried.append(candidate["provider_track_id"])
+        raise ValueError("candidate failed validation")
+
+    monkeypatch.setattr(worker, "transfer", fail)
+    worker.process(job)
+    held = item(store)
+    # The stronger one was tried first; the upload was never transferred.
+    assert set(tried) == {STRONG["provider_track_id"]}
+    assert held["status"] == "failed"
+    assert held["source_review"]["provider_track_id"] == UPLOAD["provider_track_id"]
+
+
+def test_quality_filtering_the_stronger_candidate_keeps_the_upload_for_review(
+    tmp_path, monkeypatch
+):
+    store = Store(tmp_path)
+    job = {**queued(store), "quality_profile": "mp3_128"}
+    job["quality_policy"] = {
+        "preferred": "mp3_128",
+        "fallback": "none",
+        "fallback_minutes": 10,
+        "recheck_hours": 24,
+    }
+    stronger = {**STRONG, "quality": "320kbps"}  # Not an exact 128 kbps file.
+    worker, transfers = engine(
+        store, monkeypatch, {"soundcloud": [stronger, {**UPLOAD, "quality": "128"}]}
+    )
+    worker.process(job)
+    assert transfers == []
+    assert item(store)["source_review"]["provider_track_id"] == (
+        UPLOAD["provider_track_id"]
+    )
+
+
+def test_weaker_credit_found_at_transfer_goes_back_to_review(tmp_path, monkeypatch):
+    from server.providers.contracts import ProviderError
+
+    store = Store(tmp_path)
+    job = queued(store)
+    worker, _ = engine(store, monkeypatch, {"soundcloud": [STRONG]})
+
+    def weakened(job_id, candidate, path):
+        assert not candidate.get("uploader_approved")
+        raise ProviderError("review_required")
+
+    monkeypatch.setattr(worker, "transfer", weakened)
+    worker.process(job)
+    held = item(store)
+    assert held["source_review"]["provider_track_id"] == STRONG["provider_track_id"]
+    # Approving it lets the same upload through on the next attempt.
+    store.review_source(job["id"], approve=True)
+    approved = []
+    monkeypatch.setattr(
+        worker,
+        "transfer",
+        lambda job_id, candidate, path: approved.append(candidate) or {},
+    )
+    worker.process(claimed(store))
+    assert approved[0]["uploader_approved"] is True
+    assert item(store)["status"] == "completed"
+
+
+def extractor_transfer(tmp_path, monkeypatch, original, evidence):
+    from pathlib import Path
+
+    from server.providers.contracts import Context
+    from server.providers.extractor import Extractor
+
+    extractor = Extractor("soundcloud")
+    requests = []
+    fresh = {
+        **original,
+        **recording(
+            {"title": "Test Track", "uploader": "Test Artist", "duration": 3},
+            "soundcloud",
+        ),
+        "identity_evidence": evidence,
+        "original_codec": "aac",
+        "original_container": "m4a",
+        "declared_bitrate": 160,
+    }
+
+    def invoke(request, context):
+        requests.append(request)
+        (Path(request["directory"]) / "audio.m4a").write_bytes(b"fixture")
+        return {"candidate": fresh, "filename": "audio.m4a", "remuxed": False}
+
+    monkeypatch.setattr(extractor, "invoke", invoke)
+    target = tmp_path / "result.m4a"
+    result = extractor.transfer(original, target, Context("native_standard"))
+    return result, requests, target
+
+
+def test_the_parent_rejects_newly_weak_credit_without_approval(tmp_path, monkeypatch):
+    from server.providers.contracts import ProviderError
+
+    original = {**STRONG, "format_id": "download"}
+    with pytest.raises(ProviderError) as caught:
+        extractor_transfer(tmp_path, monkeypatch, original, "uploader_name")
+    assert caught.value.code == "review_required"
+    assert not (tmp_path / "result.m4a").exists()
+
+
+def test_an_approved_uploader_only_transfer_still_works(tmp_path, monkeypatch):
+    original = {**UPLOAD, "format_id": "download", "uploader_approved": True}
+    result, requests, target = extractor_transfer(
+        tmp_path, monkeypatch, original, "uploader_name"
+    )
+    assert requests[0]["uploader_approved"] is True
+    assert result["identity_evidence"] == "uploader_name"
+    assert target.is_file()
+
+
+def test_the_worker_refuses_uploader_only_credit_before_downloading(
+    tmp_path, monkeypatch
+):
+    from yt_dlp import YoutubeDL
+
+    from server.providers.contracts import ProviderError
+    from server.providers.extractor_worker import execute
+
+    info = {
+        "id": "1",
+        "title": "Test Track",
+        "uploader": "Test Artist",
+        "duration": 3,
+        "webpage_url": "https://soundcloud.com/testartist/test-track",
+        "formats": [
+            {
+                "format_id": "download",
+                "format_note": "Original",
+                "ext": "m4a",
+                "acodec": "mp4a.40.2",
+                "vcodec": "none",
+                "abr": 160,
+                "protocol": "https",
+                "url": "https://cf-media.sndcdn.com/audio.m4a",
+            }
+        ],
+    }
+    downloads = []
+    monkeypatch.setattr(YoutubeDL, "extract_info", lambda *a, **k: dict(info))
+    monkeypatch.setattr(YoutubeDL, "process_info", lambda *a, **k: downloads.append(1))
+    request = {
+        "operation": "transfer",
+        "source": "soundcloud",
+        "profile": "native_standard",
+        "provider_track_id": "testartist/test-track",
+        "format_id": "download",
+        "directory": str(tmp_path),
+    }
+    with pytest.raises(ProviderError) as caught:
+        execute(request)
+    assert caught.value.code == "review_required"
+    assert downloads == []
+
+
+def test_mix_preparation_never_downloads_an_unapproved_upload(tmp_path, monkeypatch):
+    from server.providers.contracts import ProviderError
+    from test_mixes import protected
+
+    app, _ = protected(tmp_path, monkeypatch)
+    store = app.state.store
+    store.save_download_settings({"enabled": True, "sources": ["soundcloud"]})
+    downloader = MixDownloader(store.mix_cache, app.state.source_runtime, lambda: False)
+    found = [STRONG, UPLOAD]
+    monkeypatch.setattr(
+        downloader.runtime, "search", lambda *a: [dict(c) for c in found]
+    )
+    transfers = []
+
+    def transfer(job_id, candidate, path):
+        transfers.append(candidate)
+        assert not candidate.get("uploader_approved")
+        raise ProviderError("review_required")  # Re-extraction weakened it.
+
+    monkeypatch.setattr(downloader, "transfer", transfer)
+    song = {"title": "Test Track", "artist": "Test Artist", "album": "", "duration": 3}
+    assert not downloader.fetch(song)
+    assert [t["provider_track_id"] for t in transfers] == [STRONG["provider_track_id"]]
+    assert store.queue()["items"] == []

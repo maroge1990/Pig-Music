@@ -236,10 +236,17 @@ class Extractor:
                     "provider_track_id": candidate["provider_track_id"],
                     "format_id": candidate["format_id"],
                     "directory": directory,
+                    "uploader_approved": bool(candidate.get("uploader_approved")),
                 },
                 context,
             )
             fresh = result["candidate"]
+            # The parent never trusts the worker alone: weaker credit than
+            # the search found needs the owner's approval (SC1).
+            if fresh.get("identity_evidence") == "uploader_name" and not candidate.get(
+                "uploader_approved"
+            ):
+                raise ProviderError("review_required")
             expected = {
                 "artist": candidate["channel"],
                 "title": candidate["title"],

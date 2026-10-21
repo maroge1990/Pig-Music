@@ -9,6 +9,7 @@ MESSAGES = {
     "access_required": "Source requires access or a refreshed session",
     "protected": "Recording is private, protected, or unavailable",
     "no_match": "No full recording passed identity and quality checks",
+    "review_required": "Upload is credited only by its uploader and needs review",
     "invalid_response": "Source returned an unsupported response",
     "network_policy": "Source address is outside its allowed network policy",
     "limit": "Source exceeded its operation limits",

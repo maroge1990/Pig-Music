@@ -293,6 +293,12 @@ def execute(request):
         fields = recording(info, source)
         if not choice or not fields:
             raise ProviderError("no_match")
+        # Re-extraction can find weaker credit than the search did; an
+        # uploader-only credit downloads only with the owner's approval.
+        if fields["identity_evidence"] == "uploader_name" and not request.get(
+            "uploader_approved"
+        ):
+            raise ProviderError("review_required")
         selected = next(
             f for f in info["formats"] if str(f.get("format_id")) == choice["format_id"]
         )

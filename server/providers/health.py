@@ -7,7 +7,13 @@ from contextlib import contextmanager
 from .contracts import ProviderError
 
 # Failures that prove the source responded, unlike outages or policy blocks.
-ANSWERED = {"no_match", "protected", "access_required", "invalid_response"}
+ANSWERED = {
+    "no_match",
+    "review_required",
+    "protected",
+    "access_required",
+    "invalid_response",
+}
 
 
 class Health:

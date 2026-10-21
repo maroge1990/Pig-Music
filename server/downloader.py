@@ -146,6 +146,12 @@ def matches(target, candidate):
     return actual > 0 and (not expected or abs(actual - expected) <= 5)
 
 
+def reviewable(job, candidate):
+    """Only an uploader named exactly like the requested artist is worth
+    the owner's review (SC1); case and spacing aside, anything else is not."""
+    return folded(candidate.get("channel")) == folded(job["artist"])
+
+
 def safe_name(value):
     value = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", value).strip(" .")[:100] or "Unknown"
     if value.upper().split(".")[0] in {
@@ -640,32 +646,31 @@ class Downloader:
                     if matches(job, c) and c.get("provider_track_id") not in rejected
                 ]
                 # Uploader-name credits wait for the owner unless approved,
-                # and only an exact name match is worth asking about.
+                # and only an exact name match is worth asking about. They are
+                # kept aside and offered only if everything stronger fails.
+                approved = job.get("source_review_approved")
                 held = [
                     c
                     for c in candidates
                     if c.get("identity_evidence") == "uploader_name"
-                    and c.get("provider_track_id") != job.get("source_review_approved")
+                    and c.get("provider_track_id") != approved
                 ]
-                candidates = [c for c in candidates if c not in held]
-                held = [
-                    c for c in held if folded(c["channel"]) == folded(job["artist"])
-                ]
-                if held and not candidates:
-                    self.hold(job, source, held[0])
-                    errors.append(
-                        f"{source}: only an upload credited by its uploader's name; "
-                        "waiting for review"
+                candidates = [
+                    (
+                        {**c, "uploader_approved": True}
+                        if approved and c.get("provider_track_id") == approved
+                        else c
                     )
-                    continue
+                    for c in candidates
+                    if c not in held
+                ]
+                held = [c for c in held if reviewable(job, c)]
                 if job.get("exact_quality") and profile == "mp3_128":
-                    candidates = [
-                        c
-                        for c in candidates
-                        if not re.search(
-                            r"(?<!\d)(?:192|256|320)(?!\d)", str(c.get("quality", ""))
-                        )
-                    ]
+                    exact = lambda c: not re.search(
+                        r"(?<!\d)(?:192|256|320)(?!\d)", str(c.get("quality", ""))
+                    )
+                    candidates = [c for c in candidates if exact(c)]
+                    held = [c for c in held if exact(c)]
                 candidates.sort(key=lambda c: c.get("quality") != "320kbps")
                 for candidate in candidates[:3]:
                     self.check(job["id"])
@@ -698,6 +703,15 @@ class Downloader:
                     except (Cancelled, QualityDeadline):
                         raise
                     except Exception as exc:
+                        # Re-extraction found only the uploader's credit.
+                        if (
+                            isinstance(exc, ProviderError)
+                            and exc.code == "review_required"
+                            and reviewable(job, candidate)
+                        ):
+                            held.append(
+                                {**candidate, "identity_evidence": "uploader_name"}
+                            )
                         if transferred:
                             self.runtime.health.outcome(
                                 source, error=ProviderError("no_match"), transfer=True
@@ -724,7 +738,13 @@ class Downloader:
                         errors.append(f"{source}: {message}")
                     finally:
                         path.unlink(missing_ok=True)
-                if not candidates:
+                if held:
+                    self.hold(job, source, held[0])
+                    errors.append(
+                        f"{source}: only an upload credited by its uploader's name; "
+                        "waiting for review"
+                    )
+                elif not candidates:
                     errors.append(
                         f"{source}: no candidate passed recording/version matching"
                     )
