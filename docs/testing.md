@@ -44,6 +44,77 @@ Never trade matching or validation guarantees for throughput.
 
 `benchmark_api.py` sends GET requests only, to `/api/v1` paths, with an owner device token from `PIG_MUSIC_BENCHMARK_TOKEN`. `deploy_unraid.py` also runs `verify_state_migration.py` against a read-only copy of a stopped-state backup, and any migration failure aborts the release.
 
+## Release acceptance checklist
+
+One pass over every item in the blueprint's **Delivered** table, on the live release (`editions-20261021-v2`) and the rebuilt iPhone app 0.2.0 (5). Report failures by number (for example `D1`) with the device, OS, connection and what happened. The IDs in brackets are the roadmap items each check accepts.
+
+**A. Web, desktop browser, signed in as the owner**
+
+1. Open every Admin tab with the network log open: no 404s (U01-4).
+2. Admin › Downloads and a library scan update live; background the tab and the network log shows no polling (R18).
+3. Request a whole album: one Downloads card fills up; retry a failed song (R13).
+4. Type an artist name quickly in Search: one catalogue request per pause, none on backspace (R14).
+5. Pink Floyd and Arcade Fire: Library › Find more by… › catalogue and back; "In library" on a deluxe or remastered title; a live album's songs show as not in library and can be requested (R12, RV19, RV21).
+6. Sign out and in as another person in the same tab, then search: nothing from the previous person. Reload offline: covers still show (RV19).
+7. Sign in on two browsers and the phone: names, last-used times and "This device" are right; Sign out other devices from one (R15).
+8. Admin › Server library › Duplicate songs: read the proposed list before moving anything (ED1).
+9. Import a playlist whose songs are already on another edition: nothing downloads again (ED1).
+10. New downloads show album covers on web and iPhone, including EPs and singles (ED1, LOG21).
+11. Home: one row of mixes; open one, play it to the end, save an edition, hide a song. Check again over the next few days that the editions change and still sound coherent. Radio keeps going past the end of the queue. Admin shows mix preparation detail (MX0–MX4).
+12. Now Playing's artist name opens the library artist page for library music and the full artist page for catalogue music (ED1).
+
+**B. Internet access, iPhone on cellular with Wi-Fi off (NET)**
+
+1. Sign in at `music.markrogers.au` in Safari and in the app.
+2. Open an invite link on another device and join.
+3. Enter a wrong password repeatedly: the lockout message appears and clears after the wait.
+
+**C. iPhone: launch and library**
+
+1. Install over the old build and launch: the splash shows only until the first refresh, with no flash (N14A). Offline, the cached library shows no raw sync errors (FB19).
+2. With 500+ downloads, a sync is quick and covers don't flicker (EFF1).
+3. Pick Soundtracks during a pull-to-refresh: it loads (RV19).
+4. Open an album and a playlist twice: the server log shows `304` the second time (EFF1).
+5. A Search artist opens the full artist page with a library link; the graphical artist page and photo fade look right with and without Fanart (N14A, N14D, AUD1).
+6. Library artist page: Play, Shuffle, Songs and "Find more by…" (R12). A requested album shows in full with pending status graphics (N14B).
+7. Open a Recommended album cold: it draws at once (FB19). Home prefetches no albums on cellular, Low Data Mode or Low Power Mode (EFF1).
+8. Account › Devices and sessions (R15).
+9. Change appearance quickly several times, offline and online: the last choice wins and survives a sync (ED1, RV20).
+10. Confirmation dialogs (delete playlist, remove music, artist request) open at their button (ED1).
+
+**D. iPhone: playback**
+
+1. A playlist mixing device, server and missing songs on the seamless engine: missing songs are passed over, including one found missing only after the previous song ended (it plays the replacement once) (ED1, RV20, RV21).
+2. Another member's household song plays without adding it (HH, AUD4).
+3. A downloaded FLAC over 128 MB plays; on a slow connection playback falls back to streaming (AUD6).
+4. Remote playback of a song nobody has (R01).
+5. Headphone and lock-screen controls; playback over poor reception (AUD1, FB19).
+6. A mix and the radio: the radio appends without a glitch (MX2, MX4).
+7. One YouTube, one SoundCloud and one Monochrome download each play (SP).
+
+**E. iPhone: downloads**
+
+1. Downloads › Server shows one card per request; Clear finished works (R13, N14C).
+2. On this device groups by album and playlist; a song in both stays until it is removed from both (N14C).
+3. A playlist with missing songs offers "Add N missing songs to server" (FB19).
+4. With downloads queued on cellular, change the cellular setting: transfers restart under the new setting, also after a relaunch (ED1).
+5. Background and foreground on cellular; lock the phone mid-transfer (FB19).
+
+**F. Watch Ultra 3 (and Series 7)**
+
+1. Send a playlist and an artist; lock the phone mid-send; send an empty playlist, then add songs to it on the phone: the Watch follows (W02, AUD3).
+2. Reinstall the Watch app: the phone shows activation, pairing and installation correctly (AUD3).
+3. Interrupt a sync; cold-launch with the phone off; disconnect and reconnect AirPods; relaunch: the queue comes back paused (AUD2).
+4. Play restarts a finished queue; Crown volume and the output picker work (AUD1, AUD8).
+5. The Watch controls the phone's radio (MX4).
+6. The battery run in step 5 of [Native device acceptance](#native-device-acceptance) (AUD8).
+
+**G. Other**
+
+1. iPad: repeat C1, C5 and D1 in both orientations.
+2. Open `swift/PigMusic.xcodeproj` in Xcode: no "Update to recommended settings" prompt (XPROJ).
+3. After any failure: Account › Diagnostics › Export diagnostics (AUD7).
+
 ## Native device acceptance
 
 Simulator builds and PCM captures don't prove device behaviour. For each finding, record the device, OS, connection, playback mode, format and exact failure.
