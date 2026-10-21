@@ -866,3 +866,13 @@ main h1[tabindex="-1"]:focus {
   color: var(--success);
   font-weight: 600;
 }
+/* Apple import: one 12px rhythm between the explanation, preview and actions. */
+.apple-import > p {
+  margin: 0 0 var(--space-12);
+}
+.apple-import .release-actions {
+  margin: var(--space-16) 0 0;
+}
+.apple-import .owner-tools {
+  margin-top: var(--space-24);
+}

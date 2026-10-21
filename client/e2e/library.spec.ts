@@ -308,3 +308,22 @@ test("album tiles in the library name the artist", async ({ page }) => {
     page.locator(".album-card", { hasText: album.title }),
   ).toContainText(`${artist.name} · 2 songs`);
 });
+
+test("empty member pages show the pig, not bare text", async ({ page }) => {
+  await mockApi(page, {
+    answers: {
+      "/v1/requests/groups": (route) =>
+        route.fulfill({ json: { groups: [], total: 0, next_offset: null } }),
+    },
+  });
+  for (const [hash, title] of [
+    ["/#/library/playlists", "No playlists yet"],
+    ["/#/library/favourites", "No favourites yet"],
+    ["/#/downloads", "No downloads"],
+  ]) {
+    await page.goto(hash);
+    const empty = page.locator(".empty-state", { hasText: title });
+    await expect(empty).toBeVisible();
+    await expect(empty.locator("img.empty-pig")).toHaveCount(1);
+  }
+});

@@ -1,4 +1,5 @@
 import { AppleImport } from "./AppleImport";
+import { Empty } from "./EmptyState";
 import { FindMore } from "./FindMore";
 import { ArtistHero } from "./ArtistHero";
 import { CatalogueBrowser } from "./CatalogueBrowser";
@@ -759,6 +760,12 @@ export function PersonalLibrary({
             </nav>
             <ShuffleLibrary total={library.stats.tracks} />
           </div>
+          {!library.stats.tracks && (tab === "artists" || tab === "albums") && (
+            <Empty
+              title="Your library is empty"
+              description="Search for an artist to add music, or import your Apple Music playlists from Playlists."
+            />
+          )}
           {tab === "artists" && (
             <CollectionPages<Artist>
               key={tab}
@@ -827,10 +834,10 @@ export function PersonalLibrary({
                 favouriteList,
               )
             ) : (
-              <p className="muted">
-                Choose Favourite from a song&apos;s … menu to keep it here.
-                Favourites never download anything by themselves.
-              </p>
+              <Empty
+                title="No favourites yet"
+                description="Choose Favourite from a song's … menu to keep it here. Favourites never download anything by themselves."
+              />
             ))}
           {tab === "playlists" && (
             <>
@@ -881,6 +888,12 @@ export function PersonalLibrary({
                     </li>
                   ))}
               </ul>
+              {!playlists.some((p) => !p.id.startsWith("pig-favourites:")) && (
+                <Empty
+                  title="No playlists yet"
+                  description="Create one above, or import your Apple Music playlists below."
+                />
+              )}
               {tab === "playlists" && (
                 <AppleImport owner={owner} onImported={refresh} />
               )}

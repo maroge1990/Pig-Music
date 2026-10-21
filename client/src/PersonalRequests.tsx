@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { api } from "./api";
 import { Cover, catalogueCover } from "./Cover";
+import { Empty } from "./EmptyState";
 import { formatRelative } from "./format";
 import { friendlyRequestError } from "./requestError";
 import { sourceName } from "./sources";
@@ -158,10 +159,10 @@ export function PersonalRequests() {
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
       {page && !page.total && (
-        <p className="muted">
-          Songs and albums you download from Search or an artist page appear
-          here until they reach your library.
-        </p>
+        <Empty
+          title="No downloads"
+          description="Songs and albums you download from Search or an artist page appear here until they reach your library."
+        />
       )}
       {page && page.total > 0 && (
         <>
