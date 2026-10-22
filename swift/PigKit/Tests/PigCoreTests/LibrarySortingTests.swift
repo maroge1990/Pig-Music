@@ -131,13 +131,20 @@ struct ArtworkRevisionTests {
     #expect(third != second)
     try await store.apply(delta("five", upserts: artist))
     #expect(try await store.artworkRevision() == third)
+    // So does a portrait arriving for the same artist.
+    let portrait =
+      #""tracks":[],"albums":[],"artists":[{"id":"ar","name":"A","cover_album_id":"al","cover_sha":"ppp"}],"playlists":[]"#
+    try await store.apply(delta("five-b", upserts: portrait))
+    #expect(try await store.artworkRevision() != third)
+    #expect(try await store.artist(id: "ar")?.coverSha == "ppp")
+    let withPortrait = try #require(try await store.artworkRevision())
     // A removed album can change an artist's cover.
     try await store.apply(
       delta(
         "six", upserts: #""tracks":[],"albums":[],"artists":[],"playlists":[]"#,
         deletedAlbums: #""al""#))
     let fourth = try #require(try await store.artworkRevision())
-    #expect(fourth != third)
+    #expect(fourth != withPortrait)
     // A full resync moves it when covers differ (the artist is gone), but
     // not when it repeats the same covers.
     var song = Track(id: "t", title: "Song", artist: "A")

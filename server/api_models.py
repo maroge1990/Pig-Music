@@ -65,6 +65,9 @@ class ArtistDTO(BaseModel):
     compilation_only: bool = False
     cover_album_id: str | None = None
     cover_url: str | None = None
+    # The stored image behind cover_url (portrait or album cover), for
+    # clients that address artwork by hash.
+    cover_sha: str | None = None
     fallback_cover_url: str | None = None
     musicbrainz_artist_id: str | None = None
 

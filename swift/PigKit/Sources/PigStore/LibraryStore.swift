@@ -412,10 +412,14 @@ public actor LibraryStore {
       || differs("tracks", "cover_sha", delta.upserts.tracks.map { ($0.id, $0.coverSha) })
       || differs(
         "artists", "cover_album_id", delta.upserts.artists.map { ($0.id, $0.coverAlbumId) })
+      || differs("artists", "cover_sha", delta.upserts.artists.map { ($0.id, $0.coverSha) })
   }
   /// Every cover reference in the library, for comparing a full replacement.
   private static func coverDigest(_ db: Database) throws -> [String] {
-    try [("albums", "cover_sha"), ("tracks", "cover_sha"), ("artists", "cover_album_id")].map {
+    try [
+      ("albums", "cover_sha"), ("tracks", "cover_sha"), ("artists", "cover_album_id"),
+      ("artists", "cover_sha"),
+    ].map {
       table, key in
       try String.fetchOne(
         db,

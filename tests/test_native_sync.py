@@ -125,3 +125,28 @@ def test_server_fetched_cover_is_addressable_by_hash(tmp_path):
     album["cover_url"] = "/api/v1/library-artwork/albums/" + album["id"]
     store.library_revision += "-changed"
     assert NativeSync(store).page(owner, "albums")["items"][0]["cover_sha"] is None
+
+
+def test_artist_portrait_reaches_native_once_fetched(tmp_path):
+    from PIL import Image
+    from server.library_artwork import portraits_waiting
+    from server.portraits import portrait_target
+
+    store, owner, _ = fixture(tmp_path)
+    sync = NativeSync(store)
+    before = sync.page(owner, "artists")
+    assert before["items"][0]["cover_sha"] is None
+    assert not portraits_waiting(store)
+    # The warmer saves a portrait without refreshing the library.
+    target = portrait_target(store, "Artist")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (64, 64), "red").save(target, "JPEG")
+    assert portraits_waiting(store)
+    store.refresh_library()
+    assert not portraits_waiting(store)
+    artist = sync.page(owner, "artists")["items"][0]
+    assert artist["cover_url"] == f"/api/v1/covers/{artist['cover_sha']}.jpg"
+    changed = sync.changes(owner, before["revision"])
+    assert [a["cover_sha"] for a in changed["upserts"]["artists"]] == [
+        artist["cover_sha"]
+    ]

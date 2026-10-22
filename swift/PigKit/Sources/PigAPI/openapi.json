@@ -413,6 +413,11 @@
             "title": "Cover Album Id",
             "type": "string"
           },
+          "cover_sha": {
+            "nullable": true,
+            "title": "Cover Sha",
+            "type": "string"
+          },
           "cover_url": {
             "nullable": true,
             "title": "Cover Url",
@@ -485,6 +490,11 @@
           "cover_album_id": {
             "nullable": true,
             "title": "Cover Album Id",
+            "type": "string"
+          },
+          "cover_sha": {
+            "nullable": true,
+            "title": "Cover Sha",
             "type": "string"
           },
           "cover_url": {

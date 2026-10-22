@@ -64,6 +64,8 @@ public struct Artist: Codable, Sendable, Identifiable, Hashable {
   public var trackCount: Int?
   public var compilationOnly: Bool?
   public var coverAlbumId: String?
+  /// The server's image for the artist (a portrait, else an album cover).
+  public var coverSha: String?
 }
 
 public struct PlaylistEntry: Codable, Sendable, Identifiable, Hashable {

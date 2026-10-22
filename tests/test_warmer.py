@@ -157,3 +157,32 @@ def test_home_albums_get_their_recommended_edition_prepared_once(tmp_path):
     asyncio.run(run())
     assert albums == ["group", "empty"]
     assert covers == [("release", "group-edition")]
+
+
+def test_each_pass_ends_by_showing_new_portraits(tmp_path, monkeypatch):
+    from server import warmer as module
+
+    w, calls, _ = warmer(tmp_path)
+    w.store.library = {"artists": [{"id": "lib-a", "compilation_only": False}]}
+    finished = []
+    w.after_pass = lambda: finished.append(len(calls))
+    real_sleep = asyncio.sleep
+
+    async def sleep(seconds):
+        if seconds == module.PASS_INTERVAL:
+            raise asyncio.CancelledError
+        await real_sleep(0)
+
+    monkeypatch.setattr(module.asyncio, "sleep", sleep)
+
+    async def run():
+        worker = asyncio.create_task(w.work())
+        try:
+            await w.schedule()
+        except asyncio.CancelledError:
+            pass
+        worker.cancel()
+
+    asyncio.run(run())
+    # Called once, after the library artist was prepared.
+    assert finished == [1]

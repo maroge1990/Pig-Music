@@ -39,6 +39,8 @@ class Warmer:
         # Prepares a release group's editions and recommended edition; returns
         # that edition's ID.
         self.warm_album = None
+        # Called after each pass, e.g. to show portraits the pass fetched.
+        self.after_pass = None
         self.albums = OrderedDict()
         self.queue = asyncio.PriorityQueue()
         self.pending = {}
@@ -158,6 +160,8 @@ class Warmer:
             try:
                 await self.run_pass()
                 await self.queue.join()
+                if self.after_pass:
+                    await asyncio.to_thread(self.after_pass)
                 seconds = round(time.monotonic() - started, 1)
                 self.state["last_pass_finished"] = time.time()
                 self.state["last_pass_seconds"] = seconds

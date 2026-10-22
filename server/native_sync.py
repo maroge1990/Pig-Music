@@ -56,7 +56,7 @@ class NativeSync:
                 "cover_url": album.get("cover_url") or raw.get("cover_url"),
                 "cover_sha": stored_cover_sha(album) or raw.get("cover_sha"),
             }
-        elif kind == "albums":
+        elif kind in ("albums", "artists"):
             raw = {**raw, "cover_sha": stored_cover_sha(raw)}
         return MODELS[kind].model_validate(raw).model_dump(mode="json")
 

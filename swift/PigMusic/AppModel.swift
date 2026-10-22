@@ -895,6 +895,8 @@ enum PlayOrigin: Hashable {
     return try? await store.artist(named: name)
   }
   func artistCover(_ artist: Artist) async -> String? {
+    // The server's portrait when it has one; its album choice otherwise.
+    if let sha = artist.coverSha { return sha }
     if let cached = artistCovers[artist.id] { return cached }
     guard let store else { return nil }
     var albums = (try? await store.albums(artistId: artist.id, limit: 12)) ?? []

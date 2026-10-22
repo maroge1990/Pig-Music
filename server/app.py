@@ -31,6 +31,7 @@ from .device_copies import DeviceCopies
 from .routes.device_copies import device_copy_router
 from .routes.household import household_router
 from .portraits import portrait_target
+from .library_artwork import portraits_waiting
 from .artist_backgrounds import background_target
 from pydantic import BaseModel, Field
 
@@ -897,6 +898,12 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     app.include_router(catalogue_routes)
     warmer.warm_artist = catalogue_routes.warm_artist
     warmer.library_identity = catalogue_routes.library_identity
+
+    def show_new_portraits():
+        if portraits_waiting(store):
+            images_changed()
+
+    warmer.after_pass = show_new_portraits
 
     async def warm_cover(kind, item_id):
         """Fetch a catalogue cover and its common sizes; True when new."""

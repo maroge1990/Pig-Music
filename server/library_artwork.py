@@ -95,6 +95,21 @@ def cache_covers(store, snapshot_tracks):
                 item["artwork_metadata"] = metadata
 
 
+def portraits_waiting(store):
+    """Whether a library artist still shows its fallback although its portrait
+    has since been fetched (by the warmer, which does not refresh the library)."""
+    from .portraits import portrait_target
+
+    if not media_settings(store)["portraits"]:
+        return False
+    for artist in list(store.library["artists"]):
+        if (artist.get("cover_url") or "").endswith("?portraits=1"):
+            known = store.read_document("library-artist:" + artist["id"])
+            if portrait_target(store, artist["name"], known.get("id")).is_file():
+                return True
+    return False
+
+
 def prune_artwork(store, now=None):
     now = time.time() if now is None else now
     with store.covers.lock, store.library_lock:
