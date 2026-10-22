@@ -378,6 +378,8 @@ public final class ProgressiveDownload: AudioBytes, @unchecked Sendable {
       var position = request.offset ?? 0
       let before = heldBytes
       do {
+        // However this transfer ends, its HTTP request ends with it.
+        defer { request.cancel() }
         for try await chunk in request.chunks {
           guard store(chunk, at: position) else { throw AudioSourceFailure.storageLimit }
           position += chunk.count
@@ -407,7 +409,9 @@ public final class ProgressiveDownload: AudioBytes, @unchecked Sendable {
   }
 }
 
-/// One HTTP request whose body arrives as chunks.
+/// One HTTP request whose body arrives as chunks. The request lives only as
+/// long as its reader: a cancelled or abandoned reader, or the last
+/// reference going, cancels the data task.
 final class Request: @unchecked Sendable {
   let response: HTTPURLResponse
   let chunks: AsyncThrowingStream<Data, Error>
@@ -423,7 +427,9 @@ final class Request: @unchecked Sendable {
     self.task = task
     self.chunks = chunks
     self.continuation = continuation
+    continuation.onTermination = { [task] _ in task.cancel() }
   }
+  deinit { task.cancel() }
   func cancel() {
     task.cancel()
     continuation.finish()

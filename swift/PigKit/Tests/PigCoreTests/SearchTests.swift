@@ -193,3 +193,37 @@ private actor CountingOnline: OnlineSearchSource {
   await session.search("Rad", now: start.addingTimeInterval(400))
   #expect(await online.counts() == [5, 4])
 }
+
+@Test func cacheSyncedBeforeArtistPortraitsResyncsOnce() async throws {
+  let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+  defer { try? FileManager.default.removeItem(at: directory) }
+  let path = directory.appendingPathComponent("library.sqlite").path
+  // An older app stored the artist without `cover_sha` and kept syncing.
+  let previous = try LibraryStore(path: path)
+  try await previous.replace(
+    LibraryCodec.decoder().decode(
+      LibrarySnapshot.self,
+      from: Data(
+        #"{"revision":"old","tracks":[],"albums":[],"artists":[{"id":"ar","name":"Artist","cover_album_id":"al"}],"playlists":[]}"#
+          .utf8)))
+  let queue = try DatabaseQueue(path: path)
+  try await queue.write { db in
+    try db.execute(sql: "DELETE FROM grdb_migrations WHERE identifier='artist-portraits-v9'")
+  }
+  try queue.close()
+  let upgraded = try LibraryStore(path: path)
+  // No revision: the next sync downloads the library again, and the cached
+  // artists stay until that replacement arrives.
+  #expect(try await upgraded.revision() == nil)
+  #expect(try await upgraded.artist(id: "ar")?.name == "Artist")
+  try await upgraded.replace(
+    LibraryCodec.decoder().decode(
+      LibrarySnapshot.self,
+      from: Data(
+        #"{"revision":"new","tracks":[],"albums":[],"artists":[{"id":"ar","name":"Artist","cover_album_id":"al","cover_sha":"ppp"}],"playlists":[]}"#
+          .utf8)))
+  #expect(try await upgraded.artist(id: "ar")?.coverSha == "ppp")
+  // Only once.
+  #expect(try await LibraryStore(path: path).revision() == "new")
+}

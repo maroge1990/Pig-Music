@@ -64,6 +64,20 @@ def better(new, old):
     return a[0] == 1 and b[1] > 0 and a[1] >= b[1] * BITRATE_MARGIN
 
 
+def as_good(kept, copy):
+    """Whether the evidence shows `kept` is at least as good as `copy`, so
+    `copy` can go to Trash. Unknown quality, or lossy copies without a
+    bitrate to compare, are never evidence."""
+    a, b = quality(kept), quality(copy)
+    if not a[0] or not b[0]:
+        return False
+    if a[0] != b[0]:
+        return a[0] > b[0]
+    if a[0] == 2:
+        return True
+    return a[1] > 0 and b[1] > 0 and not better(copy, kept)
+
+
 def label(track):
     codec = canonical_codec(track.get("codec")).upper() or "Unknown"
     bitrate = track.get("bitrate")
@@ -176,16 +190,24 @@ class Tidy:
                 and files[k["id"]]["nas"]
                 and Path(files[best[1]["id"]]["path"]).suffix.lower() in TAG_SUFFIXES
             )
+            keeping = k
             if better(best[1], k) and movable:
                 replace.append(
                     {**summary(best[1], best[0]), "replaces": summary(k, keeper)}
                 )
                 copies = [c for c in copies if c is not best]
+                keeping = best[1]
             elif better(best[1], k):
                 # A better copy that cannot be retagged into place stays put.
                 leftovers += [summary(t, a) for a, t in copies]
                 continue
-            remove += [{**summary(t, a), "kept": summary(k, keeper)} for a, t in copies]
+            # Only a copy the kept file is shown to be as good as goes to
+            # Trash; one that might be better stays for review.
+            for album, track in copies:
+                if as_good(keeping, track):
+                    remove.append({**summary(track, album), "kept": summary(k, keeper)})
+                else:
+                    leftovers.append(summary(track, album))
         involved = [t["id"] for t in kept] + [
             t["id"] for album, tracks in editions[1:] if album in others for t in tracks
         ]
@@ -232,7 +254,9 @@ class Tidy:
 
     @coordinated
     def apply(self, album_id, fingerprint):
-        """Tidy one album's editions as planned; refused if anything changed."""
+        """Tidy one album's editions as planned; refused if anything changed.
+        Every change is journaled before it happens, so Undo (or a restart)
+        finds it however the tidy-up stops."""
         item = next((i for i in self.plan()["albums"] if i["id"] == album_id), None)
         if not item or item["fingerprint"] != fingerprint:
             raise ValueError("These albums changed since the review.")
@@ -262,10 +286,10 @@ class Tidy:
                 # The better file's listeners and the kept copy's share it.
                 self.share(record, row["replaces"]["id"], row["id"])
                 self.trash(record, old["id"])
-                placement = {k: keeper.get(k) for k in ("year",)}
-                placement.update(
+                placement = dict(
                     album=keeper["title"],
                     album_artist=keeper["artist"],
+                    year=keeper.get("year") or None,
                     track_number=old.get("track_number"),
                     disc_number=old.get("disc_number", 1),
                     musicbrainz_release_id=keeper.get("musicbrainz_release_id"),
@@ -277,12 +301,12 @@ class Tidy:
                     Path(files[old["id"]]["path"]).parent
                     / file_name({**moved, **placement}, Path(source).suffix.lower())
                 ).as_posix()
-                record["moves"].append(
-                    self.organisation.move(
-                        row["id"], source, destination, True, placement
-                    )
-                )
+                operation = str(uuid.uuid4())
+                record["moves"].append(operation)
                 self.save(record)
+                self.organisation.move(
+                    row["id"], source, destination, True, placement, operation
+                )
             for row in item["remove"]:
                 kept = row["kept"]["id"]
                 # A kept copy replaced above now lives on in the better file.
@@ -293,56 +317,70 @@ class Tidy:
                 self.share(record, row["id"], kept)
                 self.trash(record, row["id"])
             record["status"] = "applied"
-        except (ValueError, OSError):
-            record["status"] = "stopped"
+        except (ValueError, OSError) as error:
+            record.update(status="stopped", error=str(error) or type(error).__name__)
             raise
         finally:
-            self.save(record)
-            self.store.refresh_library()
+            try:
+                self.save(record)
+            finally:
+                self.store.refresh_library()
         return record
 
     def share(self, record, track_id, keeper):
+        """Give the kept copy to everyone who has `track_id`, journaled in the
+        same transaction."""
         from .user_library import bump
 
-        with self.store.connect() as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            for (user_id,) in conn.execute(
-                "SELECT user_id FROM library_members WHERE track_id=?", (track_id,)
-            ).fetchall():
-                if conn.execute(
-                    "INSERT OR IGNORE INTO library_members VALUES (?,?,?,'household-add')",
-                    (user_id, keeper, int(time.time())),
-                ).rowcount:
-                    record["memberships"].append([user_id, keeper])
-                    bump(conn, user_id)
-        self.save(record)
+        committed = list(record["memberships"])
+        try:
+            with self.store.connect() as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                for (user_id,) in conn.execute(
+                    "SELECT user_id FROM library_members WHERE track_id=?", (track_id,)
+                ).fetchall():
+                    if conn.execute(
+                        "INSERT OR IGNORE INTO library_members VALUES (?,?,?,'household-add')",
+                        (user_id, keeper, int(time.time())),
+                    ).rowcount:
+                        record["memberships"].append([user_id, keeper])
+                        bump(conn, user_id)
+                conn.execute(
+                    "UPDATE documents SET payload=? WHERE name=?",
+                    (json.dumps(record), "tidy:" + record["id"]),
+                )
+        except BaseException:
+            record["memberships"] = committed  # Rolled back with the rows.
+            raise
 
     def trash(self, record, track_id):
-        removal = self.recovery.remove(track_id, exclude=False, refresh=False)
-        record["removals"].append(removal["id"])
+        removal = str(uuid.uuid4())
+        record["removals"].append(removal)
         self.save(record)
+        self.recovery.remove(track_id, exclude=False, refresh=False, identity=removal)
 
     @coordinated
     def undo(self, identity):
-        """Put an album's editions back as they were before the tidy-up."""
+        """Put an album's editions back as they were before the tidy-up,
+        settling any step a failure or restart interrupted first."""
         from .user_library import bump
 
         record = self.store.read_document("tidy:" + identity)
         # "applying" is a tidy-up a restart interrupted.
         if record.get("status") not in {"applying", "applied", "stopped"}:
             raise ValueError("Tidy-up not found.")
-        for operation in reversed(record["moves"]):
-            if self.store.read_document("organisation:" + operation).get("status") in {
-                "completed",
-                "undoing",
-            }:
-                self.organisation.undo(operation)
-        for removal in reversed(record["removals"]):
-            if self.store.read_document("removed:" + removal).get("status") in {
-                "removed",
-                "removing",
-            }:
-                self.recovery.restore(removal)
+        try:
+            for operation in reversed(record["moves"]):
+                if self.organisation.settle(operation) in {"completed", "undoing"}:
+                    self.organisation.undo(operation)
+            for removal in reversed(record["removals"]):
+                if self.recovery.settle(removal) in {"removed", "removing"}:
+                    self.recovery.restore(removal)
+        except (ValueError, OSError) as error:
+            record["error"] = "Undo stopped: " + (str(error) or type(error).__name__)
+            self.save(record)
+            self.store.refresh_library()
+            raise
         with self.store.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             for user_id, track_id in record["memberships"]:
@@ -352,20 +390,75 @@ class Tidy:
                 ).rowcount:
                     bump(conn, user_id)
         record["status"] = "undone"
+        record.pop("error", None)
         self.save(record)
         self.store.refresh_library()
         return record
 
-    def history(self):
+    @coordinated
+    def recover(self):
+        """At startup, after organisation and removal recovery: a tidy-up a
+        restart interrupted is stopped, and a move an earlier version did not
+        journal is adopted by the one unfinished or undone tidy-up of that
+        album (only tidy-ups retag a move's album placement). An undone
+        tidy-up that adopts one is reopened so Undo can finish."""
+        records = self.records()
+        journaled = {m for r in records for m in r["moves"]}
+        candidates = [
+            r for r in records if r["status"] in {"applying", "stopped", "undone"}
+        ]
+        changed = set()
+        for operation in self.organisation.history():
+            if (
+                "placed_from" not in operation
+                or operation["id"] in journaled
+                or operation["status"] in {"cancelled", "undone"}
+            ):
+                continue
+            owners = [
+                r
+                for r in candidates
+                if r["title"] == operation["track"].get("album")
+                and r["artist"] == operation["track"].get("album_artist")
+            ]
+            if len(owners) == 1:
+                owner = owners[0]
+                owner["moves"].append(operation["id"])
+                if owner["status"] == "undone":
+                    owner.update(
+                        status="stopped",
+                        error="An earlier Undo missed a moved file; Undo again.",
+                    )
+                owner.setdefault(
+                    "error", "Stopped part-way; a moved file was recovered for Undo."
+                )
+                changed.add(owner["id"])
+        for record in candidates:
+            if record["status"] == "applying":
+                record.update(
+                    status="stopped",
+                    error=record.get("error") or "Interrupted by a restart.",
+                )
+                changed.add(record["id"])
+            if record["id"] in changed:
+                self.save(record)
+
+    def records(self):
         with self.store.connect() as conn:
-            records = [
+            return [
                 json.loads(v)
                 for (v,) in conn.execute(
                     "SELECT payload FROM documents WHERE name LIKE 'tidy:%'"
                 )
             ]
+
+    def history(self):
         return sorted(
-            (r for r in records if r["status"] in {"applying", "applied", "stopped"}),
+            (
+                r
+                for r in self.records()
+                if r["status"] in {"applying", "applied", "stopped"}
+            ),
             key=lambda r: -r["time"],
         )
 

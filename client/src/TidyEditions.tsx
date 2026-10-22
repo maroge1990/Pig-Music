@@ -17,7 +17,13 @@ type Album = {
   leftovers: Song[];
   fingerprint: string;
 };
-type Done = { id: string; artist: string; title: string; status: string };
+type Done = {
+  id: string;
+  artist: string;
+  title: string;
+  status: string;
+  error?: string | null;
+};
 
 /** Albums the library has on several editions, tidied to the fullest. */
 export function TidyEditions({ notify }: { notify: (s: string) => void }) {
@@ -25,9 +31,11 @@ export function TidyEditions({ notify }: { notify: (s: string) => void }) {
   const [history, setHistory] = useState<Done[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  async function review() {
+  /** Refresh the review; a tidy-up or Undo that just failed keeps its
+   * `failure` on screen. */
+  async function review(failure = "") {
     setBusy(true);
-    setError("");
+    setError(failure);
     try {
       const r = await apiFetch("/api/v1/admin/library/tidy");
       if (!r.ok) throw new Error("Edition review unavailable.");
@@ -35,7 +43,7 @@ export function TidyEditions({ notify }: { notify: (s: string) => void }) {
       setAlbums(d.albums);
       setHistory(d.history);
     } catch (e) {
-      setError((e as Error).message);
+      setError([failure, (e as Error).message].filter(Boolean).join(" "));
     } finally {
       setBusy(false);
     }
@@ -61,30 +69,31 @@ export function TidyEditions({ notify }: { notify: (s: string) => void }) {
       return;
     setBusy(true);
     setError("");
+    let failure = "";
     try {
       await post("/api/v1/admin/library/tidy/" + album.id, {
         fingerprint: album.fingerprint,
       });
       notify(`${album.artist} · ${album.keep.title} tidied.`);
-      window.dispatchEvent(new Event("music-library-changed"));
     } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      await review();
+      failure = (e as Error).message;
     }
+    // A stopped tidy-up may still have changed files.
+    window.dispatchEvent(new Event("music-library-changed"));
+    await review(failure);
   }
   async function undo(done: Done) {
     setBusy(true);
     setError("");
+    let failure = "";
     try {
       await post(`/api/v1/admin/library/tidy/history/${done.id}/undo`);
       notify(`${done.artist} · ${done.title} put back.`);
-      window.dispatchEvent(new Event("music-library-changed"));
     } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      await review();
+      failure = (e as Error).message;
     }
+    window.dispatchEvent(new Event("music-library-changed"));
+    await review(failure);
   }
   return (
     <section className="system-panel">
@@ -165,6 +174,7 @@ export function TidyEditions({ notify }: { notify: (s: string) => void }) {
                 <span>
                   {done.artist}
                   {done.status === "applied" ? "" : " · stopped part-way"}
+                  {done.error ? `: ${done.error}` : ""}
                 </span>
               </div>
               <button

@@ -14,10 +14,14 @@ private final class SlowMedia: @unchecked Sendable {
   private var pause: TimeInterval = 0.01
   /// Bytes sent before the server stops answering (nil: no stall).
   private var stallAfter: Int?
+  /// Requests starting here or later run past the range, then stall.
+  private var oversendFrom: Int?
   private var ranges: [String] = []
+  /// Ranges of requests the client cancelled before they finished.
+  private var cancelled: [String] = []
   func set(
     _ data: Data, type: String = "audio/mpeg", chunk: Int = 32768, pause: TimeInterval = 0.01,
-    stallAfter: Int? = nil
+    stallAfter: Int? = nil, oversendFrom: Int? = nil
   ) {
     lock.withLock {
       self.data = data
@@ -25,11 +29,17 @@ private final class SlowMedia: @unchecked Sendable {
       self.chunk = chunk
       self.pause = pause
       self.stallAfter = stallAfter
+      self.oversendFrom = oversendFrom
       ranges = []
+      cancelled = []
     }
   }
   func requested() -> [String] { lock.withLock { ranges } }
-  fileprivate func plan(_ range: String?) -> (Data, Int, Int, String, Int, TimeInterval, Int?) {
+  func cancelledRequests() -> [String] { lock.withLock { cancelled } }
+  fileprivate func requestCancelled(_ range: String) { lock.withLock { cancelled.append(range) } }
+  fileprivate func plan(_ range: String?) -> (
+    Data, Int, Int, String, Int, TimeInterval, Int?, Bool
+  ) {
     lock.withLock {
       ranges.append(range ?? "")
       var start = 0
@@ -38,18 +48,21 @@ private final class SlowMedia: @unchecked Sendable {
         start = Int(match.1)!
         if let last = Int(match.2) { end = min(last, data.count - 1) }
       }
-      return (data, start, end, type, chunk, pause, stallAfter)
+      let oversend = oversendFrom.map { start >= $0 } ?? false
+      return (data, start, end, type, chunk, pause, oversend ? nil : stallAfter, oversend)
     }
   }
 }
 
 private final class SlowProtocol: URLProtocol, @unchecked Sendable {
   private let stopped = ReadStop()
+  private let finished = ReadStop()
   override class func canInit(with request: URLRequest) -> Bool { true }
   override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
   override func startLoading() {
     let ranged = request.value(forHTTPHeaderField: "Range")
-    let (data, start, end, type, chunk, pause, stallAfter) = SlowMedia.shared.plan(ranged)
+    let (data, start, end, type, chunk, pause, stallAfter, oversend) = SlowMedia.shared.plan(
+      ranged)
     let headers = [
       "Content-Type": type, "Content-Length": String(end - start + 1),
       "Content-Range": "bytes \(start)-\(end)/\(data.count)",
@@ -59,7 +72,7 @@ private final class SlowProtocol: URLProtocol, @unchecked Sendable {
       didReceive: HTTPURLResponse(
         url: request.url!, statusCode: 206, httpVersion: "HTTP/1.1", headerFields: headers)!,
       cacheStoragePolicy: .notAllowed)
-    let body = data.subdata(in: start..<end + 1)
+    let body = data.subdata(in: start..<end + 1) + Data(count: oversend ? 4 * chunk : 0)
     DispatchQueue.global().async { [self] in
       var offset = 0
       while offset < body.count {
@@ -70,19 +83,28 @@ private final class SlowProtocol: URLProtocol, @unchecked Sendable {
         offset = next
         Thread.sleep(forTimeInterval: pause)
       }
+      if oversend { return }
+      finished.stop()
       client?.urlProtocolDidFinishLoading(self)
     }
   }
-  override func stopLoading() { stopped.stop() }
+  override func stopLoading() {
+    stopped.stop()
+    if !finished.stopped {
+      SlowMedia.shared.requestCancelled(request.value(forHTTPHeaderField: "Range") ?? "")
+    }
+  }
 }
 
 @Suite(.serialized) struct ProgressiveSourceTests {
   let url = URL(string: "https://media.invalid/song.mp3?signature=synthetic")!
-  private func preparer(_ root: URL) throws -> AudioSourcePreparer {
+  private func preparer(_ root: URL, maximum: Int = 64 * 1024 * 1024) throws
+    -> AudioSourcePreparer
+  {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [SlowProtocol.self]
     return try AudioSourcePreparer(
-      root: root, maximumFileBytes: 64 * 1024 * 1024, maximumTotalBytes: 128 * 1024 * 1024,
+      root: root, maximumFileBytes: maximum, maximumTotalBytes: 128 * 1024 * 1024,
       configuration: configuration)
   }
   private func directory() throws -> URL {
@@ -284,6 +306,42 @@ private final class SlowProtocol: URLProtocol, @unchecked Sendable {
     let block = try #require(try await decoder.read(maxFrames: 1024))
     #expect(ContinuousClock.now - started < .seconds(2))
     #expect(abs(block.floatChannelData![0][512] - 8 / 20) < 0.001)
+    await owner.release(source)
+  }
+
+  private func waitForCancelledRequest(_ prefix: String = "bytes=") async throws -> Bool {
+    func found() -> Bool { SlowMedia.shared.cancelledRequests().contains { $0.hasPrefix(prefix) } }
+    for _ in 0..<40 where !found() { try await Task.sleep(for: .milliseconds(50)) }
+    return found()
+  }
+
+  @Test func releasingASourceCancelsItsStalledTransfer() async throws {
+    let root = try directory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    // Headers and the opening, then the server stops sending.
+    SlowMedia.shared.set(Data(repeating: 5, count: 1_000_000), stallAfter: 65536)
+    let owner = try preparer(root)
+    let source = try await owner.prepare { url }
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(SlowMedia.shared.cancelledRequests().isEmpty)
+    await owner.release(source)
+    // The HTTP request itself is cancelled, not just the task reading it.
+    #expect(try await waitForCancelledRequest())
+  }
+
+  @Test func aTransferThatFailsIsCancelledNotLeftOpen() async throws {
+    let root = try directory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    // A seek near the end makes the transfer jump there; that ranged answer
+    // runs past the end of the file (a broken server), then stalls.
+    SlowMedia.shared.set(
+      Data(repeating: 6, count: 4_000_000), chunk: 16384, pause: 0.05, oversendFrom: 2_000_000)
+    let owner = try preparer(root)
+    let source = try await owner.prepare { url }
+    let bytes = try source.audioBytes()
+    _ = try await read(bytes, at: 3_990_000, count: 1024)
+    #expect(SlowMedia.shared.requested().contains("bytes=3990000-3999999"))
+    #expect(try await waitForCancelledRequest("bytes=3990000-"))
     await owner.release(source)
   }
 }

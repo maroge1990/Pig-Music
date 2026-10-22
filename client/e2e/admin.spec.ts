@@ -366,6 +366,94 @@ test("the owner tidies an album's editions and can undo it", async ({
   expect(undone).toBe(true);
 });
 
+test("a tidy-up or Undo that stops keeps its reason on screen", async ({
+  page,
+}) => {
+  const song = { id: "s-mr", title: "Mr. Brightside", album: "Hot Fuss" };
+  const album = {
+    id: "deluxe",
+    artist: "The Killers",
+    keep: { album_id: "deluxe", title: "Hot Fuss (Deluxe Edition)", songs: 4 },
+    editions: [{ album_id: "standard", title: "Hot Fuss", songs: 3 }],
+    replace: [],
+    remove: [
+      {
+        ...song,
+        quality: "MP3 320",
+        kept: { ...song, id: "d-mr", quality: "MP3 320" },
+      },
+    ],
+    leftovers: [],
+    fingerprint: "f".repeat(64),
+  };
+  let stopped = false;
+  const stoppedRun = {
+    id: "run",
+    artist: "The Killers",
+    title: "Hot Fuss (Deluxe Edition)",
+    time: 1,
+    status: "stopped",
+    error: "Original file unavailable; removal stopped.",
+  };
+  await mockApi(page, {
+    role: "owner",
+    answers: {
+      "/v1/admin/library/tidy/history/run/undo": (route) =>
+        route.fulfill({
+          status: 409,
+          json: {
+            detail:
+              "Undo stopped: Organised file changed; undo stopped. Recoverable files are retained; check the album and try Undo again.",
+          },
+        }),
+      "/v1/admin/library/tidy/deluxe": (route) => {
+        stopped = true;
+        return route.fulfill({
+          status: 409,
+          json: {
+            detail:
+              "Tidy-up stopped: Original file unavailable; removal stopped. Every file moved so far is recoverable; scan the library and review again.",
+          },
+        });
+      },
+      "/v1/admin/library/tidy": (route) =>
+        route.fulfill({
+          json: stopped
+            ? { albums: [album], history: [stoppedRun] }
+            : { albums: [album], history: [] },
+        }),
+      "/v1/admin/library/duplicates": (route) =>
+        route.fulfill({ json: { duplicates: [] } }),
+      "/v1/admin/library/trash": (route) => route.fulfill({ json: [] }),
+      "/v1/admin/library/organisation/history": (route) =>
+        route.fulfill({ json: [] }),
+      "/v1/admin/unassigned": (route) =>
+        route.fulfill({ json: { albums: [], next_offset: null } }),
+    },
+  });
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.goto("/#/admin/library");
+  const panel = page
+    .locator(".system-panel")
+    .filter({ has: page.getByRole("heading", { name: "Album editions" }) });
+  await panel.getByRole("button", { name: "Find editions" }).click();
+  await panel
+    .getByRole("button", { name: "Tidy Hot Fuss (Deluxe Edition)" })
+    .click();
+  // The refreshed review shows the stopped run, and the reason stays.
+  await expect(panel).toContainText(
+    "stopped part-way: Original file unavailable; removal stopped.",
+  );
+  await expect(panel.getByRole("alert")).toContainText(
+    "Tidy-up stopped: Original file unavailable; removal stopped.",
+  );
+  await panel.getByRole("button", { name: "Undo" }).click();
+  await expect(panel.getByRole("alert")).toContainText(
+    "Undo stopped: Organised file changed; undo stopped.",
+  );
+  await expect(panel).toContainText("Tidied albums");
+});
+
 test("the owner approves or rejects uploads credited only by the uploader", async ({
   page,
 }) => {

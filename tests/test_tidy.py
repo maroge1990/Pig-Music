@@ -238,3 +238,219 @@ def test_a_file_changed_since_the_scan_stops_the_tidy_up(tmp_path, monkeypatch):
         tidy.apply(item["id"], item["fingerprint"])
     assert (root / "The Killers" / STANDARD / "01 Jenny.flac").exists()
     assert len(tidy.store.library["albums"]) == 2
+
+
+def test_uncertain_quality_never_sends_a_copy_to_trash(tmp_path, monkeypatch):
+    tracks = [
+        # The kept copy's quality is unknown: the FLAC on the other edition
+        # might be the better file, so it stays for review.
+        song("Jenny", DELUXE, 1, codec="unknown", bitrate=None),
+        song("Mr. Brightside", DELUXE, 2),
+        song("Smile Like You Mean It", DELUXE, 3),
+        song("Somebody Told Me", DELUXE, 4, bitrate=None),
+        song("All These Things That I've Done", DELUXE, 5),
+        song("Jenny", STANDARD, 1, codec="flac", bitrate=900),
+        # The other copy's quality is unknown: it might be the better file.
+        song("Mr. Brightside", STANDARD, 2, codec="", bitrate=None),
+        # Lossy copies without a bitrate cannot be compared.
+        song("Somebody Told Me", STANDARD, 4),
+        # As good, with evidence: this one goes.
+        song("Smile Like You Mean It", STANDARD, 3, bitrate=256),
+    ]
+    (item,) = planned(tmp_path, tracks, monkeypatch)
+    assert [r["title"] for r in item["remove"]] == ["Smile Like You Mean It"]
+    assert item["replace"] == []
+    assert sorted(r["title"] for r in item["leftovers"]) == [
+        "Jenny",
+        "Mr. Brightside",
+        "Somebody Told Me",
+    ]
+
+
+def test_an_interrupted_move_is_journaled_before_it_happens(tmp_path, monkeypatch):
+    tidy, root, member, ids = library(tmp_path, monkeypatch)
+    store = tidy.store
+    before = songs(store)
+    finish = Organisation.finish
+
+    def interrupted(self, record, root):
+        finish(self, record, root)
+        raise OSError("interrupted after publishing")
+
+    monkeypatch.setattr(Organisation, "finish", interrupted)
+    (item,) = tidy.plan()["albums"]
+    with pytest.raises(OSError):
+        tidy.apply(item["id"], item["fingerprint"])
+    monkeypatch.setattr(Organisation, "finish", finish)
+    (entry,) = tidy.history()
+    record = store.read_document("tidy:" + entry["id"])
+    assert record["status"] == "stopped"
+    assert "interrupted after publishing" in record["error"]
+    assert len(record["moves"]) == 1 and len(record["removals"]) == 1
+    assert not (root / "The Killers" / STANDARD / "01 Jenny.flac").exists()
+    assert tidy.undo(entry["id"])["status"] == "undone"
+    assert (root / "The Killers" / STANDARD / "01 Jenny.flac").exists()
+    assert (root / "The Killers" / DELUXE / "01 Jenny.mp3").exists()
+    assert songs(store) == before
+    assert songs(store, member) == [(STANDARD, "Jenny"), (STANDARD, "Mr. Brightside")]
+
+
+def test_an_interrupted_removal_and_membership_are_journaled(tmp_path, monkeypatch):
+    tidy, root, member, ids = library(tmp_path, monkeypatch)
+    store = tidy.store
+    before = songs(store)
+    finish = Recovery.finish
+    calls = []
+
+    def interrupted(self, record, root):
+        finish(self, record, root)
+        calls.append(record["id"])
+        if len(calls) == 2:  # The second removal: Mr. Brightside's copy.
+            raise OSError("interrupted after trashing")
+
+    monkeypatch.setattr(Recovery, "finish", interrupted)
+    (item,) = tidy.plan()["albums"]
+    with pytest.raises(OSError):
+        tidy.apply(item["id"], item["fingerprint"])
+    monkeypatch.setattr(Recovery, "finish", finish)
+    (entry,) = tidy.history()
+    record = store.read_document("tidy:" + entry["id"])
+    assert record["removals"] == calls
+    assert not (root / "The Killers" / STANDARD / "02 Mr. Brightside.mp3").exists()
+    tidy.undo(entry["id"])
+    assert (root / "The Killers" / STANDARD / "02 Mr. Brightside.mp3").exists()
+    assert songs(store) == before
+    assert songs(store, member) == [(STANDARD, "Jenny"), (STANDARD, "Mr. Brightside")]
+
+
+def test_memberships_are_journaled_with_the_change(tmp_path, monkeypatch):
+    tidy, root, member, ids = library(tmp_path, monkeypatch)
+    store = tidy.store
+    save = Tidy.save
+
+    def failing(self, record):
+        # Appdata fails as soon as a listener has been given a kept copy.
+        if record["memberships"]:
+            raise OSError("appdata unavailable")
+        save(self, record)
+
+    monkeypatch.setattr(Tidy, "save", failing)
+    (item,) = tidy.plan()["albums"]
+    with pytest.raises(OSError):
+        tidy.apply(item["id"], item["fingerprint"])
+    monkeypatch.setattr(Tidy, "save", save)
+    (entry,) = tidy.history()
+    record = store.read_document("tidy:" + entry["id"])
+    # The member now holds the kept album's song, and the journal says so.
+    assert record["memberships"] == [[member, ids[DELUXE, "Mr. Brightside"]]]
+    tidy.undo(entry["id"])
+    assert songs(store, member) == [(STANDARD, "Jenny"), (STANDARD, "Mr. Brightside")]
+
+
+def test_a_moved_file_takes_only_the_kept_albums_release_identity(
+    tmp_path, monkeypatch
+):
+    from mutagen.flac import FLAC
+
+    from server.scanner import LibraryScanner
+
+    tidy, root, _, ids = library(tmp_path, monkeypatch)
+    store = tidy.store
+    donor = root / "The Killers" / STANDARD / "01 Jenny.flac"
+    tags = FLAC(donor)
+    tags["MUSICBRAINZ_ALBUMID"] = "donor-release"
+    tags["DATE"] = "2005"
+    tags.save()
+    LibraryScanner(store, root).run()
+    assert {
+        t["musicbrainz_release_id"]
+        for a in store.library["albums"]
+        for t in a["tracks"]
+        if t.get("musicbrainz_release_id")
+    } == {"donor-release"}
+    (item,) = tidy.plan()["albums"]
+    record = tidy.apply(item["id"], item["fingerprint"])
+    assert record["status"] == "applied"
+    moved = root / "The Killers" / DELUXE / f"The Killers - {DELUXE} - 01 - Jenny.flac"
+    # The kept album has no release ID and no year: neither comes along.
+    assert "MUSICBRAINZ_ALBUMID" not in FLAC(moved) and "DATE" not in FLAC(moved)
+    assert not inspect_file(moved, "x")[0].get("musicbrainz_release_id")
+    for check in (store.library, None):
+        if check is None:
+            LibraryScanner(store, root).run()
+        (album,) = store.library["albums"]
+        assert album["title"] == DELUXE
+        assert not any(t.get("musicbrainz_release_id") for t in album["tracks"])
+    (entry,) = tidy.history()
+    tidy.undo(entry["id"])
+    assert FLAC(donor)["MUSICBRAINZ_ALBUMID"] == ["donor-release"]
+
+
+@pytest.mark.parametrize("status", ["applying", "stopped", "undone"])
+def test_restart_adopts_a_move_an_earlier_version_did_not_journal(
+    tmp_path, monkeypatch, status
+):
+    tidy, root, member, ids = library(tmp_path, monkeypatch)
+    store = tidy.store
+    before = songs(store)
+    (item,) = tidy.plan()["albums"]
+    record = tidy.apply(item["id"], item["fingerprint"])
+    # As an earlier version left it: the move happened but was never recorded
+    # (and, for "undone", an Undo then put back everything else).
+    for removal in record["removals"] if status == "undone" else ():
+        tidy.recovery.restore(removal)
+    tidy.save({**record, "moves": [], "status": status})
+    tidy.recover()
+    entry = store.read_document("tidy:" + record["id"])
+    assert entry["moves"] == record["moves"] and entry["status"] == "stopped"
+    assert entry["error"]
+    tidy.undo(record["id"])
+    assert (root / "The Killers" / STANDARD / "01 Jenny.flac").exists()
+    assert songs(store) == before
+    # A second restart finds nothing more to adopt.
+    tidy.recover()
+    assert store.read_document("tidy:" + record["id"])["status"] == "undone"
+
+
+def test_a_failed_undo_keeps_its_reason_and_can_be_retried(tmp_path, monkeypatch):
+    tidy, root, _, _ = library(tmp_path, monkeypatch)
+    store = tidy.store
+    before = songs(store)
+    (item,) = tidy.plan()["albums"]
+    record = tidy.apply(item["id"], item["fingerprint"])
+    undo = Organisation.undo
+
+    def refused(self, identity):
+        raise ValueError("Organised file changed; undo stopped.")
+
+    monkeypatch.setattr(Organisation, "undo", refused)
+    with pytest.raises(ValueError):
+        tidy.undo(record["id"])
+    (entry,) = tidy.history()
+    assert entry["status"] == "applied"
+    assert entry["error"] == "Undo stopped: Organised file changed; undo stopped."
+    monkeypatch.setattr(Organisation, "undo", undo)
+    tidy.undo(record["id"])
+    assert songs(store) == before
+
+
+def test_undo_cancels_a_move_stopped_before_publishing(tmp_path, monkeypatch):
+    tidy, root, _, _ = library(tmp_path, monkeypatch)
+    store = tidy.store
+    before = songs(store)
+    monkeypatch.setattr(
+        "server.organisation.inspect_file",
+        lambda path, relative: ({"duration": 999}, None),
+    )
+    (item,) = tidy.plan()["albums"]
+    with pytest.raises(ValueError, match="duration changed"):
+        tidy.apply(item["id"], item["fingerprint"])
+    monkeypatch.undo()
+    monkeypatch.setenv("PIG_MUSIC_LIBRARY", str(root))
+    (entry,) = tidy.history()
+    assert entry["status"] == "stopped" and "duration changed" in entry["error"]
+    (operation,) = store.read_document("tidy:" + entry["id"])["moves"]
+    tidy.undo(entry["id"])
+    assert store.read_document("organisation:" + operation)["status"] == "cancelled"
+    assert not list(root.rglob(".pig-music-organise-*"))
+    assert songs(store) == before

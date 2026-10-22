@@ -154,6 +154,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             enrichment.start()
             await asyncio.to_thread(recovery.recover)
             await asyncio.to_thread(organisation.recover)
+            await asyncio.to_thread(tidy.recover)
             from .editions import EditionResolver
 
             downloader = Downloader(
@@ -518,6 +519,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             **plan,
             "history": [
                 {k: r[k] for k in ("id", "artist", "title", "time", "status")}
+                | {"error": r.get("error")}
                 for r in history
             ],
         }
@@ -556,9 +558,10 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         try:
             record = await asyncio.to_thread(tidy.undo, identity)
             return {"id": record["id"], "status": record["status"]}
-        except (ValueError, OSError):
+        except (ValueError, OSError) as error:
             raise HTTPException(
-                409, "Undo stopped; recoverable files are retained. Check the album."
+                409,
+                f"Undo stopped: {error} Recoverable files are retained; check the album and try Undo again.",
             )
         finally:
             scanner.lock.release()

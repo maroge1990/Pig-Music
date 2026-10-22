@@ -150,3 +150,41 @@ def test_artist_portrait_reaches_native_once_fetched(tmp_path):
     assert [a["cover_sha"] for a in changed["upserts"]["artists"]] == [
         artist["cover_sha"]
     ]
+
+
+def test_existing_clients_get_fields_an_upgraded_server_adds(tmp_path, monkeypatch):
+    """An installation captured by a server whose artists had no `cover_sha`
+    still sends the portrait hash after upgrading, without a resync."""
+    from PIL import Image
+    from pydantic import create_model
+
+    from server import native_sync
+    from server.api_models import ArtistDTO
+    from server.portraits import portrait_target
+
+    store, owner, _ = fixture(tmp_path)
+    target = portrait_target(store, "Artist")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (64, 64), "red").save(target, "JPEG")
+    store.refresh_library()
+    fields = {
+        name: (field.annotation, field)
+        for name, field in ArtistDTO.model_fields.items()
+        if name != "cover_sha"
+    }
+    old = create_model("ArtistDTO", __config__=ArtistDTO.model_config, **fields)
+    monkeypatch.setitem(native_sync.MODELS, "artists", old)
+    before = NativeSync(store).page(owner, "artists")
+    assert "cover_sha" not in before["items"][0]
+    monkeypatch.undo()
+    # The restarted server: same library, current DTOs.
+    sync = NativeSync(Store(tmp_path))
+    fresh = sync.page(owner, "artists")["items"][0]
+    assert fresh["cover_sha"]
+    changed = sync.changes(owner, before["revision"])
+    assert changed["revision"] != before["revision"]
+    assert [a["cover_sha"] for a in changed["upserts"]["artists"]] == [
+        fresh["cover_sha"]
+    ]
+    # A second read is quiet again.
+    assert sync.changes(owner, changed["revision"])["upserts"]["artists"] == []

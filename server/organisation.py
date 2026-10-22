@@ -108,16 +108,17 @@ class Organisation:
         self.store.refresh_library()
         return {"applied": len(results), "operations": results}
 
-    def move(self, identity, origin, to, tags, placement=None):
+    def move(self, identity, origin, to, tags, placement=None, operation=None):
         """Move one file within the library (optionally retagged, with
-        `placement` replacing its album fields) and keep the original for undo.
-        The caller refreshes the library."""
+        `placement` replacing its album fields, absent ones cleared) and keep
+        the original for undo. A caller journaling the move passes the
+        `operation` ID it recorded first. The caller refreshes the library."""
         with self.recovery.lock:
             track, root = saved_track(self.store, identity)
             self.recovery.check_mount(root)
             source = track_file(self.store, identity)
             destination = contained(root, to)
-            operation = str(uuid.uuid4())
+            operation = operation or str(uuid.uuid4())
             backup = contained(
                 root,
                 ".pig-music-trash/organisation/" + operation + "/" + origin,
@@ -146,7 +147,12 @@ class Organisation:
             os.link(source, backup)
             shutil.copyfile(source, stage)
             if tags:
-                Downloader(self.store).tag(stage, record["track"], "existing-library")
+                Downloader(self.store).tag(
+                    stage,
+                    record["track"],
+                    "existing-library",
+                    clear=ALBUM_FIELDS if placement else (),
+                )
             checked, _ = inspect_file(stage, to)
             if abs(checked.get("duration", 0) - track.get("duration", 0)) > 1:
                 raise ValueError("Audio duration changed; original retained.")
@@ -237,6 +243,29 @@ class Organisation:
         temporary.replace(self.store.directory / "library-snapshot.json")
         record["status"] = "completed"
         self.recovery.save("organisation:" + record["id"], record)
+
+    def settle(self, identity):
+        """Bring an interrupted operation to rest (an unpublished one is
+        cancelled, a published one completed) and return its status; None
+        when it never started."""
+        with self.recovery.lock:
+            record = self.store.read_document("organisation:" + identity)
+            if not record:
+                return None
+            if record["status"] == "preparing":
+                _, root = saved_track(self.store, record["track_id"])
+                stage = contained(root, record["stage"])
+                if stage.exists():
+                    stage.unlink()
+                record["status"] = "cancelled"
+                self.recovery.save("organisation:" + identity, record)
+            elif record["status"] == "publishing":
+                _, root = saved_track(self.store, record["track_id"])
+                self.recovery.check_mount(root)
+                if str(root.resolve()) != record["root"]:
+                    raise ValueError("Library mount changed.")
+                self.finish(record, root)
+            return record["status"]
 
     @coordinated
     def recover(self):

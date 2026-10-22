@@ -6,6 +6,8 @@ clients to converge without storing a full snapshot for each edit.
 """
 
 import base64
+import functools
+import hashlib
 import json
 import time
 import uuid
@@ -29,6 +31,19 @@ PAGE_BYTES = 2 * 1024 * 1024
 
 class ResyncRequired(ValueError):
     pass
+
+
+def schema_digest():
+    """The shape of every synced object. A capture's signature includes it,
+    so a server whose DTOs gained a field (an artist's `cover_sha`) diffs
+    everything again and sends the changed objects as ordinary updates."""
+    return _digest(tuple(MODELS.items()))
+
+
+@functools.cache
+def _digest(models):
+    shapes = {kind: model.model_json_schema() for kind, model in models}
+    return hashlib.sha256(json.dumps(shapes, sort_keys=True).encode()).hexdigest()[:16]
 
 
 class NativeSync:
@@ -63,7 +78,7 @@ class NativeSync:
     def capture(self, user_id):
         with self.store.lifecycle_lock, self.store.library_lock:
             projection = self.store.user_libraries.projection(user_id)
-            signature = projection["revision"]
+            signature = f"{projection['revision']}:{schema_digest()}"
             revision = uuid.uuid4().hex
             with self.store.connect() as conn:
                 previous = conn.execute(

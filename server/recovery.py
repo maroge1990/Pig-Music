@@ -41,7 +41,7 @@ class Recovery:
     def check_mount(self, root):
         require_library_mount(self.store.directory, root)
 
-    def prepare(self, track_id):
+    def prepare(self, track_id, identity=None):
         track, root = saved_track(self.store, track_id)
         if not track:
             raise ValueError("Song not found.")
@@ -53,7 +53,7 @@ class Recovery:
         if path.is_symlink():
             raise ValueError("Linked files need review before removal.")
         original = path.relative_to(root).as_posix()
-        identity = str(uuid.uuid4())
+        identity = identity or str(uuid.uuid4())
         trash = ".pig-music-trash/" + identity + "/" + original
         record = {
             "id": identity,
@@ -120,12 +120,13 @@ class Recovery:
                 )
 
     @coordinated
-    def remove(self, track_id, exclude=True, refresh=True):
+    def remove(self, track_id, exclude=True, refresh=True, identity=None):
         """Move a song's file to Trash. `exclude=False` when another copy of
         the song stays, so requests for it keep finding that copy; a batch
-        passes `refresh=False` and refreshes the library once at the end."""
+        passes `refresh=False` and refreshes the library once at the end. A
+        caller journaling the removal passes the `identity` it recorded."""
         with self.lock:
-            record, root = self.prepare(track_id)
+            record, root = self.prepare(track_id, identity)
             with self.store.connect() as conn:
                 conn.execute("BEGIN IMMEDIATE")
                 self.begin(conn, record, exclude)
@@ -200,6 +201,19 @@ class Recovery:
                         c.execute("DELETE FROM documents WHERE name=?", (name,))
             self.store.refresh_library()
             return record
+
+    def settle(self, identity):
+        """Finish an interrupted removal and return its status; None when it
+        never started."""
+        with self.lock:
+            record = self.store.read_document("removed:" + identity)
+            if record.get("status") == "removing":
+                _, root = saved_track(self.store, record["track_id"])
+                self.check_mount(root)
+                if str(root.resolve()) != record["root"]:
+                    raise ValueError("Original library mount changed.")
+                self.finish(record, root)
+            return record.get("status")
 
     @coordinated
     def recover(self):

@@ -449,7 +449,9 @@ class Downloader:
         if result.returncode:
             raise ValueError("The downloaded audio failed complete decoding")
 
-    def tag(self, path, target, source):
+    def tag(self, path, target, source, clear=()):
+        """Write `target`'s fields; a field named in `clear` that `target`
+        lacks is removed rather than left as the file had it."""
         if path.suffix in {".flac", ".opus", ".ogg"}:
             audio = {".flac": FLAC, ".opus": OggOpus, ".ogg": OggVorbis}[path.suffix](
                 path
@@ -469,6 +471,8 @@ class Downloader:
             ):
                 if target.get(field) is not None:
                     audio[key] = str(target[field])
+                elif field in clear and key in audio:
+                    del audio[key]
             audio["PIG_MUSIC_SOURCE"] = source
             audio.save()
             return
@@ -483,10 +487,15 @@ class Downloader:
                 ("aART", "album_artist"),
             ):
                 audio[key] = [target[field]]
-            audio["trkn"] = [(target["track_number"], 0)]
-            audio["disk"] = [(target["disc_number"], 0)]
+            for key, field in (("trkn", "track_number"), ("disk", "disc_number")):
+                if target.get(field) is not None:
+                    audio[key] = [(target[field], 0)]
+                elif field in clear:
+                    audio.pop(key, None)
             if target.get("year"):
                 audio["\xa9day"] = [str(target["year"])]
+            elif "year" in clear:
+                audio.pop("\xa9day", None)
             audio["----:com.apple.iTunes:PIG_MUSIC_SOURCE"] = [
                 MP4FreeForm(source.encode())
             ]
@@ -498,25 +507,32 @@ class Downloader:
                     audio["----:com.apple.iTunes:" + description] = [
                         MP4FreeForm(target[field].encode())
                     ]
+                elif field in clear:
+                    audio.pop("----:com.apple.iTunes:" + description, None)
             audio.save()
             return
         try:
             tags = ID3(path)
         except ID3NoHeaderError:
             tags = ID3()
-        for key, cls, value in [
-            ("TIT2", TIT2, target["title"]),
-            ("TPE1", TPE1, target["artist"]),
-            ("TALB", TALB, target["album"]),
-            ("TPE2", TPE2, target["album_artist"]),
-            ("TRCK", TRCK, str(target["track_number"])),
-            ("TPOS", TPOS, str(target["disc_number"])),
+        for key, cls, field in [
+            ("TIT2", TIT2, "title"),
+            ("TPE1", TPE1, "artist"),
+            ("TALB", TALB, "album"),
+            ("TPE2", TPE2, "album_artist"),
+            ("TRCK", TRCK, "track_number"),
+            ("TPOS", TPOS, "disc_number"),
         ]:
+            if target.get(field) is None and field in clear:
+                tags.delall(key)
+                continue
             tags.delall(key)
-            tags.add(cls(encoding=3, text=value))
+            tags.add(cls(encoding=3, text=str(target[field])))
         if target.get("year"):
             tags.delall("TDRC")
             tags.add(TDRC(encoding=3, text=str(target["year"])))
+        elif "year" in clear:
+            tags.delall("TDRC")
         tags.add(TXXX(encoding=3, desc="PIG_MUSIC_SOURCE", text=source))
         for field, description in (
             ("musicbrainz_release_id", "MusicBrainz Album Id"),
@@ -525,6 +541,8 @@ class Downloader:
             if target.get(field):
                 tags.delall("TXXX:" + description)
                 tags.add(TXXX(encoding=3, desc=description, text=target[field]))
+            elif field in clear:
+                tags.delall("TXXX:" + description)
         tags.save(path, v2_version=3)
 
     def embed_cover(self, path, sha):

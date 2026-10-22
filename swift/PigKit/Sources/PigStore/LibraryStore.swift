@@ -92,6 +92,12 @@ public actor LibraryStore {
         )
       }
     }
+    migrator.registerMigration("artist-portraits-v9") { db in
+      // Artists gained `cover_sha`; a cache synced before this build (or by
+      // an older app) holds artists without it, and the server will not
+      // resend unchanged artists: force one full resync.
+      try db.execute(sql: "DELETE FROM metadata WHERE key='revision'")
+    }
     try migrator.migrate(queue)
     database = queue
   }
