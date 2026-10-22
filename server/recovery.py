@@ -7,7 +7,7 @@ from .media import saved_track, track_file
 from .library import identifier, normalise, load_json
 from .exporter import contained
 from .matching import exclusion_key, same_song
-from .storage import require_library_mount
+from .storage import library_root, require_library_mount
 
 
 class Recovery:
@@ -39,6 +39,11 @@ class Recovery:
         return h.hexdigest()
 
     def check_mount(self, root):
+        # A download not yet published lives in the download workspace on
+        # the library share, which carries no marker of its own: resolving
+        # the workspace already requires the library's marker.
+        if Path(root) == library_root(self.store):
+            return
         require_library_mount(self.store.directory, root)
 
     def prepare(self, track_id, identity=None):

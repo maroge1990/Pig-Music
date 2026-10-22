@@ -52,10 +52,23 @@ class Exporter:
         return load_json(self.store.directory / "library-export.json")
 
     def records(self):
+        """Downloads to publish; one in Trash waits until it is restored,
+        so its missing file never holds up the rest."""
         with self.store.connect() as conn:
+            removed = {
+                json.loads(v)["track_id"]
+                for (v,) in conn.execute(
+                    "SELECT payload FROM documents WHERE name LIKE 'removed:%'"
+                )
+                if json.loads(v).get("status") in {"removing", "removed"}
+            }
             return [
-                json.loads(row[0])
-                for row in conn.execute("SELECT payload FROM acquired")
+                track
+                for track in (
+                    json.loads(row[0])
+                    for row in conn.execute("SELECT payload FROM acquired")
+                )
+                if track["id"] not in removed
             ]
 
     def relative(self, track):

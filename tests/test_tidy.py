@@ -670,19 +670,26 @@ def test_a_cancelled_removal_keeps_its_safeguards(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("kept", [False, True])
-def test_a_download_not_yet_in_the_music_folder_is_never_tidied(
-    tmp_path, monkeypatch, kept
-):
-    """A downloaded copy waiting to be published lives in the download
-    workspace. Trashing it reported the SMB mount unavailable (and would
-    leave the exporter retrying a file that is gone); keeping it while a
-    music-folder copy went to Trash would leave only the unpublished one."""
+def test_downloads_not_yet_in_the_music_folder(tmp_path, monkeypatch, kept):
+    """A downloaded copy not yet published lives in the download workspace
+    on the library share. Trashing it reported the SMB mount unavailable
+    (the marker is the library's, not the workspace's); now it goes to
+    Trash like any copy, export carries on without it, and Undo puts it
+    back. It never stands in for a music-folder copy: that stays for review."""
     import hashlib
+
+    from server.exporter import Exporter
 
     tidy, root, member, ids = library(tmp_path, monkeypatch)
     store = tidy.store
     (store.directory / "library-export.json").write_text(
-        json.dumps({"enabled": True, "library_id": "fixture"})
+        json.dumps(
+            {
+                "enabled": True,
+                "library_id": "fixture",
+                "marker_path": ".pig-music-library.json",
+            }
+        )
     )
     (root / ".pig-music-library.json").write_text(json.dumps({"library_id": "fixture"}))
     work = root / ".pig-music-work"
@@ -692,10 +699,13 @@ def test_a_download_not_yet_in_the_music_folder_is_never_tidied(
         relative = f"The Killers/{album}/{number:02} {title}.mp3"
         path = (root if published else work / "library") / relative
         audio(path, title, album, number, "mp3_320")
+        stat = path.stat()
         track = inspect_file(path, relative)[0] | {
             "id": identity,
             "relative_path": relative,
             "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "size_bytes": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
             "available": True,
         }
         if published:
@@ -711,18 +721,26 @@ def test_a_download_not_yet_in_the_music_folder_is_never_tidied(
         # One more published song makes the deluxe edition the kept one.
         acquire("deluxe-somebody", "Somebody Told Me", DELUXE, 4, True)
     store.refresh_library()
+    before = songs(store)
     (item,) = tidy.plan()["albums"]
     assert item["keep"]["title"] == (STANDARD if kept else DELUXE)
-    smile = {"staged-smile", ids[DELUXE, "Smile Like You Mean It"]}
-    assert not smile & {r["id"] for r in item["remove"]}
-    (waiting,) = [r for r in item["leftovers"] if r["id"] in smile]
-    assert waiting["reason"] == (
-        "the kept copy is not in the music folder yet"
-        if kept
-        else "not in the music folder yet"
-    )
+    nas_smile = root / "The Killers" / DELUXE / "03 Smile Like You Mean It.mp3"
+    if kept:
+        smile = {"staged-smile", ids[DELUXE, "Smile Like You Mean It"]}
+        assert not smile & {r["id"] for r in item["remove"]}
+        (waiting,) = [r for r in item["leftovers"] if r["id"] in smile]
+        assert waiting["reason"] == "the kept copy is not in the music folder yet"
+        assert tidy.apply(item["id"], item["fingerprint"])["status"] == "applied"
+        assert staged.exists() and nas_smile.exists()
+        return
+    assert "staged-smile" in {r["id"] for r in item["remove"]}
     record = tidy.apply(item["id"], item["fingerprint"])
     assert record["status"] == "applied"
-    assert staged.exists()
-    assert (root / "The Killers" / DELUXE / "03 Smile Like You Mean It.mp3").exists()
-    assert not [r for r in tidy.recovery.list() if r["track_id"] in smile]
+    assert not staged.exists() and nas_smile.exists()
+    (removal,) = [r for r in tidy.recovery.list() if r["track_id"] == "staged-smile"]
+    assert (root / removal["root"] / removal["trash"]).is_file()
+    # The trashed download does not hold up publishing.
+    Exporter(store, root).process()
+    assert store.read_document("library-export-status")["status"] == "completed"
+    tidy.undo(record["id"])
+    assert staged.exists() and songs(store) == before

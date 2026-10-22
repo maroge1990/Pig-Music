@@ -26,6 +26,7 @@ from .lifecycle import coordinated
 from .matching import compatible, primary_artist, strip_edition
 from .organisation import ALBUM_FIELDS, TAG_SUFFIXES, file_name
 from .quality import canonical_codec
+from .storage import library_root
 
 CATEGORIES = {"album", "soundtrack", "musical"}
 LOSSLESS = {"flac", "alac", "wav", "aiff"}
@@ -119,8 +120,11 @@ class Tidy:
         for album in self.store.library["albums"]:
             for track in album["tracks"]:
                 raw = acquired.get(track["id"])
+                staged = None
                 if raw is not None:
                     path = raw.get("export_relative_path")
+                    # Not yet published: in the download workspace.
+                    staged = None if path else raw.get("relative_path")
                     raw = {**raw, "nas": bool(path)}
                 else:
                     raw = self.store.snapshot_tracks.get(track["id"]) or track
@@ -129,6 +133,7 @@ class Tidy:
                 found[track["id"]] = {
                     "path": path,
                     "nas": raw["nas"],
+                    "staged": staged,
                     "size": raw.get("size_bytes"),
                     "mtime": raw.get("mtime_ns"),
                     "explicit": bool(raw.get("explicit_edition")),
@@ -165,7 +170,11 @@ class Tidy:
         def filed(track, album):
             return {**track, "album": album["title"]}
 
-        kept_paths = {files[k["id"]]["path"] for k in kept}
+        def location(track):
+            known = files[track["id"]]
+            return ("nas", known["path"]) if known["nas"] else ("work", known["staged"])
+
+        kept_paths = {location(k) for k in kept if location(k)[1]}
         matches, leftovers, others = defaultdict(list), [], []
         for album, tracks in editions[1:]:
             found = {
@@ -178,7 +187,7 @@ class Tidy:
                 continue  # Another album that happens to share the title.
             others.append(album)
             for track in tracks:
-                if files[track["id"]]["path"] in kept_paths:
+                if location(track) in kept_paths:
                     continue  # The kept album's own file under another name.
                 if len(found[track["id"]]) == 1:
                     matches[found[track["id"]][0]["id"]].append((album, track))
@@ -206,21 +215,24 @@ class Tidy:
                 keeping = best[1]
             elif better(best[1], k):
                 # A better copy that cannot be retagged into place stays put.
-                leftovers += [summary(t, a) for a, t in copies]
+                leftovers += [
+                    summary(t, a)
+                    | (
+                        {"reason": "not in the music folder yet"}
+                        if files[t["id"]]["staged"]
+                        else {}
+                    )
+                    for a, t in copies
+                ]
                 continue
             # Only a copy the kept file is shown to be as good as goes to
-            # Trash; one that might be better stays for review. Both must be
-            # in the music folder: a download still waiting to be published
-            # lives in the download workspace, where Trash cannot take it
-            # (and the exporter still expects it), and it cannot stand in
-            # for a copy the music folder already has.
+            # Trash; one that might be better stays for review. A download
+            # not yet published (in the download workspace) can go to Trash
+            # like any copy, but never stands in for a music-folder copy.
             for album, track in copies:
-                if not files[track["id"]]["nas"]:
-                    leftovers.append(
-                        summary(track, album)
-                        | {"reason": "not in the music folder yet"}
-                    )
-                elif not files[keeping["id"]]["nas"]:
+                if not files[track["id"]]["nas"] and not files[track["id"]]["staged"]:
+                    leftovers.append(summary(track, album))
+                elif files[track["id"]]["nas"] and not files[keeping["id"]]["nas"]:
                     leftovers.append(
                         summary(track, album)
                         | {"reason": "the kept copy is not in the music folder yet"}
@@ -266,7 +278,11 @@ class Tidy:
         root = Path(os.environ.get("PIG_MUSIC_LIBRARY", "/library"))
         for identity in ids:
             known = files[identity]
-            path = root / known["path"]
+            path = (
+                root / known["path"]
+                if known["nas"]
+                else library_root(self.store) / known["staged"]
+            )
             if known["size"] is not None and path.stat().st_size != known["size"]:
                 return False
             if known["mtime"] is not None and path.stat().st_mtime_ns != known["mtime"]:
@@ -285,7 +301,9 @@ class Tidy:
         moving = [r["id"] for r in item["remove"]] + [
             i for r in item["replace"] for i in (r["id"], r["replaces"]["id"])
         ]
-        if not self.unchanged(files, [i for i in moving if files[i]["nas"]]):
+        if not self.unchanged(
+            files, [i for i in moving if files[i]["nas"] or files[i]["staged"]]
+        ):
             raise ValueError("Files changed since the last scan.")
         keeper = self.store.albums_by_id[album_id]
         tracks = {t["id"]: t for t in keeper["tracks"]}
