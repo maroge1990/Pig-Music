@@ -1148,6 +1148,14 @@ enum PlayOrigin: Hashable {
         }
       }
     )
+    // The rest of the queue: its addresses arrive while the first song starts.
+    let upcoming = Array(tracks.dropFirst(index + 1).prefix(50))
+    Task { await service.preparePlayback(upcoming) }
+  }
+  /// Fetches playback addresses for a page's songs ahead of a tap (best effort).
+  func preparePlayback(_ tracks: [Track]) async {
+    guard let service, !tracks.isEmpty else { return }
+    await service.preparePlayback(tracks)
   }
   func signOut() async {
     guard !busy, !mutationActive else { return }

@@ -15,8 +15,8 @@ public struct QueuePCMBlock: Sendable {
   public let markers: [QueueAudioMarker]
 }
 
-/// A bounded local decoder queue. Sources are prefetched one occurrence ahead;
-/// complete-file preparation can still stall a transition when the network is slow.
+/// A bounded decoder queue. Sources are prefetched one occurrence ahead and
+/// decode while their bytes arrive; a slow network shows as buffering.
 public actor QueuePCMStream {
   public typealias Acquire = @Sendable (PlaybackOccurrence) async throws -> PreparedAudioSource
   public typealias Release = @Sendable (PreparedAudioSource) async -> Void
@@ -37,7 +37,7 @@ public actor QueuePCMStream {
   private let fadeSeconds: Double
   private var index: Int
   private var lease: PreparedAudioSource?
-  private var decoder: PCMFileDecoder?
+  private var decoder: StreamingPCMDecoder?
   /// The song that follows, as one value: which queue position and occurrence
   /// the prepared source belongs to. Passing over a failed song changes the
   /// choice during preparation, so the transition must use these together.
@@ -50,7 +50,7 @@ public actor QueuePCMStream {
   /// The prepared following song, from when its source arrives until it plays.
   private var incoming: (index: Int, occurrence: PlaybackOccurrence)?
   private var incomingLease: PreparedAudioSource?
-  private var incomingDecoder: PCMFileDecoder?
+  private var incomingDecoder: StreamingPCMDecoder?
   private var tail: FrameRing
   private var head: FrameRing
   private var holdFrames = 0
@@ -91,7 +91,7 @@ public actor QueuePCMStream {
     let source = try await acquire(items[startingAt])
     do {
       try Task.checkCancellation()
-      let first = try PCMFileDecoder(url: source.file, format: format, startSeconds: startSeconds)
+      let first = try await Self.decoder(for: source, format: format, startSeconds: startSeconds)
       decoder = first
       lease = source
       let skipped = min(
@@ -107,6 +107,12 @@ public actor QueuePCMStream {
       await release(source)
       throw error
     }
+  }
+
+  private static func decoder(
+    for source: PreparedAudioSource, format: AVAudioFormat, startSeconds: Double = 0
+  ) async throws -> StreamingPCMDecoder {
+    try await StreamingPCMDecoder.open(source, format: format, startSeconds: startSeconds)
   }
 
   private func following(_ position: Int) -> Int? {
@@ -183,11 +189,13 @@ public actor QueuePCMStream {
         if tail.count > holdFrames {
           return emit(tail.pop(min(blockFrames, tail.count - holdFrames)))
         }
-        if let decoded = try decoder?.read(maxFrames: blockFrames) {
-          tail.push(decoded)
-        } else {
+        guard let decoder else {
           ended = true
+          continue
         }
+        let decoded = try await decoder.read(maxFrames: blockFrames)
+        guard !closed else { throw CancellationError() }
+        if let decoded { tail.push(decoded) } else { ended = true }
       }
       guard upcomingIndex != nil || incoming != nil else {
         if tail.count > 0 { return emit(tail.pop(min(blockFrames, tail.count))) }
@@ -219,8 +227,10 @@ public actor QueuePCMStream {
         incomingLease = source
         incoming = (prepared.index, prepared.occurrence)
         try Task.checkCancellation()
-        let next: PCMFileDecoder
-        do { next = try PCMFileDecoder(url: source.file, format: format) } catch {
+        let next: StreamingPCMDecoder
+        do { next = try await Self.decoder(for: source, format: format) } catch {
+          try Task.checkCancellation()
+          guard !closed else { throw CancellationError() }
           self.upcoming = nil
           incomingLease = nil
           incoming = nil
@@ -232,18 +242,21 @@ public actor QueuePCMStream {
           }
           continue
         }
+        guard !closed else { throw CancellationError() }
         incomingDecoder = next
         do {
           while head.count < min(holdFrames, tail.count) {
             try Task.checkCancellation()
             guard
-              let decoded = try next.read(
+              let decoded = try await next.read(
                 maxFrames: min(blockFrames, min(holdFrames, tail.count) - head.count))
             else { break }
+            guard !closed else { throw CancellationError() }
             head.push(decoded)
           }
         } catch {
           try Task.checkCancellation()
+          guard !closed else { throw CancellationError() }
           sourceFailure = error
           continue
         }

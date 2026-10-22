@@ -1,7 +1,8 @@
 import Foundation
+import PigDomain
 
 public enum AudioSourceFailure: Error, LocalizedError, Equatable {
-  case invalidURL, busy, storageLimit, tooLarge, unavailable, invalidBody
+  case invalidURL, busy, storageLimit, tooLarge, unavailable, invalidBody, unauthorized
   public var errorDescription: String? {
     switch self {
     case .invalidURL: "The audio source is not a secure media URL."
@@ -10,6 +11,7 @@ public enum AudioSourceFailure: Error, LocalizedError, Equatable {
     case .tooLarge: "This song exceeds the temporary playback storage limit."
     case .unavailable: "The audio source is unavailable. Try again or play a saved song."
     case .invalidBody: "The source did not return an audio file."
+    case .unauthorized: "The playback link expired. Try again."
     }
   }
 }
@@ -19,11 +21,16 @@ public struct PreparedAudioSource: Sendable {
   public let id: UUID
   public let file: URL
   public let byteCount: Int
-  public init(id: UUID = UUID(), file: URL, byteCount: Int) {
+  /// The file's bytes while they are still arriving; nil for a complete file.
+  public let bytes: (any AudioBytes)?
+  public init(id: UUID = UUID(), file: URL, byteCount: Int, bytes: (any AudioBytes)? = nil) {
     self.id = id
     self.file = file
     self.byteCount = byteCount
+    self.bytes = bytes
   }
+  /// What the decoder reads: the arriving bytes, else the complete file.
+  func audioBytes() throws -> any AudioBytes { try bytes ?? LocalAudioBytes(file: file) }
 }
 
 private final class NoMediaRedirects: NSObject, URLSessionTaskDelegate, Sendable {
@@ -42,7 +49,9 @@ public actor AudioSourcePreparer {
   private let maximumFileBytes: Int
   private let maximumTotalBytes: Int
   private var leases: [UUID: PreparedAudioSource] = [:]
-  private var transfer: Task<PreparedAudioSource, Error>?
+  private var transfer: Task<ProgressiveDownload, Error>?
+  /// The latest song fetched: the next one waits for it beyond its opening.
+  private weak var lastDownload: ProgressiveDownload?
   private var generation = 0
 
   public init(
@@ -70,10 +79,13 @@ public actor AudioSourcePreparer {
 
   deinit {
     transfer?.cancel()
+    for source in leases.values { (source.bytes as? ProgressiveDownload)?.close() }
     session.invalidateAndCancel()
     try? FileManager.default.removeItem(at: directory)
   }
 
+  /// Starts fetching a song and returns once its first response shows a
+  /// playable file; the rest arrives while it plays (`PreparedAudioSource.bytes`).
   public func prepare(
     resolve: @escaping @Sendable () async throws -> URL
   ) async throws -> PreparedAudioSource {
@@ -87,6 +99,7 @@ public actor AudioSourcePreparer {
     let directory = directory
     let session = session
     let limit = maximumFileBytes
+    let predecessor = lastDownload?.busy == true ? lastDownload : nil
     let task = Task {
       // A signed link can expire between resolution and its first request. Refresh once only.
       for attempt in 0..<2 {
@@ -97,79 +110,55 @@ public actor AudioSourcePreparer {
         else {
           throw AudioSourceFailure.invalidURL
         }
-        try Task.checkCancellation()
-        var request = URLRequest(url: url)
-        request.setValue("audio/*,application/octet-stream", forHTTPHeaderField: "Accept")
-        let (bytes, rawResponse) = try await session.bytes(for: request)
-        defer { bytes.task.cancel() }
-        guard let response = rawResponse as? HTTPURLResponse else {
+        do {
+          return try await ProgressiveDownload.start(
+            url: url, directory: directory, session: session, limit: limit,
+            predecessor: predecessor, resolve: resolve)
+        } catch AudioSourceFailure.unauthorized where attempt == 0 {
+          continue
+        } catch AudioSourceFailure.unauthorized {
           throw AudioSourceFailure.unavailable
         }
-        if [401, 403].contains(response.statusCode), attempt == 0 { continue }
-        guard response.statusCode == 200 else { throw AudioSourceFailure.unavailable }
-        let mime = response.mimeType?.lowercased() ?? ""
-        guard mime.hasPrefix("audio/") || mime == "application/octet-stream" else {
-          throw AudioSourceFailure.invalidBody
-        }
-        guard response.expectedContentLength <= limit else { throw AudioSourceFailure.tooLarge }
-        let id = UUID()
-        let allowedExtensions = ["wav", "aiff", "aif", "m4a", "mp3", "flac", "ogg", "opus", "aac"]
-        let mimeExtensions = [
-          "audio/wav": "wav", "audio/x-wav": "wav", "audio/wave": "wav",
-          "audio/aiff": "aiff", "audio/x-aiff": "aiff", "audio/mpeg": "mp3",
-          "audio/mp4": "m4a", "audio/x-m4a": "m4a", "audio/aac": "aac",
-          "audio/flac": "flac", "audio/x-flac": "flac", "audio/ogg": "ogg",
-          "audio/opus": "opus",
-        ]
-        let suffix = mimeExtensions[mime] ?? url.pathExtension.lowercased()
-        let file = directory.appendingPathComponent(id.uuidString)
-          .appendingPathExtension(allowedExtensions.contains(suffix) ? suffix : "media")
-        let partial = file.appendingPathExtension("partial")
-        guard FileManager.default.createFile(atPath: partial.path, contents: nil) else {
-          throw AudioSourceFailure.storageLimit
-        }
-        defer { try? FileManager.default.removeItem(at: partial) }
-        let handle = try FileHandle(forWritingTo: partial)
-        defer { try? handle.close() }
-        var chunk = Data()
-        var count = 0
-        chunk.reserveCapacity(65536)
-        for try await byte in bytes {
-          if count % 4096 == 0 { try Task.checkCancellation() }
-          guard count < limit else { throw AudioSourceFailure.tooLarge }
-          count += 1
-          chunk.append(byte)
-          if chunk.count == 65536 {
-            try handle.write(contentsOf: chunk)
-            chunk.removeAll(keepingCapacity: true)
-          }
-        }
-        try Task.checkCancellation()
-        guard count > 0,
-          response.expectedContentLength < 0 || response.expectedContentLength == count
-        else {
-          throw AudioSourceFailure.invalidBody
-        }
-        try handle.write(contentsOf: chunk)
-        try handle.close()
-        try FileManager.default.moveItem(at: partial, to: file)
-        return PreparedAudioSource(id: id, file: file, byteCount: count)
       }
       throw AudioSourceFailure.unavailable
     }
     transfer = task
     defer { transfer = nil }
-    let result = try await withTaskCancellationHandler {
+    let download = try await withTaskCancellationHandler {
       try await task.value
     } onCancel: {
       task.cancel()
     }
     guard !Task.isCancelled, generation == stamp else {
-      try? FileManager.default.removeItem(at: result.file)
+      download.close()
       throw CancellationError()
     }
+    lastDownload = download
+    if let delay = download.firstResponse {
+      DiagnosticsLog.shared.record(
+        "playback",
+        "source answered in \(delay.milliseconds) ms"
+          + " (\(download.mimeType), \(download.length / 1024) KB)")
+    }
+    let result = PreparedAudioSource(
+      file: download.file, byteCount: download.length, bytes: download)
     leases[result.id] = result
     return result
+  }
+
+  /// The file name for a media type, so the decoder knows the format.
+  static func file(in directory: URL, mime: String, url: URL) -> URL {
+    let allowedExtensions = ["wav", "aiff", "aif", "m4a", "mp3", "flac", "ogg", "opus", "aac"]
+    let mimeExtensions = [
+      "audio/wav": "wav", "audio/x-wav": "wav", "audio/wave": "wav",
+      "audio/aiff": "aiff", "audio/x-aiff": "aiff", "audio/mpeg": "mp3",
+      "audio/mp4": "m4a", "audio/x-m4a": "m4a", "audio/aac": "aac",
+      "audio/flac": "flac", "audio/x-flac": "flac", "audio/ogg": "ogg",
+      "audio/opus": "opus",
+    ]
+    let suffix = mimeExtensions[mime] ?? url.pathExtension.lowercased()
+    return directory.appendingPathComponent(UUID().uuidString)
+      .appendingPathExtension(allowedExtensions.contains(suffix) ? suffix : "media")
   }
 
   /// Stage a trusted local file (for the synthetic demo or a future offline repository).
@@ -214,6 +203,7 @@ public actor AudioSourcePreparer {
 
   public func release(_ source: PreparedAudioSource) {
     guard let owned = leases.removeValue(forKey: source.id) else { return }
+    (owned.bytes as? ProgressiveDownload)?.close()
     try? FileManager.default.removeItem(at: owned.file)
   }
 
@@ -221,7 +211,10 @@ public actor AudioSourcePreparer {
   public func reset() {
     generation += 1
     transfer?.cancel()
-    for source in leases.values { try? FileManager.default.removeItem(at: source.file) }
+    for source in leases.values {
+      (source.bytes as? ProgressiveDownload)?.close()
+      try? FileManager.default.removeItem(at: source.file)
+    }
     leases.removeAll()
   }
 }

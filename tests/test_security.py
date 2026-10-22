@@ -192,6 +192,42 @@ def test_members_stream_household_files_without_adding_them(tmp_path, monkeypatc
     assert not app.state.store.user_libraries.contains(member, "song")
 
 
+def test_members_sign_a_page_of_playback_addresses_at_once(tmp_path, monkeypatch):
+    nas = tmp_path / "nas"
+    nas.mkdir()
+    (nas / "song.mp3").write_bytes(b"fixture audio bytes")
+    monkeypatch.setenv("PIG_MUSIC_LIBRARY", str(nas))
+    song = {"id": "song", "title": "Song", "artist": "Artist", "album": "Album"}
+    (tmp_path / "library-snapshot.json").write_text(
+        json.dumps({"tracks": [{**song, "relative_path": "song.mp3"}]})
+    )
+    app, owner = protected(tmp_path, monkeypatch)
+    setup = app.state.auth.setup_code(owner, "member", "Member")
+    app.state.auth.activate(setup["code"], PASSWORD, "fixture")
+    token = app.state.auth.login(
+        "member", PASSWORD, "device", "phone", "ios", "fixture"
+    )["token"]
+    with TestClient(
+        app,
+        base_url="https://private.ts.net",
+        headers={"Authorization": "Bearer " + token},
+    ) as client:
+        result = client.post(
+            "/api/v1/playback-urls",
+            json={"track_ids": ["song", "song", "missing", "mix:edition:0"]},
+        )
+        assert result.status_code == 200, result.text
+        body = result.json()
+        # Unknown songs and mix songs (signed per play) are left out.
+        assert list(body["urls"]) == ["song"] and body["expires_in"] == 6 * 3600
+        response = client.get(body["urls"]["song"], headers={"Range": "bytes=8-12"})
+        assert response.status_code == 206 and response.content == b"audio"
+        too_many = client.post(
+            "/api/v1/playback-urls", json={"track_ids": ["song"] * 201}
+        )
+        assert too_many.status_code == 422
+
+
 def test_cookie_mutations_require_header_and_https(tmp_path, monkeypatch):
     app, _ = protected(tmp_path, monkeypatch)
     with TestClient(

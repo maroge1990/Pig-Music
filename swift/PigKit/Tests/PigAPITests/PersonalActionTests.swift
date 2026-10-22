@@ -62,6 +62,31 @@ struct PersonalActionTests {
     #expect(result.created == 1 && !result.downloadsEnabled)
     #expect(await requests.sent.count == 1)
   }
+  @Test func playbackAddressesFetchedAheadSkipTheRoundTripWhenPlaying() async throws {
+    var saved = Track(id: "saved", title: "Song", artist: "Artist")
+    saved.serverState = "in_library"
+    var remote = Track(id: "remote", title: "Other", artist: "Artist")
+    remote.serverState = "not_in_library"
+    let mix = Track(id: "mix:edition:0", title: "Mixed", artist: "Artist")
+    let transport = ActionTransport(
+      #"{"urls":{"saved":"/api/v1/playback/files/saved?exp=1&sid=s&sig=x","foreign":"https://elsewhere.invalid/x"},"expires_in":21600}"#
+    )
+    let native = service(transport)
+    await native.preparePlayback([saved, remote, mix, saved])
+    var sent = await transport.sent
+    #expect(sent.map(\.0) == ["/api/v1/playback-urls"])
+    let body = try #require(JSONSerialization.jsonObject(with: sent[0].1) as? [String: Any])
+    // Only server files: remote and mix songs get their own address per play.
+    #expect(body["track_ids"] as? [String] == ["saved"])
+    let url = try await native.resolve(saved)
+    #expect(
+      url.absoluteString
+        == "https://fixture.invalid/api/v1/playback/files/saved?exp=1&sid=s&sig=x")
+    // Playing used the address fetched ahead; asking again sends nothing.
+    await native.preparePlayback([saved])
+    sent = await transport.sent
+    #expect(sent.count == 1)
+  }
   @Test func mutationsDoNotRetryUnconfirmedResponsesOrHideAuthentication() async throws {
     let track = Track(id: "one", title: "Song", artist: "Artist")
     let transport = ActionTransport(#"{"code":"unavailable","detail":"Unavailable"}"#, status: 503)

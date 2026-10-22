@@ -28,6 +28,11 @@ public actor NativeService: LibrarySource {
   let vault: any DeviceTokenStore
   private let artworkTransport: ArtworkTransport
   private var playbackHistory: [String: String] = [:]
+  /// Signed file addresses fetched ahead for the songs a page shows, so a tap
+  /// goes straight to the file.
+  private var addresses: [String: (url: URL, until: ContinuousClock.Instant)] = [:]
+  /// Songs that stream from a remote source rather than a server file.
+  private static let remoteStates: Set<String> = ["not_in_library", "requested", "failed"]
   public func qualifiedHistoryTrackID(_ id: String) -> String? {
     id.hasPrefix("mix:") ? id : playbackHistory[id]
   }
@@ -487,16 +492,55 @@ public actor NativeService: LibrarySource {
     default: throw NativeFailure.unavailable("Unable to refresh your library.")
     }
   }
+  /// A playback address on this server, or nil for anything else.
+  private func serverMediaURL(_ value: String) -> URL? {
+    guard let url = URL(string: value, relativeTo: server)?.absoluteURL,
+      url.scheme == server.scheme, url.host == server.host, url.port == server.port,
+      url.user == nil, url.password == nil
+    else { return nil }
+    return url
+  }
+  /// An address fetched ahead, while it has at least half an hour left.
+  private func preparedAddress(_ trackId: String) -> URL? {
+    guard let entry = addresses[trackId], entry.until > .now + .seconds(30 * 60) else {
+      return nil
+    }
+    return entry.url
+  }
+  /// Signs the server files among `tracks` in one request (best effort), so
+  /// playing any of them skips asking for its address.
+  public func preparePlayback(_ tracks: [Track]) async {
+    var seen = Set<String>()
+    let wanted = tracks.filter {
+      !$0.id.hasPrefix("mix:") && !Self.remoteStates.contains($0.serverState ?? "")
+        && preparedAddress($0.id) == nil && seen.insert($0.id).inserted
+    }.prefix(200).map(\.id)
+    guard !wanted.isEmpty else { return }
+    let asked = ContinuousClock.now
+    guard
+      case .ok(let success) = try? await client.playback_urls_api_v1_playback_urls_post(
+        .init(body: .json(.init(track_ids: Array(wanted))))),
+      let result = try? success.body.json
+    else { return }
+    let until = asked + .seconds(result.expires_in)
+    if addresses.count > 4000 { addresses = addresses.filter { $0.value.until > .now } }
+    for (id, value) in result.urls.additionalProperties {
+      if let url = serverMediaURL(value) { addresses[id] = (url, until) }
+    }
+  }
   public func playbackURL(trackId: String) async throws -> URL {
+    if let prepared = preparedAddress(trackId) { return prepared }
+    let asked = ContinuousClock.now
     switch try await client.playback_url_api_v1_playback__track_id__url_post(
       .init(path: .init(track_id: trackId)))
     {
     case .ok(let success):
       let result = try success.body.json
-      guard let url = URL(string: result.url, relativeTo: server)?.absoluteURL,
-        url.scheme == server.scheme, url.host == server.host, url.port == server.port,
-        url.user == nil, url.password == nil
-      else { throw NativeFailure.invalidMediaURL }
+      guard let url = serverMediaURL(result.url) else { throw NativeFailure.invalidMediaURL }
+      // Mix songs are signed for each play: their address renews the mix's lease.
+      if !trackId.hasPrefix("mix:") {
+        addresses[trackId] = (url, asked + .seconds(result.expires_in))
+      }
       return url
     case .unauthorized: throw NativeFailure.authentication
     case .notFound:
@@ -527,7 +571,7 @@ public actor NativeService: LibrarySource {
     if track.id.hasPrefix("mix:") { return try await playbackURL(trackId: track.id) }
     // Household files stream like your own; playing never adds them to your library.
     // Requested songs have no file yet and stream like the catalogue.
-    if !["not_in_library", "requested", "failed"].contains(track.serverState ?? "") {
+    if !Self.remoteStates.contains(track.serverState ?? "") {
       return try await playbackURL(trackId: track.id)
     }
     let response = try await client.playback_remote_api_v1_remote_playback_post(

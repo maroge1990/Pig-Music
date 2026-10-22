@@ -616,7 +616,8 @@ struct CatalogueReleaseView: View {
             model: model, source: .release(releaseId),
             fallback: groupId.map { .releaseGroup($0) }, eyebrow: "ALBUM", title: release.title,
             artist: release.artist,
-            openArtist: release.artistId == nil ? nil : { showingArtist = true })
+            openArtist: release.artistId == nil ? nil : { showingArtist = true }
+          ).preparesPlayback(release.songs.map(\.track), model: model)
           let missing = release.songs.filter {
             $0.availability != "in_library" && $0.availability != "requested"
           }.map(\.track)

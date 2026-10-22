@@ -43,6 +43,7 @@ public actor PlaybackSourceRepository {
   {
     try Task.checkCancellation()
     let key = Key(track)
+    dropFailed(key)
     if entries[key] != nil { return lease(key) }
     guard !busy else { throw AudioSourceFailure.busy }
     busy = true
@@ -112,15 +113,26 @@ public actor PlaybackSourceRepository {
     entries[key] = Entry(source: source)
     return lease(key)
   }
+  /// A source whose transfer gave up is fetched again rather than reused.
+  private func dropFailed(_ key: Key) {
+    guard let entry = entries[key], entry.references == 0,
+      (entry.source.bytes as? ProgressiveDownload)?.phase == .failed
+    else { return }
+    entries.removeValue(forKey: key)
+    Task { [preparer] in await preparer.release(entry.source) }
+  }
   private func lease(_ key: Key) -> PreparedAudioSource {
     clock &+= 1
     var entry = entries[key]!
     entry.references += 1
     entry.touched = clock
     entries[key] = entry
+    (entry.source.bytes as? ProgressiveDownload)?.setIdle(false)
     let id = UUID()
     references[id] = key
-    return PreparedAudioSource(id: id, file: entry.source.file, byteCount: entry.source.byteCount)
+    return PreparedAudioSource(
+      id: id, file: entry.source.file, byteCount: entry.source.byteCount,
+      bytes: entry.source.bytes)
   }
   public func release(_ source: PreparedAudioSource) {
     guard let key = references.removeValue(forKey: source.id), var entry = entries[key] else {
@@ -128,6 +140,8 @@ public actor PlaybackSourceRepository {
     }
     entry.references = max(0, entry.references - 1)
     entries[key] = entry
+    // Kept for going back, but no longer fetched while nothing plays it.
+    if entry.references == 0 { (entry.source.bytes as? ProgressiveDownload)?.setIdle(true) }
   }
   /// Revisions of cached sources from this person's own library, which a refresh
   /// checks against their library. Household files and remote streams are not in

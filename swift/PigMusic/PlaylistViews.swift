@@ -175,7 +175,8 @@ struct PlaylistView: View {
         DetailHeader(
           model: model, source: songs.lazy.compactMap(\.artworkSource).first,
           eyebrow: playlist.favourites == true ? "FAVOURITES" : "PLAYLIST", title: playlist.name,
-          subtitle: "\(songs.count) song\(songs.count == 1 ? "" : "s")")
+          subtitle: "\(songs.count) song\(songs.count == 1 ? "" : "s")"
+        ).preparesPlayback(songs, model: model)
         HStack(spacing: 10) {
           PlayCapsule { model.play(songs) }.disabled(songs.isEmpty)
           RoundIcon(label: "Shuffle", systemImage: "shuffle") { model.play(songs.shuffled()) }

@@ -217,6 +217,12 @@ struct DetailHeader: View {
 }
 
 /// The one compact action row: a Play capsule followed by round icon buttons.
+extension View {
+  /// Fetches a page's playback addresses ahead, so a tap starts at once.
+  func preparesPlayback(_ tracks: [Track], model: AppModel) -> some View {
+    task(id: tracks.map(\.id)) { await model.preparePlayback(tracks) }
+  }
+}
 struct PlayCapsule: View {
   let action: () -> Void
   var body: some View {

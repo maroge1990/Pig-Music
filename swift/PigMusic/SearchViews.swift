@@ -168,7 +168,8 @@ struct SavedArtistView: View {
         DetailHeader(
           model: model, source: cover.map { .stored($0) }, eyebrow: "IN YOUR LIBRARY",
           title: artist.name,
-          subtitle: artist.albumCount.map { "\($0) album\($0 == 1 ? "" : "s")" }, circle: true)
+          subtitle: artist.albumCount.map { "\($0) album\($0 == 1 ? "" : "s")" }, circle: true
+        ).preparesPlayback(songs, model: model)
         HStack(spacing: 10) {
           PlayCapsule { model.play(songs) }.disabled(songs.isEmpty)
           RoundIcon(label: "Shuffle", systemImage: "shuffle") {

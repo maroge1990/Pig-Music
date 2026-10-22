@@ -260,7 +260,10 @@ import PigSync
     if engine == nil {
       let output = EngineQueueOutput()
       engineOutput = output
-      let session = try RealtimeQueueSession(output: output, lookaheadSeconds: 3)
+      // Songs start once 0.75 s is decoded, while the rest arrives; if the
+      // network falls behind, playback waits for 2 s rather than stuttering.
+      let session = try RealtimeQueueSession(
+        output: output, lookaheadSeconds: 3, startSeconds: 0.75, rebufferSeconds: 2)
       session.onUpdate = { [weak self] snapshot in self?.accept(snapshot) }
       engine = session
     }
@@ -302,7 +305,12 @@ import PigSync
     player.pause()
     player.replaceCurrentItem(with: nil)
     generation += 1
-    if autoplay { intent.play() } else { intent.pause() }
+    if autoplay {
+      intent.play()
+      timeStart("play")
+    } else {
+      intent.pause()
+    }
     self.resolve = resolve
     artworkSource = artwork
     if let restored {
@@ -333,9 +341,12 @@ import PigSync
         queue.items, startingAt: queue.index, autoplay: intent.canPlay,
         crossfade: crossfadeEnabled, repeatMode: repeatMode,
         acquire: { item in
+          let began = ContinuousClock.now
           let url = try await resolve(item.track)
           // Downloaded songs play from their own file, whatever their size.
           if url.isFileURL { return try await repository.leaseLocal(url) }
+          DiagnosticsLog.shared.record(
+            "playback", "address in \(Self.milliseconds(since: began)) ms")
           return try await repository.acquire(item.track, initialURL: url, resolve: resolve)
         }, release: { await repository.release($0) })
       watchSlowStart()
@@ -349,8 +360,22 @@ import PigSync
     checkpoint(force: true)
     refreshArtwork()
   }
+  /// What the person asked for and when, until the first sound of it.
+  @ObservationIgnored private var startRequest: (what: String, at: ContinuousClock.Instant)?
+  private func timeStart(_ what: String) { startRequest = (what, .now) }
+  private func reportStart(_ mode: String) {
+    guard let request = startRequest else { return }
+    startRequest = nil
+    DiagnosticsLog.shared.record(
+      "playback",
+      "\(request.what): sound after \(Self.milliseconds(since: request.at)) ms (\(mode))")
+  }
+  nonisolated private static func milliseconds(since start: ContinuousClock.Instant) -> Int {
+    Int(((ContinuousClock.now - start) / .milliseconds(1)).rounded())
+  }
   private func accept(_ snapshot: QueuePlaybackSnapshot) {
     guard usingEngine else { return }
+    if snapshot.state == .playing { reportStart("seamless") }
     if snapshot.state != loggedState || snapshot.index != loggedIndex {
       loggedState = snapshot.state
       loggedIndex = snapshot.index
@@ -496,6 +521,7 @@ import PigSync
           duration = known
         }
         playing = player.timeControlStatus == .playing
+        if playing { reportStart("stream") }
         preparing = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
         if let failed = player.currentItem?.error {
           error = failed.userMessage
@@ -517,8 +543,9 @@ import PigSync
     streamingFallback = true
     restartInCurrentMode()
   }
-  /// Seamless playback downloads a whole remote song before it starts. On a
-  /// slow connection, start it as a stream instead of waiting.
+  /// Seamless playback starts a remote song once its first moments arrive.
+  /// If it still hasn't started after 8 s (a very poor connection), stream it
+  /// instead.
   private func watchSlowStart() {
     slowStart?.cancel()
     let stamp = generation
@@ -648,6 +675,7 @@ import PigSync
   /// A person chose to move on, as opposed to the song finishing.
   func skip() {
     if let item = queue.current { onSkip?(item.track, listenSeconds) }
+    timeStart("skip")
     next()
   }
   func next() {
@@ -673,6 +701,7 @@ import PigSync
     }
   }
   func previous() {
+    timeStart("previous")
     if usingEngine {
       engine?.previous()
     } else if queue.previous(elapsed: elapsed) {
@@ -684,6 +713,7 @@ import PigSync
   func seek(_ seconds: Double) {
     guard seconds.isFinite else { return }
     let position = min(max(0, seconds), max(0, duration))
+    if intent.canPlay { timeStart("seek") }
     if usingEngine {
       engine?.seek(position)
     } else {

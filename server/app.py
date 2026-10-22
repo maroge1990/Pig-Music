@@ -1018,7 +1018,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             seen = {key for key in seen if key[1] in live_ids}
             await asyncio.sleep(15)
 
-    from .api_models import PlaybackURL
+    from .api_models import PlaybackURL, PlaybackURLs, PlaybackURLsRequest
 
     @app.post("/api/v1/playback/{track_id}/url", response_model=PlaybackURL)
     def playback_url(track_id: str, request: Request):
@@ -1037,6 +1037,26 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             ),
             "expires_in": 6 * 3600,
         }
+
+    @app.post(
+        "/api/v1/playback-urls", response_model=PlaybackURLs, tags=["personal-library"]
+    )
+    def playback_urls(body: PlaybackURLsRequest, request: Request):
+        """Signed addresses for the songs a page shows, fetched ahead so a tap
+        goes straight to the file. Household files stream for every member;
+        mix songs keep their own per-play address."""
+        urls = {}
+        for track_id in dict.fromkeys(body.track_ids):
+            if len(track_id) > 64 or track_id.startswith("mix:"):
+                continue
+            if saved_track(store, track_id)[0] is None:
+                continue
+            urls[track_id] = security.sign_url(
+                "/api/v1/playback/files/" + track_id,
+                request.state.user,
+                request.state.session,
+            )
+        return {"urls": urls, "expires_in": 6 * 3600}
 
     @app.get("/api/v1/tracks/{track_id}/file", tags=["personal-library"])
     @app.head("/api/v1/tracks/{track_id}/file", tags=["personal-library"])

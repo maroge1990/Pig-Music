@@ -55,6 +55,42 @@ private actor QueueSources {
     gate = nil
   }
 }
+/// A local file whose bytes arrive when the test says.
+private final class MeteredBytes: AudioBytes, @unchecked Sendable {
+  private let file: LocalAudioBytes
+  private let condition = NSCondition()
+  private var allowed: Int
+  private var readers = 0
+  init(file: URL, allowed: Int) throws {
+    self.file = try LocalAudioBytes(file: file)
+    self.allowed = allowed
+  }
+  var length: Int { file.length }
+  var waiting: Bool { condition.withLock { readers > 0 } }
+  func allow(_ count: Int) {
+    condition.withLock {
+      allowed = count
+      condition.broadcast()
+    }
+  }
+  func read(offset: Int, count: Int, into buffer: UnsafeMutableRawPointer, stop: ReadStop)
+    throws -> Int
+  {
+    condition.lock()
+    while offset + min(count, length - offset) > allowed {
+      if stop.stopped {
+        condition.unlock()
+        throw CancellationError()
+      }
+      readers += 1
+      condition.wait()
+      readers -= 1
+    }
+    condition.unlock()
+    return try file.read(offset: offset, count: count, into: buffer, stop: stop)
+  }
+  func wake() { condition.withLock { condition.broadcast() } }
+}
 @MainActor private final class SilentQueueOutput: QueueAudioOutput {
   var positionFrames: Int64 = 0
   var pending: [(Int, @Sendable () -> Void)] = []
@@ -345,6 +381,36 @@ private func queueRoot() throws -> URL {
     #expect(session.peakScheduledFrames <= 24000 + 2048)
     await session.stopAndWait()
     #expect(await sources.active.isEmpty)
+  }
+  @Test @MainActor func aSourceFallingBehindRefillsBeforePlayingOn() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let file = try queueFixture(root, id: "a", value: 0.2, frames: 48000 * 3)
+    let bytes = try MeteredBytes(file: file, allowed: 4096 + 384_000 / 4)
+    let output = SilentQueueOutput()
+    let session = try RealtimeQueueSession(output: output, rebufferSeconds: 0.5)
+    session.replace(
+      [queueTrack("a")],
+      acquire: { _ in PreparedAudioSource(file: file, byteCount: bytes.length, bytes: bytes) },
+      release: { _ in })
+    try await waitQueue { session.snapshot.state == .playing }
+    // Play everything that has arrived (a quarter second): the source is behind.
+    let drained = ContinuousClock.now + .seconds(2)
+    while ContinuousClock.now < drained {
+      output.consume()
+      if output.pending.isEmpty, bytes.waiting { break }
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(output.pending.isEmpty)
+    // A little more arrives: not enough to go on without stuttering.
+    bytes.allow(4096 + 384_000 / 2)
+    try await Task.sleep(for: .milliseconds(200))
+    #expect(output.pending.isEmpty)
+    try await waitQueue { session.snapshot.state == .buffering }
+    // Once half a second is in hand, it is scheduled in one go.
+    bytes.allow(bytes.length)
+    try await waitQueue { output.pending.reduce(0) { $0 + $1.0 } >= 24000 }
+    await session.stopAndWait()
   }
   @Test @MainActor func queueReplacementCancelsPendingSourcesAndIgnoresOldCallbacks() async throws {
     let root = try queueRoot()

@@ -124,6 +124,8 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
   private let rate: Double
   private let blockFrames: Int
   private let lookaheadFrames: Int
+  private let startFrames: Int
+  private let rebufferFrames: Int
   private var items: [PlaybackOccurrence] = []
   private var acquire: QueuePCMStream.Acquire?
   private var release: QueuePCMStream.Release?
@@ -142,12 +144,17 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
   /// speaker. The pump runs on the main actor, so live output needs enough to
   /// ride out UI work (scene changes, large list updates) without starving;
   /// nil keeps the minimal three-block bound used by tests.
+  /// `startSeconds` of audio is decoded before a song starts, and when the
+  /// source falls behind, playback waits for `rebufferSeconds` before going
+  /// on rather than stuttering block by block (nil: no wait).
   public init(
     output: any QueueAudioOutput, sampleRate: Double = 48000, blockFrames: Int = 2048,
-    lookaheadSeconds: Double? = nil
+    lookaheadSeconds: Double? = nil, startSeconds: Double? = nil, rebufferSeconds: Double? = nil
   ) throws {
     guard [44100.0, 48000.0, 96000.0].contains(sampleRate), (256...8192).contains(blockFrames),
-      (lookaheadSeconds ?? 0) >= 0, (lookaheadSeconds ?? 0) <= 10
+      (lookaheadSeconds ?? 0) >= 0, (lookaheadSeconds ?? 0) <= 10,
+      (startSeconds ?? 0) >= 0, (startSeconds ?? 0) <= (lookaheadSeconds ?? 0) + 1,
+      (rebufferSeconds ?? 0) >= 0, (rebufferSeconds ?? 0) <= 10
     else {
       throw AudioPipelineFailure.invalidConfiguration
     }
@@ -155,6 +162,8 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
     rate = sampleRate
     self.blockFrames = blockFrames
     lookaheadFrames = max(blockFrames * 3, Int((lookaheadSeconds ?? 0) * sampleRate))
+    startFrames = max(blockFrames * 3, Int((startSeconds ?? 0) * sampleRate))
+    rebufferFrames = Int((rebufferSeconds ?? 0) * sampleRate)
   }
 
   /// `startSeconds` resumes the first song part-way, as when restoring a checkpoint.
@@ -311,12 +320,32 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
         try output.configure(sampleRate: rate, blockFrames: blockFrames)
         var exhausted = false
         var sourceFailure: Error?
+        // Audio held back while refilling after the source fell behind.
+        var held: [QueuePCMBlock] = []
+        var heldFrames = 0
+        @MainActor func send(_ block: QueuePCMBlock) throws {
+          timeline.append(contentsOf: block.markers)
+          let frames = Int64(block.pcm.frameCount)
+          pendingFrames += frames
+          peakScheduledFrames = max(peakScheduledFrames, pendingFrames)
+          try output.schedule(block.pcm) { [weak self] in
+            Task { @MainActor in
+              guard let self, self.generation == stamp else { return }
+              self.pendingFrames = max(0, self.pendingFrames - frames)
+            }
+          }
+        }
+        @MainActor func sendHeld() throws {
+          for block in held { try send(block) }
+          held = []
+          heldFrames = 0
+        }
         startClock(generation: stamp)
-        while !exhausted || pendingFrames > 0 {
+        while !exhausted || pendingFrames > 0 || !held.isEmpty {
           try Task.checkCancellation()
           guard generation == stamp else { throw CancellationError() }
-          // Start after a few blocks, then build the full cushion while playing.
-          let target = ready ? lookaheadFrames : blockFrames * 3
+          // Start after a short cushion, then build the full one while playing.
+          let target = ready ? lookaheadFrames : startFrames
           while !exhausted && pendingFrames <= Int64(target) {
             let decoded: QueuePCMBlock?
             sourceWaiting = true
@@ -336,17 +365,18 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
             }
             try Task.checkCancellation()
             guard generation == stamp else { throw CancellationError() }
-            timeline.append(contentsOf: block.markers)
-            let frames = Int64(block.pcm.frameCount)
-            pendingFrames += frames
-            peakScheduledFrames = max(peakScheduledFrames, pendingFrames)
-            try output.schedule(block.pcm) { [weak self] in
-              Task { @MainActor in
-                guard let self, self.generation == stamp else { return }
-                self.pendingFrames = max(0, self.pendingFrames - frames)
-              }
+            // Everything scheduled has played: the source fell behind.
+            let starved = ready && rebufferFrames > 0 && pendingFrames == 0
+            if starved || !held.isEmpty {
+              held.append(block)
+              heldFrames += block.pcm.frameCount
+              if heldFrames < rebufferFrames { continue }
+              try sendHeld()
+              continue
             }
+            try send(block)
           }
+          if exhausted, !held.isEmpty { try sendHeld() }
           if !ready {
             ready = true
             if snapshot.wantsPlayback {
@@ -358,7 +388,7 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
             refreshPosition()
             publish()
           }
-          if exhausted && pendingFrames == 0 { break }
+          if exhausted && pendingFrames == 0 && held.isEmpty { break }
           try await Task.sleep(for: .milliseconds(20))
         }
         try Task.checkCancellation()

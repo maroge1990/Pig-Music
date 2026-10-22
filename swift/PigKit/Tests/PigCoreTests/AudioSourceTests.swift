@@ -1,7 +1,8 @@
 import AVFoundation
 import Foundation
-import PigPlayback
 import Testing
+
+@testable import PigPlayback
 
 private final class MediaResponses: @unchecked Sendable {
   static let shared = MediaResponses()
@@ -59,6 +60,26 @@ private actor SourceGate {
   }
 }
 
+/// Every byte of a source, read the way the decoder reads (waiting for them).
+func readAll(_ source: PreparedAudioSource) async throws -> Data {
+  let bytes = try source.audioBytes()
+  return try await Task.detached {
+    var data = Data(count: bytes.length)
+    let stop = ReadStop()
+    var offset = 0
+    while offset < bytes.length {
+      let read = try data.withUnsafeMutableBytes { raw in
+        try bytes.read(
+          offset: offset, count: min(65536, bytes.length - offset),
+          into: raw.baseAddress! + offset, stop: stop)
+      }
+      guard read > 0 else { throw AudioSourceFailure.invalidBody }
+      offset += read
+    }
+    return data
+  }.value
+}
+
 @Suite(.serialized) struct AudioSourceTests {
   let url = URL(string: "https://media.invalid/song.mp3?signature=synthetic")!
   private func preparer(_ root: URL, limit: Int = 100000, total: Int = 200000) throws
@@ -90,7 +111,7 @@ private actor SourceGate {
     let owner = try preparer(root)
     let source = try await owner.prepare { url }
     #expect(source.byteCount == bytes.count)
-    #expect(try Data(contentsOf: source.file) == bytes)
+    #expect(try await readAll(source) == bytes)
     #expect(source.file.pathExtension == "mp3")
     let request = try #require(MediaResponses.shared.captured().first)
     #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
@@ -122,8 +143,13 @@ private actor SourceGate {
       await #expect(throws: AudioSourceFailure.tooLarge) { try await owner.prepare { url } }
       #expect(files(root).isEmpty)
     }
-    MediaResponses.shared.set(headers: ["Content-Type": "audio/mpeg", "Content-Length": "4"])
-    await #expect(throws: AudioSourceFailure.invalidBody) { try await owner.prepare { url } }
+    // A body shorter than its size starts playing, then fails when the
+    // missing byte never comes.
+    MediaResponses.shared.set(
+      [200, 200, 200, 200, 200], headers: ["Content-Type": "audio/mpeg", "Content-Length": "4"])
+    let short = try await owner.prepare { url }
+    await #expect(throws: AudioSourceFailure.invalidBody) { try await readAll(short) }
+    await owner.release(short)
     MediaResponses.shared.set(data: Data())
     await #expect(throws: AudioSourceFailure.invalidBody) { try await owner.prepare { url } }
     #expect(files(root).isEmpty)

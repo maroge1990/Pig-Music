@@ -235,6 +235,16 @@ class PlaybackURL(BaseModel):
     expires_in: int
 
 
+class PlaybackURLsRequest(BaseModel):
+    track_ids: list[str] = Field(min_length=1, max_length=200)
+
+
+class PlaybackURLs(BaseModel):
+    # Signed playback addresses by song; songs without a file are left out.
+    urls: dict[str, str]
+    expires_in: int
+
+
 class RequestDTO(BaseModel):
     id: str
     title: str

@@ -254,7 +254,8 @@ struct AlbumView: View {
         DetailHeader(
           model: model, source: album.artworkSource ?? tracks.first?.artworkSource,
           eyebrow: "IN YOUR LIBRARY", title: album.title, subtitle: albumSubtitle,
-          artist: album.artist, openArtist: artist == nil ? nil : { showingArtist = true })
+          artist: album.artist, openArtist: artist == nil ? nil : { showingArtist = true }
+        ).preparesPlayback(tracks, model: model)
         HStack(spacing: 10) {
           PlayCapsule { model.play(tracks) }.disabled(tracks.isEmpty)
           RoundIcon(label: "Shuffle", systemImage: "shuffle") { model.play(tracks.shuffled()) }
