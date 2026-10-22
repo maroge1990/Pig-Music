@@ -259,6 +259,113 @@ test("the owner reviews duplicate songs and moves them to Removed music", async 
   expect(removed).toEqual(["dl"]);
 });
 
+test("the owner tidies an album's editions and can undo it", async ({
+  page,
+}) => {
+  const song = (id: string, title: string, album: string, quality: string) => ({
+    id,
+    title,
+    album,
+    quality,
+  });
+  const album = {
+    id: "deluxe",
+    artist: "The Killers",
+    keep: { album_id: "deluxe", title: "Hot Fuss (Deluxe Edition)", songs: 4 },
+    editions: [{ album_id: "standard", title: "Hot Fuss", songs: 3 }],
+    replace: [
+      {
+        ...song("s-jenny", "Jenny", "Hot Fuss", "FLAC"),
+        replaces: song(
+          "d-jenny",
+          "Jenny",
+          "Hot Fuss (Deluxe Edition)",
+          "MP3 128",
+        ),
+      },
+    ],
+    remove: [
+      {
+        ...song("s-mr", "Mr. Brightside", "Hot Fuss", "MP3 320"),
+        kept: song(
+          "d-mr",
+          "Mr. Brightside",
+          "Hot Fuss (Deluxe Edition)",
+          "MP3 320",
+        ),
+      },
+    ],
+    leftovers: [
+      song("s-glam", "Glamorous Indie Rock & Roll", "Hot Fuss", "MP3 320"),
+    ],
+    fingerprint: "f".repeat(64),
+  };
+  let tidied: { path: string; body: unknown } | null = null;
+  let undone = false;
+  await mockApi(page, {
+    role: "owner",
+    answers: {
+      "/v1/admin/library/tidy/history/run/undo": (route) => {
+        undone = true;
+        return route.fulfill({ json: { id: "run", status: "undone" } });
+      },
+      "/v1/admin/library/tidy/deluxe": (route) => {
+        tidied = {
+          path: new URL(route.request().url()).pathname,
+          body: route.request().postDataJSON(),
+        };
+        return route.fulfill({ json: { id: "run", status: "applied" } });
+      },
+      "/v1/admin/library/tidy": (route) =>
+        route.fulfill({
+          json:
+            tidied && !undone
+              ? {
+                  albums: [],
+                  history: [
+                    {
+                      id: "run",
+                      artist: "The Killers",
+                      title: "Hot Fuss (Deluxe Edition)",
+                      time: 1,
+                      status: "applied",
+                    },
+                  ],
+                }
+              : { albums: [album], history: [] },
+        }),
+      "/v1/admin/library/duplicates": (route) =>
+        route.fulfill({ json: { duplicates: [] } }),
+      "/v1/admin/library/trash": (route) => route.fulfill({ json: [] }),
+      "/v1/admin/library/organisation/history": (route) =>
+        route.fulfill({ json: [] }),
+      "/v1/admin/unassigned": (route) =>
+        route.fulfill({ json: { albums: [], next_offset: null } }),
+    },
+  });
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.goto("/#/admin/library");
+  const panel = page
+    .locator(".system-panel")
+    .filter({ has: page.getByRole("heading", { name: "Album editions" }) });
+  await panel.getByRole("button", { name: "Find editions" }).click();
+  await expect(panel).toContainText("Keep Hot Fuss (Deluxe Edition) (4 songs)");
+  await expect(panel).toContainText("FLAC from Hot Fuss replaces MP3 128");
+  await expect(panel).toContainText("Removed from Hot Fuss · MP3 320 kept");
+  await expect(panel).toContainText("Stays on Hot Fuss: review it yourself");
+  await panel
+    .getByRole("button", { name: "Tidy Hot Fuss (Deluxe Edition)" })
+    .click();
+  await expect(panel).toContainText("No albums on several editions.");
+  expect(tidied).toEqual({
+    path: "/api/v1/admin/library/tidy/deluxe",
+    body: { fingerprint: "f".repeat(64) },
+  });
+  await panel.getByRole("button", { name: "Undo" }).click();
+  await expect(panel).toContainText("Hot Fuss (Deluxe Edition)");
+  expect(undone).toBe(true);
+});
+
 test("the owner approves or rejects uploads credited only by the uploader", async ({
   page,
 }) => {

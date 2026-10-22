@@ -81,20 +81,15 @@ class Recovery:
             ]
         return record, root
 
-    def begin(self, conn, record):
+    def begin(self, conn, record, exclude=True):
         from .user_library import bump
 
         conn.execute(
             "INSERT INTO documents VALUES (?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
             ("removed:" + record["id"], json.dumps(record)),
         )
-        conn.execute(
-            "INSERT INTO documents VALUES (?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
-            (
-                "excluded:" + exclusion_key(record["track"]),
-                json.dumps({"track": record["track"], "removal_id": record["id"]}),
-            ),
-        )
+        if exclude:
+            self.exclude(conn, record)
         owners = [
             r[0]
             for r in conn.execute(
@@ -107,6 +102,16 @@ class Recovery:
         )
         for owner in owners:
             bump(conn, owner)
+
+    def exclude(self, conn, record):
+        """A removed song is not requested again until it is restored."""
+        conn.execute(
+            "INSERT INTO documents VALUES (?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload",
+            (
+                "excluded:" + exclusion_key(record["track"]),
+                json.dumps({"track": record["track"], "removal_id": record["id"]}),
+            ),
+        )
         for job_id, payload in conn.execute("SELECT id,payload FROM queue").fetchall():
             if same_song(json.loads(payload), record["track"]):
                 conn.execute(
@@ -115,14 +120,18 @@ class Recovery:
                 )
 
     @coordinated
-    def remove(self, track_id):
+    def remove(self, track_id, exclude=True, refresh=True):
+        """Move a song's file to Trash. `exclude=False` when another copy of
+        the song stays, so requests for it keep finding that copy; a batch
+        passes `refresh=False` and refreshes the library once at the end."""
         with self.lock:
             record, root = self.prepare(track_id)
             with self.store.connect() as conn:
                 conn.execute("BEGIN IMMEDIATE")
-                self.begin(conn, record)
+                self.begin(conn, record, exclude)
             self.finish(record, root)
-            self.store.refresh_library()
+            if refresh:
+                self.store.refresh_library()
             return record
 
     def finish(self, record, root):

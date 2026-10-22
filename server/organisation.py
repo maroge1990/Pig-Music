@@ -11,6 +11,36 @@ from .downloader import Downloader, safe_name
 from .scanner import inspect_file
 
 
+# Album placement a tidy-up retags onto a moved file.
+ALBUM_FIELDS = (
+    "album",
+    "album_artist",
+    "year",
+    "track_number",
+    "disc_number",
+    "musicbrainz_release_id",
+)
+TAG_SUFFIXES = {".mp3", ".flac", ".m4a"}
+
+
+def file_name(raw, suffix):
+    """ "Artist - Album - 01 - Title.mp3", within 200 bytes before the suffix."""
+    number = (
+        f"{raw.get('disc_number',1):02}-{raw.get('track_number',0):02}"
+        if raw.get("disc_number", 1) > 1
+        else f"{raw.get('track_number',0):02}"
+    )
+    label = " - ".join(
+        [
+            safe_name(raw["artist"]),
+            safe_name(raw["album"]),
+            number,
+            safe_name(raw["title"]),
+        ]
+    )
+    return label.encode("utf-8")[:200].decode("utf-8", "ignore") + suffix
+
+
 class Organisation:
     def __init__(self, store, recovery):
         self.store = store
@@ -37,23 +67,7 @@ class Organisation:
                 if not old:
                     continue
                 suffix = Path(old).suffix.lower()
-                number = (
-                    f"{raw.get('disc_number',1):02}-{raw.get('track_number',0):02}"
-                    if raw.get("disc_number", 1) > 1
-                    else f"{raw.get('track_number',0):02}"
-                )
-                label = " - ".join(
-                    [
-                        safe_name(raw["artist"]),
-                        safe_name(raw["album"]),
-                        number,
-                        safe_name(raw["title"]),
-                    ]
-                )
-                target = (
-                    Path(old).parent
-                    / (label.encode("utf-8")[:200].decode("utf-8", "ignore") + suffix)
-                ).as_posix()
+                target = (Path(old).parent / file_name(raw, suffix)).as_posix()
                 rows.append(
                     {
                         "id": raw["id"],
@@ -62,7 +76,7 @@ class Organisation:
                         "from": old,
                         "to": target,
                         "rename": old != target,
-                        "tag_supported": suffix in {".mp3", ".flac", ".m4a"},
+                        "tag_supported": suffix in TAG_SUFFIXES,
                         "conflict": old != target and contained(root, target).exists(),
                     }
                 )
@@ -90,50 +104,56 @@ class Organisation:
                 raise ValueError("This audio format needs a separate tag review.")
             if not row["rename"] and not tags:
                 continue
-            with self.recovery.lock:
-                track, root = saved_track(self.store, identity)
-                self.recovery.check_mount(root)
-                source = track_file(self.store, identity)
-                destination = contained(root, row["to"])
-                operation = str(uuid.uuid4())
-                backup = contained(
-                    root,
-                    ".pig-music-trash/organisation/" + operation + "/" + row["from"],
-                )
-                backup.parent.mkdir(parents=True, exist_ok=True)
-                contained(root, ".pig-music-trash/.plexignore").write_text(
-                    "*\n", encoding="utf-8"
-                )
-                before = self.recovery.digest(source)
-                stage = source.parent / (
-                    ".pig-music-organise-" + operation + source.suffix
-                )
-                record = {
-                    "id": operation,
-                    "track_id": identity,
-                    "track": track,
-                    "root": str(root.resolve()),
-                    "source": row["from"],
-                    "destination": row["to"],
-                    "backup": backup.relative_to(root).as_posix(),
-                    "stage": stage.relative_to(root).as_posix(),
-                    "before": before,
-                    "status": "preparing",
-                }
-                self.recovery.save("organisation:" + operation, record)
-                os.link(source, backup)
-                shutil.copyfile(source, stage)
-                if tags:
-                    Downloader(self.store).tag(stage, track, "existing-library")
-                checked, _ = inspect_file(stage, row["to"])
-                if abs(checked.get("duration", 0) - track.get("duration", 0)) > 1:
-                    raise ValueError("Audio duration changed; original retained.")
-                record.update(after=self.recovery.digest(stage), status="publishing")
-                self.recovery.save("organisation:" + operation, record)
-                self.finish(record, root)
-                results.append(operation)
+            results.append(self.move(identity, row["from"], row["to"], tags))
         self.store.refresh_library()
         return {"applied": len(results), "operations": results}
+
+    def move(self, identity, origin, to, tags, placement=None):
+        """Move one file within the library (optionally retagged, with
+        `placement` replacing its album fields) and keep the original for undo.
+        The caller refreshes the library."""
+        with self.recovery.lock:
+            track, root = saved_track(self.store, identity)
+            self.recovery.check_mount(root)
+            source = track_file(self.store, identity)
+            destination = contained(root, to)
+            operation = str(uuid.uuid4())
+            backup = contained(
+                root,
+                ".pig-music-trash/organisation/" + operation + "/" + origin,
+            )
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            contained(root, ".pig-music-trash/.plexignore").write_text(
+                "*\n", encoding="utf-8"
+            )
+            before = self.recovery.digest(source)
+            stage = source.parent / (".pig-music-organise-" + operation + source.suffix)
+            record = {
+                "id": operation,
+                "track_id": identity,
+                "track": {**track, **(placement or {})},
+                "root": str(root.resolve()),
+                "source": origin,
+                "destination": to,
+                "backup": backup.relative_to(root).as_posix(),
+                "stage": stage.relative_to(root).as_posix(),
+                "before": before,
+                "status": "preparing",
+            }
+            if placement:
+                record["placed_from"] = {k: track.get(k) for k in ALBUM_FIELDS}
+            self.recovery.save("organisation:" + operation, record)
+            os.link(source, backup)
+            shutil.copyfile(source, stage)
+            if tags:
+                Downloader(self.store).tag(stage, record["track"], "existing-library")
+            checked, _ = inspect_file(stage, to)
+            if abs(checked.get("duration", 0) - track.get("duration", 0)) > 1:
+                raise ValueError("Audio duration changed; original retained.")
+            record.update(after=self.recovery.digest(stage), status="publishing")
+            self.recovery.save("organisation:" + operation, record)
+            self.finish(record, root)
+            return operation
 
     def finish(self, record, root):
         source = contained(root, record["source"])
@@ -189,6 +209,10 @@ class Organisation:
             ).fetchone()
             if row:
                 acquired = json.loads(row[0])
+                if "placed_from" in record:
+                    acquired.update(
+                        {k: record["track"].get(k) for k in record["placed_from"]}
+                    )
                 acquired.update(
                     export_relative_path=record["destination"],
                     sha256=record["after"],
@@ -203,6 +227,10 @@ class Organisation:
         snapshot["tracks"] = [
             updated if t["id"] == record["track_id"] else t
             for t in snapshot.get("tracks", [])
+            # A scan's entry for a moved download's old path is gone with it.
+            if not row
+            or t["id"] == record["track_id"]
+            or t.get("relative_path") != record["source"]
         ]
         temporary = self.store.directory / "organisation-snapshot.tmp"
         temporary.write_text(json.dumps(snapshot), encoding="utf-8")
@@ -290,6 +318,7 @@ class Organisation:
             checked, _ = inspect_file(source, record["source"])
             updated = {
                 **record["track"],
+                **(record.get("placed_from") or {}),
                 **checked,
                 "id": record["track_id"],
                 "sha256": record["before"],
@@ -300,6 +329,7 @@ class Organisation:
                 ).fetchone()
                 if row:
                     acquired = json.loads(row[0])
+                    acquired.update(record.get("placed_from") or {})
                     acquired.update(
                         export_relative_path=record["source"],
                         sha256=record["before"],

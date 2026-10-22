@@ -97,7 +97,7 @@ def remove(store, recovery, track_ids):
                 ).rowcount:
                     bump(conn, user_id)
         try:
-            recovery.remove(track_id)
+            recovery.remove(track_id, exclude=False)
             removed += 1
         except (ValueError, OSError, FileNotFoundError):
             skipped += 1

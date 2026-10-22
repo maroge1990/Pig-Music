@@ -32,6 +32,7 @@ from .routes.device_copies import device_copy_router
 from .routes.household import household_router
 from .portraits import portrait_target
 from .library_artwork import portraits_waiting
+from .tidy import Tidy
 from .artist_backgrounds import background_target
 from pydantic import BaseModel, Field
 
@@ -97,6 +98,7 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
     artist_jobs = ArtistJobs(store, music_catalogue)
     recovery = Recovery(store)
     organisation = Organisation(store, recovery)
+    tidy = Tidy(store, recovery, organisation)
     scan_task = None
     preload_stopping = asyncio.Event()
     image_revision = 0
@@ -507,6 +509,59 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         from .duplicates import remove
 
         return await asyncio.to_thread(remove, store, recovery, body.track_ids)
+
+    @app.get("/api/v1/admin/library/tidy")
+    async def tidy_plan():
+        plan = await asyncio.to_thread(tidy.plan)
+        history = await asyncio.to_thread(tidy.history)
+        return {
+            **plan,
+            "history": [
+                {k: r[k] for k in ("id", "artist", "title", "time", "status")}
+                for r in history
+            ],
+        }
+
+    class TidyRequest(BaseModel):
+        fingerprint: str = Field(max_length=64)
+
+    def files_settled(action):
+        if scan_task and not scan_task.done():
+            raise HTTPException(409, f"Wait for the library scan before {action}.")
+        if any(
+            i["status"] in {"searching", "downloading", "validating", "importing"}
+            for i in store.queue()["items"]
+        ):
+            raise HTTPException(409, f"Wait for active downloads before {action}.")
+        if not scanner.lock.acquire(blocking=False):
+            raise HTTPException(409, f"Wait for the library scan before {action}.")
+
+    @app.post("/api/v1/admin/library/tidy/{album_id}")
+    async def tidy_album(album_id: str, body: TidyRequest):
+        files_settled("tidying albums")
+        try:
+            record = await asyncio.to_thread(tidy.apply, album_id, body.fingerprint)
+            return {"id": record["id"], "status": record["status"]}
+        except (ValueError, OSError) as error:
+            raise HTTPException(
+                409,
+                f"Tidy-up stopped: {error} Every file moved so far is recoverable; scan the library and review again.",
+            )
+        finally:
+            scanner.lock.release()
+
+    @app.post("/api/v1/admin/library/tidy/history/{identity}/undo")
+    async def undo_tidy(identity: str):
+        files_settled("undoing a tidy-up")
+        try:
+            record = await asyncio.to_thread(tidy.undo, identity)
+            return {"id": record["id"], "status": record["status"]}
+        except (ValueError, OSError):
+            raise HTTPException(
+                409, "Undo stopped; recoverable files are retained. Check the album."
+            )
+        finally:
+            scanner.lock.release()
 
     @app.post("/api/v1/admin/library/trash/{identity}/restore")
     async def restore_song(identity: str):
