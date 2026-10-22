@@ -667,3 +667,62 @@ def test_a_cancelled_removal_keeps_its_safeguards(tmp_path, monkeypatch):
     with pytest.raises(ValueError):
         tidy.recovery.settle(record["id"])
     assert store.read_document("removed:" + record["id"])["status"] == "removing"
+
+
+@pytest.mark.parametrize("kept", [False, True])
+def test_a_download_not_yet_in_the_music_folder_is_never_tidied(
+    tmp_path, monkeypatch, kept
+):
+    """A downloaded copy waiting to be published lives in the download
+    workspace. Trashing it reported the SMB mount unavailable (and would
+    leave the exporter retrying a file that is gone); keeping it while a
+    music-folder copy went to Trash would leave only the unpublished one."""
+    import hashlib
+
+    tidy, root, member, ids = library(tmp_path, monkeypatch)
+    store = tidy.store
+    (store.directory / "library-export.json").write_text(
+        json.dumps({"enabled": True, "library_id": "fixture"})
+    )
+    (root / ".pig-music-library.json").write_text(json.dumps({"library_id": "fixture"}))
+    work = root / ".pig-music-work"
+    monkeypatch.setenv("PIG_MUSIC_DOWNLOAD_ROOT", str(work))
+
+    def acquire(identity, title, album, number, published):
+        relative = f"The Killers/{album}/{number:02} {title}.mp3"
+        path = (root if published else work / "library") / relative
+        audio(path, title, album, number, "mp3_320")
+        track = inspect_file(path, relative)[0] | {
+            "id": identity,
+            "relative_path": relative,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "available": True,
+        }
+        if published:
+            track["export_relative_path"] = relative
+        with store.connect() as conn:
+            conn.execute(
+                "INSERT INTO acquired VALUES (?,?)", (identity, json.dumps(track))
+            )
+        return path
+
+    staged = acquire("staged-smile", "Smile Like You Mean It", STANDARD, 3, False)
+    if not kept:
+        # One more published song makes the deluxe edition the kept one.
+        acquire("deluxe-somebody", "Somebody Told Me", DELUXE, 4, True)
+    store.refresh_library()
+    (item,) = tidy.plan()["albums"]
+    assert item["keep"]["title"] == (STANDARD if kept else DELUXE)
+    smile = {"staged-smile", ids[DELUXE, "Smile Like You Mean It"]}
+    assert not smile & {r["id"] for r in item["remove"]}
+    (waiting,) = [r for r in item["leftovers"] if r["id"] in smile]
+    assert waiting["reason"] == (
+        "the kept copy is not in the music folder yet"
+        if kept
+        else "not in the music folder yet"
+    )
+    record = tidy.apply(item["id"], item["fingerprint"])
+    assert record["status"] == "applied"
+    assert staged.exists()
+    assert (root / "The Killers" / DELUXE / "03 Smile Like You Mean It.mp3").exists()
+    assert not [r for r in tidy.recovery.list() if r["track_id"] in smile]

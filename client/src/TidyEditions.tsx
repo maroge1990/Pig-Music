@@ -6,6 +6,8 @@ type Song = {
   title: string;
   album: string;
   quality: string;
+  /** Why a song stays for review, when it is not just unique to its edition. */
+  reason?: string;
 };
 type Album = {
   id: string;
@@ -174,7 +176,10 @@ export function TidyEditions({ notify }: { notify: (s: string) => void }) {
                 <div className="result-row" key={s.id}>
                   <div>
                     <strong>{s.title}</strong>
-                    <span>Stays on {s.album}: review it yourself</span>
+                    <span>
+                      Stays on {s.album}
+                      {s.reason ? ` (${s.reason})` : ""}: review it yourself
+                    </span>
                   </div>
                 </div>
               ))}

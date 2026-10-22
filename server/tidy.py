@@ -209,9 +209,23 @@ class Tidy:
                 leftovers += [summary(t, a) for a, t in copies]
                 continue
             # Only a copy the kept file is shown to be as good as goes to
-            # Trash; one that might be better stays for review.
+            # Trash; one that might be better stays for review. Both must be
+            # in the music folder: a download still waiting to be published
+            # lives in the download workspace, where Trash cannot take it
+            # (and the exporter still expects it), and it cannot stand in
+            # for a copy the music folder already has.
             for album, track in copies:
-                if as_good(keeping, track):
+                if not files[track["id"]]["nas"]:
+                    leftovers.append(
+                        summary(track, album)
+                        | {"reason": "not in the music folder yet"}
+                    )
+                elif not files[keeping["id"]]["nas"]:
+                    leftovers.append(
+                        summary(track, album)
+                        | {"reason": "the kept copy is not in the music folder yet"}
+                    )
+                elif as_good(keeping, track):
                     remove.append({**summary(track, album), "kept": summary(k, keeper)})
                 else:
                     leftovers.append(summary(track, album))
