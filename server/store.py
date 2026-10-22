@@ -43,6 +43,10 @@ class Store:
     def __init__(self, directory: Path):
         self.directory = directory
         self.lifecycle_lock = threading.RLock()
+        # Mix playback leases against mix cache cleanup only. Playback must not
+        # wait for library work (syncs, scans, exports) under lifecycle_lock;
+        # cleanup takes this after lifecycle_lock, never the other way round.
+        self.mix_lock = threading.RLock()
         self.library_lock = threading.RLock()
         directory.mkdir(parents=True, exist_ok=True)
         self.cover_dir = directory / "covers"

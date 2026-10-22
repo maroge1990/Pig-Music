@@ -163,7 +163,11 @@ class MixCache:
 
     def cleanup(self, now=None):
         now = time.time() if now is None else now
-        with self.store.lifecycle_lock, self.store.connect() as conn:
+        with (
+            self.store.lifecycle_lock,
+            self.store.mix_lock,
+            self.store.connect() as conn,
+        ):
             retained = self.retained(conn, now)
             for key, filename in conn.execute(
                 "SELECT key,filename FROM mix_audio WHERE lease_until<? AND created_at<?",

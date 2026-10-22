@@ -189,6 +189,45 @@ def test_rotation_respects_shared_references_queue_leases_and_restart(
         mixes.entry(owner, f"mix:{second}:0")
 
 
+def test_mix_playback_does_not_wait_for_library_work(tmp_path, monkeypatch):
+    """A library sync, scan or export holds the lifecycle lock, for seconds or
+    minutes; playing a mix or radio song (each address and each Range request)
+    must not queue behind it."""
+    import threading
+
+    app, owner = protected(tmp_path, monkeypatch)
+    mixes = app.state.store.mixes
+    path = cached(mixes, track())
+    identity = ready(mixes, owner, [track()])
+    held, release = threading.Event(), threading.Event()
+
+    def library_work():
+        with mixes.store.lifecycle_lock:
+            held.set()
+            release.wait(10)
+
+    worker = threading.Thread(target=library_work)
+    worker.start()
+    try:
+        assert held.wait(5)
+        found = []
+        play = threading.Thread(
+            target=lambda: found.append(mixes.playback(owner, f"mix:{identity}:0"))
+        )
+        play.start()
+        play.join(2)
+        assert found == [path]
+    finally:
+        release.set()
+        worker.join()
+    # The playback lease still protects the file from cleanup.
+    with mixes.store.connect() as conn:
+        lease = conn.execute(
+            "SELECT lease_until FROM mix_audio WHERE key=?", (song_key(track()),)
+        ).fetchone()[0]
+    assert lease > time.time() + 5 * 3600
+
+
 def test_future_editions_do_not_replace_today_until_rotation(tmp_path, monkeypatch):
     app, owner = protected(tmp_path, monkeypatch)
     mixes = app.state.store.mixes

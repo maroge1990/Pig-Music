@@ -1222,7 +1222,7 @@ class Mixes:
     def playback(self, user, track_id):
         track = self.entry(user, track_id, playback=True)
         identity = track_id.split(":")[1]
-        with self.store.lifecycle_lock, self.store.connect() as conn:
+        with self.store.mix_lock, self.store.connect() as conn:
             until = time.time() + 6 * 3600
             conn.execute(
                 "UPDATE mix_editions SET lease_until=? WHERE id=?", (until, identity)
