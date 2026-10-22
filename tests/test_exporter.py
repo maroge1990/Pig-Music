@@ -300,3 +300,110 @@ def test_direct_storage_refuses_missing_mount_marker(tmp_path, monkeypatch):
     with pytest.raises(ValueError):
         library_root(store)
     assert not root.exists()
+
+
+def nas_with(tmp_path, monkeypatch, existing):
+    """A music folder with a marker, publication enabled, and `existing`
+    songs (album folder, disc) as the last scan saw them."""
+    root = tmp_path / "nas"
+    root.mkdir()
+    store = Store(tmp_path / "data")
+    (root / ".pig-music-library.json").write_text(json.dumps({"library_id": "test"}))
+    (store.directory / "library-export.json").write_text(
+        json.dumps(
+            {
+                "enabled": True,
+                "library_id": "test",
+                "marker_path": ".pig-music-library.json",
+            }
+        )
+    )
+    monkeypatch.setenv("PIG_MUSIC_LIBRARY", str(root))
+    tracks = []
+    for index, (folder, disc) in enumerate(existing):
+        tracks.append(
+            {
+                "id": f"existing-{index}",
+                "title": f"Existing {index}",
+                "artist": "Artist",
+                "album_artist": "Artist",
+                "album": "Album",
+                "year": 2020,
+                "track_number": index + 1,
+                "relative_path": f"{folder}/{index:02} Existing.mp3",
+                **({"disc_number": disc} if disc else {}),
+            }
+        )
+    (store.directory / "library-snapshot.json").write_text(
+        json.dumps({"tracks": tracks})
+    )
+    return store, root
+
+
+def download(store, identity, disc=1, album="Album"):
+    track, path = acquired(store, identity.encode(), identity)
+    track = {**track, "disc_number": disc, "album": album, "title": identity}
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE acquired SET payload=? WHERE id=?", (json.dumps(track), identity)
+        )
+    return track
+
+
+@pytest.mark.parametrize("recorded", [True, False])
+def test_a_song_goes_into_the_disc_folder_of_its_disc(tmp_path, monkeypatch, recorded):
+    # "Prince/Ultimate (2006)/CD 01" and "CD 02": one album, two disc folders.
+    store, root = nas_with(
+        tmp_path,
+        monkeypatch,
+        [
+            ("Artist/Album (2020)/CD 01", 1 if recorded else None),
+            ("Artist/Album (2020)/CD 02", 2 if recorded else None),
+        ],
+    )
+    exporter = Exporter(store, root)
+    assert exporter.relative(download(store, "first", disc=1)).startswith(
+        "Artist/Album (2020)/CD 01/"
+    )
+    assert exporter.relative(download(store, "second", disc=2)).startswith(
+        "Artist/Album (2020)/CD 02/"
+    )
+    # A disc the album has no folder for still needs a decision.
+    with pytest.raises(ValueError, match="destination decision"):
+        exporter.relative(download(store, "third", disc=3))
+
+
+def test_different_album_folders_still_need_a_decision(tmp_path, monkeypatch):
+    store, root = nas_with(
+        tmp_path,
+        monkeypatch,
+        [("Artist/Album (2020)", 1), ("Artist/Album (2020 Remaster)", 1)],
+    )
+    with pytest.raises(ValueError, match="destination decision"):
+        Exporter(store, root).relative(download(store, "song"))
+
+
+def test_a_song_needing_a_decision_does_not_hold_up_the_rest(tmp_path, monkeypatch):
+    store, root = nas_with(
+        tmp_path,
+        monkeypatch,
+        [("Artist/Album (2020)", 1), ("Artist/Album (2020 Remaster)", 1)],
+    )
+    download(store, "stuck")
+    download(store, "other", album="Other Album")
+    Exporter(store, root).process()
+    status = store.read_document("library-export-status")
+    assert status["status"] == "partial" and status["files"] == 1
+    (review,) = status["needs_review"]
+    assert review["id"] == "stuck" and "destination decision" in review["error"]
+    assert "1 song" in status["error"]
+    published = {
+        t["id"]: t.get("export_relative_path") for t in Exporter(store, root).records()
+    }
+    assert published["stuck"] is None
+    assert (root / published["other"]).is_file()
+    # Once nothing is left waiting, the status is completed again.
+    with store.connect() as conn:
+        conn.execute("DELETE FROM acquired WHERE id='stuck'")
+    Exporter(store, root).process()
+    assert store.read_document("library-export-status")["status"] == "completed"

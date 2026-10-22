@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import shutil
 import threading
 import uuid
@@ -19,6 +20,30 @@ from pathlib import Path
 from .downloader import safe_name
 from .library import load_json, normalise
 from .storage import library_root
+
+
+# "CD 01", "Disc 2", "Disk02": one disc of an album kept in its own folder.
+DISC_FOLDER = re.compile(r"(?:cd|dis[ck])[ _-]*0*(\d+)", re.IGNORECASE)
+
+
+def disc_folder(candidates, disc):
+    """The one folder among an album's disc folders that holds `disc`, else
+    None. Each folder's disc is its songs' disc number when they agree, else
+    the number in its name; folders that are not siblings named as discs are
+    different albums and never chosen between."""
+    paths = {Path(folder): discs for folder, discs in candidates.items()}
+    if len({path.parent for path in paths}) != 1:
+        return None
+    found = []
+    for path, discs in paths.items():
+        named = DISC_FOLDER.fullmatch(path.name)
+        if not named:
+            return None
+        recorded = {d for d in discs if d}
+        number = recorded.pop() if len(recorded) == 1 else int(named[1])
+        if number == disc:
+            found.append(path.as_posix())
+    return found[0] if len(found) == 1 else None
 
 
 def digest(path):
@@ -83,7 +108,7 @@ class Exporter:
         folder = Path(component(track["album_artist"])) / album
         # Preserve the existing folder spelling and edition context when tags
         # identify exactly one matching album folder.
-        candidates = set()
+        candidates = {}
         snapshot = load_json(self.store.directory / "library-snapshot.json")
         for saved in snapshot.get("tracks", []):
             if normalise(saved.get("album_artist", "")) != normalise(
@@ -106,11 +131,16 @@ class Exporter:
                 continue
             parent = Path(saved.get("relative_path", "")).parent
             if len(parent.parts) >= 2:
-                candidates.add(parent.as_posix())
+                candidates.setdefault(parent.as_posix(), set()).add(
+                    saved.get("disc_number")
+                )
         if len(candidates) > 1:
-            raise ValueError(
-                "Multiple existing album folders need a destination decision."
-            )
+            chosen = disc_folder(candidates, track.get("disc_number") or 1)
+            if not chosen:
+                raise ValueError(
+                    "Multiple existing album folders need a destination decision."
+                )
+            candidates = {chosen: set()}
         if len(candidates) == 1:
             folder = Path(next(iter(candidates)))
         number = (
@@ -284,14 +314,38 @@ class Exporter:
                 )
             completed = 0
             changed = False
+            waiting = []
             for track in self.records():
-                self.publish(track)
+                # One song that needs a decision (or whose file is refused)
+                # waits on its own; the rest still publish.
+                try:
+                    self.publish(track)
+                except (OSError, ValueError, KeyError) as exc:
+                    waiting.append(
+                        {
+                            "id": track.get("id"),
+                            "artist": track.get("album_artist"),
+                            "album": track.get("album"),
+                            "title": track.get("title"),
+                            "error": str(exc)[:180],
+                        }
+                    )
+                    continue
                 completed += 1
                 changed = changed or not track.get("export_relative_path")
             if changed:
                 self.store.refresh_library()
             self.store.cleanup_replacements()
-            self.report(status="completed", files=completed)
+            if waiting:
+                count = len(waiting)
+                self.report(
+                    status="partial",
+                    files=completed,
+                    error=f"{count} song{'s' if count > 1 else ''} need review: {waiting[0]['error']}",
+                    needs_review=waiting[:50],
+                )
+            else:
+                self.report(status="completed", files=completed)
         except (OSError, ValueError, KeyError) as exc:
             self.report(status="deferred", error=str(exc)[:180])
         finally:
