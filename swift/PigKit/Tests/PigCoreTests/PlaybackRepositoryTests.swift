@@ -52,13 +52,16 @@ struct PlaybackRepositoryTests {
     let states: [String: String?] = [
       "mine": "in_library", "legacy": nil, "household": "household_available",
       "requested": "requested", "failed": "failed", "remote": "not_in_library",
+      // Mix and radio songs say whether you own the song, but play from the
+      // mix cache under an identity the library never lists.
+      "mix:edition:0": "in_library", "mix:edition:1": nil,
     ]
     for (id, state) in states {
       var track = Track(id: id, title: id, artist: "Fixture")
       track.serverState = state
       // Released sources stay cached, and cached sources are what a refresh checks.
       await repository.release(try await repository.acquireLocal(track, file: input))
-      let personal = state == nil || state == "in_library"
+      let personal = !id.hasPrefix("mix:") && (state == nil || state == "in_library")
       #expect(await repository.savedRevisions().keys.contains(id) == personal)
     }
     await repository.reset()

@@ -270,6 +270,60 @@ private final class SlowProtocol: URLProtocol, @unchecked Sendable {
     await owner.release(source)
   }
 
+  /// An MP3 without a Xing/Info length header (common in older rips) has no
+  /// stated length; Core Audio counts it by reading every frame. It must still
+  /// start at once, then play to its real end.
+  @Test(.enabled(if: ffmpeg != nil)) func anMP3WithoutALengthHeaderStartsBeforeItArrives()
+    async throws
+  {
+    let root = try directory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let fixture = root.appendingPathComponent("fixture.mp3")
+    let encode = Process()
+    encode.executableURL = URL(fileURLWithPath: Self.ffmpeg!)
+    encode.arguments = [
+      "-v", "error", "-f", "lavfi", "-i", "anoisesrc=d=40:c=pink:a=0.3", "-ac", "2", "-ar",
+      "44100", "-c:a", "libmp3lame", "-b:a", "256k", "-write_xing", "0", "-id3v2_version", "3",
+      fixture.path,
+    ]
+    try encode.run()
+    encode.waitUntilExit()
+    #expect(encode.terminationStatus == 0)
+    let encoded = try Data(contentsOf: fixture)
+    #expect(encoded.range(of: Data("Xing".utf8)) == nil)
+    #expect(encoded.range(of: Data("Info".utf8)) == nil)
+    // About 1.3 MB arriving over roughly five seconds.
+    SlowMedia.shared.set(encoded, type: "audio/mpeg", chunk: 8192, pause: 0.03)
+    let owner = try preparer(root)
+    let source = try await owner.prepare { self.url }
+    let output = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
+    let started = ContinuousClock.now
+    let streaming = try await StreamingPCMDecoder.open(source, format: output)
+    let first = try #require(try await streaming.read(maxFrames: 2048))
+    #expect(ContinuousClock.now - started < .seconds(1.5))
+    // The estimate shows a sensible length while the song plays.
+    #expect(abs(Double(streaming.expectedFrames) / 48000 - 40) < 2)
+    var arriving = Array(
+      UnsafeBufferPointer(start: first.floatChannelData![1], count: Int(first.frameLength)))
+    while let block = try await streaming.read(maxFrames: 2048) {
+      arriving.append(
+        contentsOf: UnsafeBufferPointer(
+          start: block.floatChannelData![1], count: Int(block.frameLength)))
+    }
+    let complete = try PCMFileDecoder(url: fixture, format: output)
+    var local: [Float] = []
+    while let block = try complete.read(maxFrames: 2048) {
+      local.append(
+        contentsOf: UnsafeBufferPointer(
+          start: block.floatChannelData![1], count: Int(block.frameLength)))
+    }
+    // Every sample of the complete decode, ending within a millisecond of it.
+    #expect(abs(arriving.count - local.count) <= 48)
+    #expect(arriving.count > 48000 * 39)
+    #expect(Array(arriving.prefix(local.count)) == Array(local.prefix(arriving.count)))
+    await owner.release(source)
+  }
+
   @Test func aSeekStartsDecodingPartWayWithoutTheWholeFile() async throws {
     let root = try directory()
     defer { try? FileManager.default.removeItem(at: root) }

@@ -50,7 +50,9 @@ def test_fast_remote_requires_release_context_and_caches_verified_urls():
     assert calls == ["search", "probe"]
 
 
-def test_remote_falls_back_in_order_to_a_relayed_lossy_source(tmp_path, monkeypatch):
+def test_remote_falls_back_in_order_to_a_relayed_lossy_source(
+    tmp_path, monkeypatch, caplog
+):
     import shutil
     import subprocess
     from server.providers import network
@@ -104,9 +106,16 @@ def test_remote_falls_back_in_order_to_a_relayed_lossy_source(tmp_path, monkeypa
         async with httpx.AsyncClient() as client:
             return await resolver.stream(client, target, "member")
 
-    found = asyncio.run(run())
+    with caplog.at_level("INFO", logger="pig_music.remote"):
+        found = asyncio.run(run())
     # Every source is searched at once; the best match in order is relayed.
     assert found["source"] == "freemp3cloud"
+    # The server log says where the wait went.
+    (timing,) = [r.getMessage() for r in caplog.records]
+    assert timing.startswith("Remote playback: Artist - Song from freemp3cloud in ")
+    for step in ("jiosaavn no match", "zvu4no no match", "freemp3cloud found"):
+        assert step in timing
+    assert "freemp3cloud transfer " in timing
     assert sorted(searched) == ["freemp3cloud", "youtube", "zvu4no"]
     path, media_type = resolver.relay(found["relay"], "member")
     # The same audio, with at most a length header added (never re-encoded).

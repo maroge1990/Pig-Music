@@ -146,9 +146,12 @@ public actor PlaybackSourceRepository {
   /// Revisions of cached sources from this person's own library, which a refresh
   /// checks against their library. Household files and remote streams are not in
   /// it, so personal membership says nothing about whether they were removed.
+  /// Nor are mix and radio songs: they play from the mix cache as `mix:` songs
+  /// the library never lists, even when you own them.
   public func savedRevisions() -> [String: String?] {
     var result: [String: String?] = [:]
-    for key in entries.keys where key.state == nil || key.state == "in_library" {
+    for key in entries.keys
+    where !key.id.hasPrefix("mix:") && (key.state == nil || key.state == "in_library") {
       result.updateValue(key.revision, forKey: key.id)
     }
     return result

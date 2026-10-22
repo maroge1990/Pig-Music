@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import secrets
 import shutil
@@ -16,6 +17,8 @@ from .library import normalise
 from .providers.process import run_checked
 from .downloader import FREEMP3CLOUD_RETRY_PAUSE, matches
 from .vendor.jiosaavn import search_jiosaavn
+
+log = logging.getLogger("pig_music.remote")
 
 # After JioSaavn's direct stream, in coverage order (14 October 2026 test).
 # Lossless sources are never streamed.
@@ -95,17 +98,30 @@ class RemoteAudio:
             found = await asyncio.to_thread(self.cached, track)
             if found:
                 return {"path": found[0], "source": found[1]}
+        began = time.monotonic()
+        # Where the time went, for the server log: playback waits for all of it.
+        steps = []
+
+        def step(name, outcome, since):
+            steps.append(f"{name} {outcome} {time.monotonic() - since:.1f} s")
+
         try:
-            return {"url": await self.resolve(client, track), "source": "jiosaavn"}
+            url = await self.resolve(client, track)
+            step("jiosaavn", "found", began)
+            self.timing(track, "jiosaavn", began, steps)
+            return {"url": url, "source": "jiosaavn"}
         except (ValueError, KeyError, TypeError) as exc:
             failure = exc
         except (httpx.HTTPError, TimeoutError) as exc:
             failure = exc
+        step("jiosaavn", "no match", began)
         if self.directory is None:
+            self.timing(track, None, began, steps)
             raise failure
         async with self.slots:
             # Every source searches at once; the best in priority order wins
             # and only it is transferred.
+            searched = time.monotonic()
             searches = [
                 asyncio.ensure_future(asyncio.to_thread(self.find, source, track))
                 for source in RELAYED
@@ -115,13 +131,34 @@ class RemoteAudio:
             for source, search in zip(RELAYED, searches):
                 try:
                     candidate = await search
+                except Exception:  # One broken source must not stop the next.
+                    step(source, "no match", searched)
+                    continue
+                step(source, "found", searched)
+                fetched = time.monotonic()
+                try:
                     path = await asyncio.to_thread(
                         self.download, source, track, candidate
                     )
-                except Exception:  # One broken source must not stop the next.
+                except Exception:
+                    step(source, "transfer failed", fetched)
                     continue
+                step(source, "transfer", fetched)
+                self.timing(track, source, began, steps)
                 return {"path": path, "source": source}
+        self.timing(track, None, began, steps)
         raise failure
+
+    @staticmethod
+    def timing(track, source, began, steps):
+        log.info(
+            "Remote playback: %s - %s %s in %.1f s (%s)",
+            track.get("artist"),
+            track.get("title"),
+            f"from {source}" if source else "unavailable",
+            time.monotonic() - began,
+            "; ".join(steps),
+        )
 
     def name(self, track):
         # Players describe a catalogue song by its release and recording; the

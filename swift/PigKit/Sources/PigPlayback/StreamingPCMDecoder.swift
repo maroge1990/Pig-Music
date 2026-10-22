@@ -19,6 +19,9 @@ import Foundation
     private struct Decoded: @unchecked Sendable { let buffer: AVAudioPCMBuffer? }
 
     let expectedFrames: Int64
+    /// False when `expectedFrames` is an estimate: decoding then runs to the
+    /// file's end instead of stopping at the expected length.
+    private let exactLength: Bool
     private let queue = DispatchQueue(label: "pig.playback.decoder", qos: .userInitiated)
     private let reader: Reader
     private let context: Unmanaged<Reader>
@@ -33,7 +36,7 @@ import Foundation
     private init(
       reader: Reader, context: Unmanaged<Reader>, audioFile: AudioFileID, file: ExtAudioFileRef,
       converter: AVAudioConverter, input: AVAudioPCMBuffer, format: AVAudioFormat,
-      expectedFrames: Int64, delivered: Int64
+      expectedFrames: Int64, exactLength: Bool, delivered: Int64
     ) {
       self.reader = reader
       self.context = context
@@ -43,6 +46,7 @@ import Foundation
       self.input = input
       self.format = format
       self.expectedFrames = expectedFrames
+      self.exactLength = exactLength
       self.delivered = delivered
     }
     deinit {
@@ -117,10 +121,24 @@ import Foundation
           ExtAudioFileGetProperty(file, kExtAudioFileProperty_FileDataFormat, &size, &description),
           reader)
         var length: Int64 = 0
-        size = UInt32(MemoryLayout<Int64>.size)
-        try check(
-          ExtAudioFileGetProperty(file, kExtAudioFileProperty_FileLengthFrames, &size, &length),
-          reader)
+        // An MP3 without a Xing/Info/VBRI header states no length: Core Audio
+        // counts it by reading every frame, which waits for the whole file.
+        // Such a song starts from an estimate and plays to its real end.
+        let exact = !(isMP3(audioFile) && !hasMP3LengthHeader(reader))
+        if exact {
+          size = UInt32(MemoryLayout<Int64>.size)
+          try check(
+            ExtAudioFileGetProperty(file, kExtAudioFileProperty_FileLengthFrames, &size, &length),
+            reader)
+        } else {
+          var seconds: Float64 = 0
+          size = UInt32(MemoryLayout<Float64>.size)
+          try check(
+            AudioFileGetProperty(audioFile, kAudioFilePropertyEstimatedDuration, &size, &seconds),
+            reader)
+          guard seconds.isFinite, seconds > 0 else { throw AudioPipelineFailure.emptyAudio }
+          length = Int64((seconds * description.mSampleRate).rounded())
+        }
         let channels = description.mChannelsPerFrame
         let rate = description.mSampleRate
         guard length > 0 else { throw AudioPipelineFailure.emptyAudio }
@@ -151,6 +169,7 @@ import Foundation
         return StreamingPCMDecoder(
           reader: reader, context: context, audioFile: audioFile, file: file,
           converter: converter, input: input, format: format, expectedFrames: expected,
+          exactLength: exact,
           delivered: min(expected, Int64((position * format.sampleRate / rate).rounded())))
       } catch {
         dispose()
@@ -175,8 +194,8 @@ import Foundation
     }
 
     private func decode(maxFrames: Int) throws -> AVAudioPCMBuffer? {
-      guard !ended, delivered < expectedFrames else { return nil }
-      let capacity = min(maxFrames, Int(expectedFrames - delivered))
+      guard !ended, !exactLength || delivered < expectedFrames else { return nil }
+      let capacity = exactLength ? min(maxFrames, Int(expectedFrames - delivered)) : maxFrames
       guard capacity > 0,
         let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(capacity))
       else { throw AudioPipelineFailure.invalidConfiguration }
@@ -215,6 +234,50 @@ import Foundation
 
     private static func check(_ status: OSStatus, _ reader: Reader) throws {
       guard status == noErr else { throw reader.failure ?? AudioPipelineFailure.conversion }
+    }
+
+    private static func isMP3(_ audioFile: AudioFileID) -> Bool {
+      var type: AudioFileTypeID = 0
+      var size = UInt32(MemoryLayout<AudioFileTypeID>.size)
+      return AudioFileGetProperty(audioFile, kAudioFilePropertyFileFormat, &size, &type) == noErr
+        && type == kAudioFileMP3Type
+    }
+
+    /// Whether the first MP3 frame (after any ID3v2 tag) is a Xing, Info or
+    /// VBRI header that states the song's length. Unreadable: assume it does,
+    /// so Core Audio measures the length as before.
+    private static func hasMP3LengthHeader(_ reader: Reader) -> Bool {
+      func bytes(_ offset: Int, _ count: Int) -> [UInt8]? {
+        var data = [UInt8](repeating: 0, count: count)
+        guard
+          let read = try? data.withUnsafeMutableBytes({
+            try reader.bytes.read(
+              offset: offset, count: count, into: $0.baseAddress!, stop: reader.stop)
+          })
+        else { return nil }
+        return Array(data.prefix(read))
+      }
+      guard let tag = bytes(0, 10) else { return true }
+      var start = 0
+      if tag.count == 10, tag[0] == 0x49, tag[1] == 0x44, tag[2] == 0x33 {
+        // Syncsafe size, plus the footer when its flag is set.
+        start = 10 + tag[6...9].reduce(0) { $0 << 7 | Int($1 & 0x7F) }
+        if tag[5] & 0x10 != 0 { start += 10 }
+      }
+      guard let window = bytes(start, 4096) else { return true }
+      guard
+        let sync = window.indices.dropLast(1).first(where: {
+          window[$0] == 0xFF && window[$0 + 1] & 0xE0 == 0xE0
+        })
+      else { return true }
+      let frame = Array(window[sync...].prefix(200))
+      return ["Xing", "Info", "VBRI"].contains { marker in
+        let pattern = Array(marker.utf8)
+        return frame.count >= pattern.count
+          && (0...(frame.count - pattern.count)).contains {
+            Array(frame[$0..<$0 + pattern.count]) == pattern
+          }
+      }
     }
 
     /// The Core Audio file type for a file name, or 0 to let it look.
