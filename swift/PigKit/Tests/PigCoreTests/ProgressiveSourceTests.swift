@@ -133,10 +133,10 @@ private final class SlowProtocol: URLProtocol, @unchecked Sendable {
     // About 2.5 s for the whole file at this pace.
     SlowMedia.shared.set(data, chunk: 32768, pause: 0.02)
     let owner = try preparer(root)
-    let started = ContinuousClock.now
     let source = try await owner.prepare { url }
-    #expect(ContinuousClock.now - started < .seconds(1))
     let download = try #require(source.bytes as? ProgressiveDownload)
+    // Ready while the body is still arriving (not a wall-clock bound: shared
+    // CI runners took nearly 2 s to answer a stubbed request under load).
     #expect(download.phase == .loading)
     #expect(source.byteCount == data.count)
     // The opening is here almost at once.
