@@ -454,6 +454,73 @@ test("a tidy-up or Undo that stops keeps its reason on screen", async ({
   await expect(panel).toContainText("Tidied albums");
 });
 
+test("the owner settles changes an earlier tidy-up did not record", async ({
+  page,
+}) => {
+  const run = {
+    id: "run",
+    artist: "Matthew McConaughey",
+    title: "Interstellar (Deluxe Edition)",
+    time: 1,
+    status: "stopped",
+    error:
+      "Put back what this tidy-up recorded; 1 other change may belong to it. Include each that does, or mark it not part of this tidy-up, then Undo again.",
+    unresolved: [
+      {
+        id: "removal-1",
+        kind: "removal",
+        title: "Cornfield Chase",
+        album: "Interstellar",
+        state: "in Removed music",
+      },
+    ],
+  };
+  let resolved: unknown = null;
+  let settled = false;
+  await mockApi(page, {
+    role: "owner",
+    answers: {
+      "/v1/admin/library/tidy/history/run/unresolved/removal-1": (route) => {
+        resolved = route.request().postDataJSON();
+        settled = true;
+        return route.fulfill({ json: { id: "run", status: "stopped" } });
+      },
+      "/v1/admin/library/tidy/history/run/undo": (route) =>
+        route.fulfill({ status: 409, json: { detail: run.error } }),
+      "/v1/admin/library/tidy": (route) =>
+        route.fulfill({
+          json: {
+            albums: [],
+            history: [settled ? { ...run, unresolved: [], error: null } : run],
+          },
+        }),
+      "/v1/admin/library/duplicates": (route) =>
+        route.fulfill({ json: { duplicates: [] } }),
+      "/v1/admin/library/trash": (route) => route.fulfill({ json: [] }),
+      "/v1/admin/library/organisation/history": (route) =>
+        route.fulfill({ json: [] }),
+      "/v1/admin/unassigned": (route) =>
+        route.fulfill({ json: { albums: [], next_offset: null } }),
+    },
+  });
+  await page.goto("/#/admin/library");
+  const panel = page
+    .locator(".system-panel")
+    .filter({ has: page.getByRole("heading", { name: "Album editions" }) });
+  await panel.getByRole("button", { name: "Find editions" }).click();
+  await expect(panel).toContainText(
+    "Interstellar · in Removed music. Part of this tidy-up?",
+  );
+  // Undo does not claim the album is back while a change awaits review.
+  await panel.getByRole("button", { name: "Undo", exact: true }).click();
+  await expect(panel.getByRole("alert")).toContainText(
+    "1 other change may belong to it",
+  );
+  await panel.getByRole("button", { name: "Include in Undo" }).click();
+  await expect(panel).not.toContainText("Part of this tidy-up?");
+  expect(resolved).toEqual({ include: true });
+});
+
 test("the owner approves or rejects uploads credited only by the uploader", async ({
   page,
 }) => {

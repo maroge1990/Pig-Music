@@ -23,6 +23,15 @@ type Done = {
   title: string;
   status: string;
   error?: string | null;
+  /** Changes an earlier version made without recording which tidy-up made
+   * them: the owner says whether each belongs to this one. */
+  unresolved?: {
+    id: string;
+    kind: string;
+    title: string;
+    album: string;
+    state: string;
+  }[];
 };
 
 /** Albums the library has on several editions, tidied to the fullest. */
@@ -93,6 +102,22 @@ export function TidyEditions({ notify }: { notify: (s: string) => void }) {
       failure = (e as Error).message;
     }
     window.dispatchEvent(new Event("music-library-changed"));
+    await review(failure);
+  }
+  async function resolve(done: Done, id: string, include: boolean) {
+    setBusy(true);
+    setError("");
+    let failure = "";
+    try {
+      await post(
+        `/api/v1/admin/library/tidy/history/${done.id}/unresolved/${id}`,
+        {
+          include,
+        },
+      );
+    } catch (e) {
+      failure = (e as Error).message;
+    }
     await review(failure);
   }
   return (
@@ -168,22 +193,48 @@ export function TidyEditions({ notify }: { notify: (s: string) => void }) {
         <>
           <h3>Tidied albums</h3>
           {history.map((done) => (
-            <div className="result-row" key={done.id}>
-              <div>
-                <strong>{done.title}</strong>
-                <span>
-                  {done.artist}
-                  {done.status === "applied" ? "" : " · stopped part-way"}
-                  {done.error ? `: ${done.error}` : ""}
-                </span>
+            <div key={done.id}>
+              <div className="result-row">
+                <div>
+                  <strong>{done.title}</strong>
+                  <span>
+                    {done.artist}
+                    {done.status === "applied" ? "" : " · stopped part-way"}
+                    {done.error ? `: ${done.error}` : ""}
+                  </span>
+                </div>
+                <button
+                  className="secondary-button"
+                  disabled={busy}
+                  onClick={() => void undo(done)}
+                >
+                  Undo
+                </button>
               </div>
-              <button
-                className="secondary-button"
-                disabled={busy}
-                onClick={() => void undo(done)}
-              >
-                Undo
-              </button>
+              {done.unresolved?.map((change) => (
+                <div className="result-row" key={change.id}>
+                  <div>
+                    <strong>{change.title}</strong>
+                    <span>
+                      {change.album} · {change.state}. Part of this tidy-up?
+                    </span>
+                  </div>
+                  <button
+                    className="secondary-button"
+                    disabled={busy}
+                    onClick={() => void resolve(done, change.id, true)}
+                  >
+                    Include in Undo
+                  </button>
+                  <button
+                    className="secondary-button"
+                    disabled={busy}
+                    onClick={() => void resolve(done, change.id, false)}
+                  >
+                    Not part of it
+                  </button>
+                </div>
+              ))}
             </div>
           ))}
         </>

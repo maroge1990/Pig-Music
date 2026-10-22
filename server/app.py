@@ -518,7 +518,10 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         return {
             **plan,
             "history": [
-                {k: r[k] for k in ("id", "artist", "title", "time", "status")}
+                {
+                    k: r[k]
+                    for k in ("id", "artist", "title", "time", "status", "unresolved")
+                }
                 | {"error": r.get("error")}
                 for r in history
             ],
@@ -557,7 +560,6 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
         files_settled("undoing a tidy-up")
         try:
             record = await asyncio.to_thread(tidy.undo, identity)
-            return {"id": record["id"], "status": record["status"]}
         except (ValueError, OSError) as error:
             raise HTTPException(
                 409,
@@ -565,6 +567,23 @@ def create_app(data_dir: Path | None = None, client_dir: Path | None = None):
             )
         finally:
             scanner.lock.release()
+        if record["status"] != "undone":
+            # Never reported as put back while changes await the owner.
+            raise HTTPException(409, record["error"])
+        return {"id": record["id"], "status": record["status"]}
+
+    class TidyResolution(BaseModel):
+        include: bool
+
+    @app.post("/api/v1/admin/library/tidy/history/{identity}/unresolved/{operation}")
+    async def resolve_tidy(identity: str, operation: str, body: TidyResolution):
+        try:
+            record = await asyncio.to_thread(
+                tidy.resolve, identity, operation, body.include
+            )
+        except ValueError as error:
+            raise HTTPException(409, str(error))
+        return {"id": record["id"], "status": record["status"]}
 
     @app.post("/api/v1/admin/library/trash/{identity}/restore")
     async def restore_song(identity: str):

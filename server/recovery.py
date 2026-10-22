@@ -174,37 +174,45 @@ class Recovery:
             original.parent.mkdir(parents=True, exist_ok=True)
             if not original.exists():
                 os.link(trash, original)
-            record["status"] = "restored"
-            with self.store.connect() as c:
-                c.execute("BEGIN IMMEDIATE")
-                c.execute(
-                    "UPDATE documents SET payload=? WHERE name=?",
-                    (json.dumps(record), "removed:" + identity),
-                )
-                from .user_library import bump
-
-                for membership in record.get("memberships", []):
-                    if c.execute(
-                        "SELECT 1 FROM users WHERE id=?",
-                        (membership[0],),
-                    ).fetchone():
-                        added = c.execute(
-                            "INSERT OR IGNORE INTO library_members VALUES (?,?,?,?)",
-                            membership,
-                        ).rowcount
-                        if added:
-                            bump(c, membership[0])
-                for name, payload in c.execute(
-                    "SELECT name,payload FROM documents WHERE name LIKE 'excluded:%'"
-                ).fetchall():
-                    if json.loads(payload).get("removal_id") == identity:
-                        c.execute("DELETE FROM documents WHERE name=?", (name,))
+            self.reinstate(record, "restored")
             self.store.refresh_library()
             return record
 
+    def reinstate(self, record, status):
+        """The song is back: its listeners and requests return with the
+        record's new `status`, in one transaction."""
+        from .user_library import bump
+
+        record["status"] = status
+        with self.store.connect() as c:
+            c.execute("BEGIN IMMEDIATE")
+            c.execute(
+                "UPDATE documents SET payload=? WHERE name=?",
+                (json.dumps(record), "removed:" + record["id"]),
+            )
+            for membership in record.get("memberships", []):
+                if c.execute(
+                    "SELECT 1 FROM users WHERE id=?",
+                    (membership[0],),
+                ).fetchone():
+                    added = c.execute(
+                        "INSERT OR IGNORE INTO library_members VALUES (?,?,?,?)",
+                        membership,
+                    ).rowcount
+                    if added:
+                        bump(c, membership[0])
+            for name, payload in c.execute(
+                "SELECT name,payload FROM documents WHERE name LIKE 'excluded:%'"
+            ).fetchall():
+                if json.loads(payload).get("removal_id") == record["id"]:
+                    c.execute("DELETE FROM documents WHERE name=?", (name,))
+
     def settle(self, identity):
-        """Finish an interrupted removal and return its status; None when it
-        never started."""
+        """Bring an interrupted removal to rest and return its status; None
+        when it never started. One that never reached Trash (the original is
+        in place, unchanged) is cancelled without touching the file, so a
+        filesystem that refuses the Trash link cannot keep the song removed;
+        otherwise the removal is finished."""
         with self.lock:
             record = self.store.read_document("removed:" + identity)
             if record.get("status") == "removing":
@@ -212,7 +220,16 @@ class Recovery:
                 self.check_mount(root)
                 if str(root.resolve()) != record["root"]:
                     raise ValueError("Original library mount changed.")
-                self.finish(record, root)
+                source = contained(root, record["original"])
+                trash = contained(root, record["trash"])
+                if (
+                    not trash.exists()
+                    and source.is_file()
+                    and self.digest(source) == record["sha256"]
+                ):
+                    self.reinstate(record, "cancelled")
+                else:
+                    self.finish(record, root)
             return record.get("status")
 
     @coordinated

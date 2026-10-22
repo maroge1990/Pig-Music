@@ -78,6 +78,13 @@ def as_good(kept, copy):
     return a[1] > 0 and b[1] > 0 and not better(copy, kept)
 
 
+def album_key(title, artist):
+    """Albums that are editions of each other share this key."""
+    return primary_artist(artist or ""), edition_title(
+        {"title": title, "artist": artist}
+    )
+
+
 def label(track):
     codec = canonical_codec(track.get("codec")).upper() or "Unknown"
     bitrate = track.get("bitrate")
@@ -278,6 +285,8 @@ class Tidy:
             "memberships": [],
             "removals": [],
             "moves": [],
+            # Steps are recorded before they run (earlier records lack this).
+            "journal": 2,
         }
         self.save(record)
         try:
@@ -389,8 +398,16 @@ class Tidy:
                     (user_id, track_id),
                 ).rowcount:
                     bump(conn, user_id)
-        record["status"] = "undone"
-        record.pop("error", None)
+        remaining = self.pending(record)
+        if remaining:
+            # What this tidy-up recorded is back, but not necessarily all of it.
+            record.update(
+                status="stopped",
+                error=f"Put back what this tidy-up recorded; {len(remaining)} other change{'s' if len(remaining) > 1 else ''} may belong to it. Include each that does, or mark it not part of this tidy-up, then Undo again.",
+            )
+        else:
+            record["status"] = "undone"
+            record.pop("error", None)
         self.save(record)
         self.store.refresh_library()
         return record
@@ -398,50 +415,174 @@ class Tidy:
     @coordinated
     def recover(self):
         """At startup, after organisation and removal recovery: a tidy-up a
-        restart interrupted is stopped, and a move an earlier version did not
-        journal is adopted by the one unfinished or undone tidy-up of that
-        album (only tidy-ups retag a move's album placement). An undone
-        tidy-up that adopts one is reopened so Undo can finish."""
+        restart interrupted is stopped, and steps an earlier build ran
+        without recording them are reconciled with its tidy-ups.
+
+        A move is adopted when the evidence names one tidy-up: only tidy-ups
+        retag a move's album placement, and the earlier build moved a file
+        straight after recording the removal of the copy it replaced (same
+        folder, track and disc), so a stopped attempt whose last removal is
+        that copy owns it. A removal records nothing that tells a tidy-up's
+        from a duplicate's, so it is never adopted on a guess. Anything left
+        is listed as unresolved on each tidy-up of that album it could
+        belong to, for the owner to include or set aside, and an undone
+        tidy-up with any is reopened: Undo never reports it complete."""
         records = self.records()
-        journaled = {m for r in records for m in r["moves"]}
-        candidates = [
-            r for r in records if r["status"] in {"applying", "stopped", "undone"}
+        moves = {m for r in records for m in r["moves"]}
+        removals = {m for r in records for m in r["removals"]}
+        older = [
+            r
+            for r in records
+            if r["status"] in {"applying", "stopped", "undone"} and "journal" not in r
         ]
         changed = set()
+
+        def flag(record, kind, identity):
+            if identity in record.get("dismissed", []):
+                return
+            known = record.setdefault("unresolved", [])
+            if not any(u["id"] == identity for u in known):
+                known.append({"kind": kind, "id": identity})
+                changed.add(record["id"])
+
         for operation in self.organisation.history():
             if (
                 "placed_from" not in operation
-                or operation["id"] in journaled
+                or operation["id"] in moves
                 or operation["status"] in {"cancelled", "undone"}
             ):
                 continue
             owners = [
                 r
-                for r in candidates
+                for r in older
                 if r["title"] == operation["track"].get("album")
                 and r["artist"] == operation["track"].get("album_artist")
             ]
-            if len(owners) == 1:
-                owner = owners[0]
+            proven = [r for r in owners if self.preceded(r, operation)]
+            if len(proven) == 1:
+                owner = proven[0]
                 owner["moves"].append(operation["id"])
+                owner.setdefault(
+                    "error", "Stopped part-way; a moved file was recovered for Undo."
+                )
                 if owner["status"] == "undone":
                     owner.update(
                         status="stopped",
                         error="An earlier Undo missed a moved file; Undo again.",
                     )
-                owner.setdefault(
-                    "error", "Stopped part-way; a moved file was recovered for Undo."
-                )
                 changed.add(owner["id"])
-        for record in candidates:
+            else:
+                for owner in owners:
+                    flag(owner, "move", operation["id"])
+        excluded = set()
+        with self.store.connect() as conn:
+            for (payload,) in conn.execute(
+                "SELECT payload FROM documents WHERE name LIKE 'excluded:%'"
+            ):
+                excluded.add(json.loads(payload).get("removal_id"))
+        for removal in self.recovery.list():
+            # Tidy-ups never exclude a song from requests.
+            if (
+                removal["status"] not in {"removed", "removing"}
+                or removal["id"] in removals
+                or removal["id"] in excluded
+            ):
+                continue
+            track = removal.get("track") or {}
+            key = album_key(track.get("album"), track.get("album_artist"))
+            for owner in older:
+                if album_key(owner["title"], owner["artist"]) == key:
+                    flag(owner, "removal", removal["id"])
+        for record in older:
             if record["status"] == "applying":
                 record.update(
                     status="stopped",
                     error=record.get("error") or "Interrupted by a restart.",
                 )
                 changed.add(record["id"])
+            if record["status"] == "undone" and self.pending(record, records):
+                record.update(
+                    status="stopped",
+                    error="An earlier Undo may have missed changes; review them, then Undo again.",
+                )
+                changed.add(record["id"])
             if record["id"] in changed:
                 self.save(record)
+
+    def preceded(self, record, operation):
+        """Whether `record`'s last recorded step removed the copy this move
+        replaced: the earlier build's apply ran exactly that pair."""
+        if not record["removals"]:
+            return False
+        removal = self.store.read_document("removed:" + record["removals"][-1])
+        track, placed = removal.get("track") or {}, operation["track"]
+        return (
+            bool(removal)
+            and Path(removal["original"]).parent
+            == Path(operation["destination"]).parent
+            and track.get("track_number") == placed.get("track_number")
+            and (track.get("disc_number") or 1) == (placed.get("disc_number") or 1)
+        )
+
+    def pending(self, record, records=None):
+        """Unresolved steps still in effect and owned by no tidy-up."""
+        records = self.records() if records is None else records
+        moves = {m for r in records for m in r["moves"]}
+        removals = {m for r in records for m in r["removals"]}
+        found = []
+        for item in record.get("unresolved", []):
+            if item["kind"] == "move":
+                step = self.store.read_document("organisation:" + item["id"])
+                if item["id"] in moves or step.get("status") in {
+                    None,
+                    "cancelled",
+                    "undone",
+                }:
+                    continue
+                track = step["track"]
+                where = (step.get("placed_from") or {}).get("album")
+                state = f"moved from {where} into {track.get('album')}"
+            else:
+                step = self.store.read_document("removed:" + item["id"])
+                if item["id"] in removals or step.get("status") not in {
+                    "removed",
+                    "removing",
+                }:
+                    continue
+                track = step["track"]
+                state = (
+                    "in Removed music"
+                    if step["status"] == "removed"
+                    else "removal stopped part-way"
+                )
+            found.append(
+                {
+                    **item,
+                    "title": track.get("title"),
+                    "album": track.get("album"),
+                    "state": state,
+                }
+            )
+        return found
+
+    @coordinated
+    def resolve(self, identity, operation, include):
+        """The owner's answer for an unresolved step: part of this tidy-up
+        (Undo reverses it) or not (it is left as it is)."""
+        record = self.store.read_document("tidy:" + identity)
+        item = next(
+            (u for u in self.pending(record) if u["id"] == operation),
+            None,
+        )
+        if record.get("status") != "stopped" or not item:
+            raise ValueError("That change is not waiting for review.")
+        record["unresolved"] = [u for u in record["unresolved"] if u["id"] != operation]
+        if include:
+            record["moves" if item["kind"] == "move" else "removals"].append(operation)
+        else:
+            record.setdefault("dismissed", []).append(operation)
+        self.save(record)
+        return record
 
     def records(self):
         with self.store.connect() as conn:
@@ -453,10 +594,11 @@ class Tidy:
             ]
 
     def history(self):
+        records = self.records()
         return sorted(
             (
-                r
-                for r in self.records()
+                {**r, "unresolved": self.pending(r, records)}
+                for r in records
                 if r["status"] in {"applying", "applied", "stopped"}
             ),
             key=lambda r: -r["time"],

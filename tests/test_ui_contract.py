@@ -100,6 +100,7 @@ ADMIN_READS = [
     "/api/v1/admin/access",
     "/api/v1/admin/settings/media",
     "/api/v1/admin/library/trash",
+    "/api/v1/admin/library/tidy",
     "/api/v1/people",
     "/api/v1/people/activity",
     "/api/v1/admin/unassigned",

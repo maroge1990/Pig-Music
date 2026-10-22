@@ -393,16 +393,16 @@ def test_restart_adopts_a_move_an_earlier_version_did_not_journal(
     tidy, root, member, ids = library(tmp_path, monkeypatch)
     store = tidy.store
     before = songs(store)
-    (item,) = tidy.plan()["albums"]
-    record = tidy.apply(item["id"], item["fingerprint"])
-    # As an earlier version left it: the move happened but was never recorded
+    record = stop_after_move(tidy, monkeypatch)
+    # As an earlier build left it: the move it stopped on was never recorded
     # (and, for "undone", an Undo then put back everything else).
     for removal in record["removals"] if status == "undone" else ():
         tidy.recovery.restore(removal)
-    tidy.save({**record, "moves": [], "status": status})
+    legacy(tidy, record, moves=[], status=status)
     tidy.recover()
     entry = store.read_document("tidy:" + record["id"])
     assert entry["moves"] == record["moves"] and entry["status"] == "stopped"
+    assert not entry.get("unresolved")
     assert entry["error"]
     tidy.undo(record["id"])
     assert (root / "The Killers" / STANDARD / "01 Jenny.flac").exists()
@@ -454,3 +454,216 @@ def test_undo_cancels_a_move_stopped_before_publishing(tmp_path, monkeypatch):
     assert store.read_document("organisation:" + operation)["status"] == "cancelled"
     assert not list(root.rglob(".pig-music-organise-*"))
     assert songs(store) == before
+
+
+def legacy(tidy, record, **changes):
+    """A tidy-up as the earlier implementation stored it: no journal marker."""
+    record = {k: v for k, v in record.items() if k != "journal"} | changes
+    tidy.save(record)
+    return record
+
+
+def stop_after_move(tidy, monkeypatch):
+    """Apply until the first move publishes, then stop (as a failure would)."""
+    finish = Organisation.finish
+
+    def interrupted(self, record, root):
+        finish(self, record, root)
+        raise OSError("interrupted after publishing")
+
+    monkeypatch.setattr(Organisation, "finish", interrupted)
+    (item,) = tidy.plan()["albums"]
+    with pytest.raises(OSError):
+        tidy.apply(item["id"], item["fingerprint"])
+    monkeypatch.setattr(Organisation, "finish", finish)
+    (entry,) = tidy.history()
+    return tidy.store.read_document("tidy:" + entry["id"])
+
+
+def test_an_unjournaled_legacy_removal_is_surfaced_not_guessed(tmp_path, monkeypatch):
+    tidy, root, member, ids = library(tmp_path, monkeypatch)
+    store = tidy.store
+    before = songs(store)
+    (item,) = tidy.plan()["albums"]
+    record = tidy.apply(item["id"], item["fingerprint"])
+    # The earlier build lost the last removal's ID (Mr. Brightside's copy).
+    orphan = record["removals"][-1]
+    legacy(tidy, record, removals=record["removals"][:-1], status="stopped")
+    tidy.recover()
+    (entry,) = tidy.history()
+    assert [(u["id"], u["kind"], u["title"]) for u in entry["unresolved"]] == [
+        (orphan, "removal", "Mr. Brightside")
+    ]
+    # Undo puts back what was recorded, but does not claim the whole album.
+    assert tidy.undo(record["id"])["status"] == "stopped"
+    (entry,) = tidy.history()
+    assert "1 other change" in entry["error"] and entry["unresolved"]
+    trashed = root / "The Killers" / STANDARD / "02 Mr. Brightside.mp3"
+    assert not trashed.exists()
+    assert store.read_document("removed:" + orphan)["status"] == "removed"
+    # A restart and a second Undo change nothing more.
+    tidy.recover()
+    assert tidy.undo(record["id"])["status"] == "stopped"
+    assert not trashed.exists()
+    # The owner says it belongs to this tidy-up: Undo now finishes.
+    tidy.resolve(record["id"], orphan, include=True)
+    assert tidy.undo(record["id"])["status"] == "undone"
+    assert trashed.exists() and songs(store) == before
+    assert songs(store, member) == [(STANDARD, "Jenny"), (STANDARD, "Mr. Brightside")]
+    tidy.recover()
+    assert tidy.history() == []
+
+
+def test_a_removal_the_owner_says_is_not_part_of_it_stays_in_trash(
+    tmp_path, monkeypatch
+):
+    tidy, root, _, _ = library(tmp_path, monkeypatch)
+    store = tidy.store
+    (item,) = tidy.plan()["albums"]
+    record = tidy.apply(item["id"], item["fingerprint"])
+    orphan = record["removals"][-1]
+    legacy(tidy, record, removals=record["removals"][:-1], status="undone")
+    # An undone tidy-up that may have missed a removal is reopened.
+    tidy.recover()
+    (entry,) = tidy.history()
+    assert entry["status"] == "stopped" and entry["unresolved"]
+    with pytest.raises(ValueError):
+        tidy.resolve(record["id"], "not-a-candidate", include=True)
+    tidy.resolve(record["id"], orphan, include=False)
+    assert tidy.undo(record["id"])["status"] == "undone"
+    assert store.read_document("removed:" + orphan)["status"] == "removed"
+    tidy.recover()
+    assert tidy.history() == []
+
+
+def test_repeated_attempts_adopt_a_move_by_its_preceding_removal(tmp_path, monkeypatch):
+    tidy, root, member, ids = library(tmp_path, monkeypatch)
+    store = tidy.store
+    before = songs(store)
+    stopped = stop_after_move(tidy, monkeypatch)
+    (move,) = stopped["moves"]
+    base = {k: stopped[k] for k in ("album_id", "artist", "title")}
+    legacy(tidy, stopped, moves=[])
+    # Earlier attempts for the same album: one refused before changing
+    # anything, one undone (its removal put back).
+    early = legacy(
+        tidy,
+        base | {"id": "early", "time": 1, "status": "stopped"},
+        memberships=[],
+        removals=[],
+        moves=[],
+    )
+    undone = legacy(
+        tidy,
+        base | {"id": "undone", "time": 2, "status": "undone"},
+        memberships=[],
+        removals=[],
+        moves=[],
+    )
+    tidy.recover()
+    adopted = store.read_document("tidy:" + stopped["id"])
+    assert adopted["moves"] == [move] and not adopted.get("unresolved")
+    for other in (early, undone):
+        assert not store.read_document("tidy:" + other["id"]).get("unresolved")
+    assert tidy.undo(stopped["id"])["status"] == "undone"
+    assert songs(store) == before
+    assert songs(store, member) == [(STANDARD, "Jenny"), (STANDARD, "Mr. Brightside")]
+
+
+def test_a_move_two_attempts_could_own_is_unresolved_on_both(tmp_path, monkeypatch):
+    tidy, root, _, _ = library(tmp_path, monkeypatch)
+    store = tidy.store
+    before = songs(store)
+    stopped = stop_after_move(tidy, monkeypatch)
+    (move,) = stopped["moves"]
+    (removal,) = stopped["removals"]
+    base = {k: stopped[k] for k in ("album_id", "artist", "title")}
+    # Neither attempt recorded the removal that led to the move.
+    legacy(tidy, stopped, moves=[], removals=[])
+    other = legacy(
+        tidy,
+        base | {"id": "other", "time": 1, "status": "undone"},
+        memberships=[],
+        removals=[],
+        moves=[],
+    )
+    tidy.recover()
+    for identity in (stopped["id"], other["id"]):
+        entry = store.read_document("tidy:" + identity)
+        assert entry["status"] == "stopped"
+        assert {u["id"] for u in tidy.pending(entry)} == {move, removal}
+    # Neither Undo claims success while those are unaccounted for.
+    assert tidy.undo(other["id"])["status"] == "stopped"
+    assert tidy.undo(stopped["id"])["status"] == "stopped"
+    # Once one tidy-up owns them, the other no longer lists them.
+    tidy.resolve(stopped["id"], move, include=True)
+    tidy.resolve(stopped["id"], removal, include=True)
+    assert tidy.pending(store.read_document("tidy:" + other["id"])) == []
+    assert tidy.undo(other["id"])["status"] == "undone"
+    assert tidy.undo(stopped["id"])["status"] == "undone"
+    assert songs(store) == before
+
+
+def test_undo_cancels_a_removal_whose_trash_link_failed(tmp_path, monkeypatch):
+    import os
+
+    tidy, root, member, ids = library(tmp_path, monkeypatch)
+    store = tidy.store
+    before = songs(store)
+    link = os.link
+
+    def unsupported(source, target, *args, **kwargs):
+        if ".pig-music-trash/" in str(target) and "/organisation/" not in str(target):
+            raise OSError(95, "Operation not supported")
+        return link(source, target, *args, **kwargs)
+
+    monkeypatch.setattr("server.recovery.os.link", unsupported)
+    (item,) = tidy.plan()["albums"]
+    with pytest.raises(OSError):
+        tidy.apply(item["id"], item["fingerprint"])
+    (entry,) = tidy.history()
+    assert "Operation not supported" in entry["error"]
+    (removal,) = store.read_document("tidy:" + entry["id"])["removals"]
+    assert store.read_document("removed:" + removal)["status"] == "removing"
+    kept = root / "The Killers" / DELUXE / "01 Jenny.mp3"
+    assert kept.exists()
+    # A restart retries the removal and fails the same way; nothing is lost.
+    tidy.recovery.recover()
+    tidy.organisation.recover()
+    tidy.recover()
+    # Undo, while links still fail, cancels the removal without the link.
+    assert tidy.undo(entry["id"])["status"] == "undone"
+    assert store.read_document("removed:" + removal)["status"] == "cancelled"
+    assert kept.exists() and songs(store) == before
+    assert songs(store, member) == [(STANDARD, "Jenny"), (STANDARD, "Mr. Brightside")]
+    tidy.recovery.recover()
+    assert songs(store) == before
+
+
+def test_a_cancelled_removal_keeps_its_safeguards(tmp_path, monkeypatch):
+    import os
+
+    tidy, root, _, ids = library(tmp_path, monkeypatch)
+    store = tidy.store
+    link = os.link
+
+    def unsupported(source, target, *args, **kwargs):
+        if ".pig-music-trash/" in str(target):
+            raise OSError(95, "Operation not supported")
+        return link(source, target, *args, **kwargs)
+
+    monkeypatch.setattr("server.recovery.os.link", unsupported)
+    with pytest.raises(OSError):
+        tidy.recovery.remove(ids[DELUXE, "Smile Like You Mean It"], exclude=False)
+    (record,) = [r for r in tidy.recovery.list() if r["status"] == "removing"]
+    path = root / record["original"]
+    # A changed original is neither cancelled nor removed.
+    path.write_bytes(b"edited")
+    with pytest.raises(ValueError):
+        tidy.recovery.settle(record["id"])
+    assert store.read_document("removed:" + record["id"])["status"] == "removing"
+    # A missing original is not cancelled either.
+    path.unlink()
+    with pytest.raises(ValueError):
+        tidy.recovery.settle(record["id"])
+    assert store.read_document("removed:" + record["id"])["status"] == "removing"
