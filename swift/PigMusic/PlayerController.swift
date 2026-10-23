@@ -326,39 +326,64 @@ import PigSync
     if restored == nil { streamingFallback = false }
     usingEngine = seamlessEnabled && !streamingFallback
     error = nil
-    if usingEngine {
-      guard let repository, let engine else {
-        streamingFallback = true
-        usingEngine = false
-        prepareStreaming()
-        checkpoint(force: true)
-        refreshArtwork()
-        return
-      }
-      // Activation finishes long before the first song is prepared.
-      if intent.canPlay { activateForPlayback() }
-      engine.replace(
-        queue.items, startingAt: queue.index, autoplay: intent.canPlay,
-        crossfade: crossfadeEnabled, repeatMode: repeatMode,
-        acquire: { item in
-          let began = ContinuousClock.now
-          let url = try await resolve(item.track)
-          // Downloaded songs play from their own file, whatever their size.
-          if url.isFileURL { return try await repository.leaseLocal(url) }
-          DiagnosticsLog.shared.record(
-            "playback", "address in \(Self.milliseconds(since: began)) ms")
-          return try await repository.acquire(item.track, initialURL: url, resolve: resolve)
-        }, release: { await repository.release($0) })
-      watchSlowStart()
+    addressed.removeAll()
+    // A restored queue shows where you were but fetches nothing until Play:
+    // after the app was away, the connection may still be waking, and a
+    // fetch nobody asked for would hold up the song that is chosen next.
+    deferredStart = restored != nil && !autoplay
+    if deferredStart {
+      playing = false
+      preparing = false
+      duration = queue.current?.track.duration ?? 0
+      publishNowPlaying()
+    } else if usingEngine {
+      startEngine()
     } else {
       prepareStreaming()
     }
-    if usingEngine, pendingSeek > 0 {
-      engine?.seek(pendingSeek)
-      pendingSeek = 0
-    }
     checkpoint(force: true)
     refreshArtwork()
+  }
+  /// Waiting for Play: a restored queue whose current song is not fetched yet.
+  @ObservationIgnored private var deferredStart = false
+  /// Starts a restored queue's current song, playing it or ready to.
+  private func beginDeferred(autoplay: Bool) {
+    guard deferredStart else { return }
+    deferredStart = false
+    if autoplay {
+      intent.play()
+      timeStart("play")
+    }
+    if usingEngine { startEngine() } else { prepareStreaming() }
+  }
+  private func startEngine() {
+    guard let repository, let engine, let resolve else {
+      streamingFallback = true
+      usingEngine = false
+      prepareStreaming()
+      return
+    }
+    // Activation finishes long before the first song is prepared.
+    if intent.canPlay { activateForPlayback() }
+    let addressed = addressed
+    engine.replace(
+      queue.items, startingAt: queue.index, autoplay: intent.canPlay,
+      crossfade: crossfadeEnabled, repeatMode: repeatMode,
+      acquire: { item in
+        let began = ContinuousClock.now
+        let url = try await resolve(item.track)
+        addressed.insert(item.id)
+        // Downloaded songs play from their own file, whatever their size.
+        if url.isFileURL { return try await repository.leaseLocal(url) }
+        DiagnosticsLog.shared.record(
+          "playback", "address in \(Self.milliseconds(since: began)) ms")
+        return try await repository.acquire(item.track, initialURL: url, resolve: resolve)
+      }, release: { await repository.release($0) })
+    watchSlowStart()
+    if pendingSeek > 0 {
+      engine.seek(pendingSeek)
+      pendingSeek = 0
+    }
   }
   /// What the person asked for and when, until the first sound of it.
   @ObservationIgnored private var startRequest: (what: String, at: ContinuousClock.Instant)?
@@ -544,19 +569,31 @@ import PigSync
     restartInCurrentMode()
   }
   /// Seamless playback starts a remote song once its first moments arrive.
-  /// If it still hasn't started after 8 s (a very poor connection), stream it
-  /// instead.
+  /// If it still hasn't started 8 s after its address came back (a very poor
+  /// connection), stream it instead. Until the address comes back the server
+  /// itself is out of reach (often a connection still waking), and streaming
+  /// would only start the same wait again.
   private func watchSlowStart() {
     slowStart?.cancel()
     let stamp = generation
     slowStart = Task {
-      do { try await Task.sleep(for: .seconds(8)) } catch { return }
-      guard generation == stamp, usingEngine, !streamingFallback, intent.canPlay,
-        engine?.snapshot.state == .preparing, (engine?.snapshot.elapsed ?? 0) < 1
-      else { return }
+      @MainActor func starting() -> Bool {
+        generation == stamp && usingEngine && !streamingFallback && intent.canPlay
+          && engine?.snapshot.state == .preparing && (engine?.snapshot.elapsed ?? 0) < 1
+      }
+      do {
+        while starting(), !(engine?.snapshot.occurrenceID.map(addressed.contains) ?? false) {
+          try await Task.sleep(for: .milliseconds(250))
+        }
+        try await Task.sleep(for: .seconds(8))
+      } catch { return }
+      guard starting() else { return }
       fallBackToStreaming("slow start")
     }
   }
+  /// Songs whose playback address has come back, written by the engine's
+  /// acquisition and read by the slow-start check.
+  @ObservationIgnored private let addressed = AddressedOccurrences()
   @ObservationIgnored private var loggedState: QueuePlaybackState?
   @ObservationIgnored private var loggedIndex = -1
   private func interruption(began: Bool, shouldResume: Bool) {
@@ -611,6 +648,7 @@ import PigSync
   }
   func toggle() { intent.wantsPlayback ? pause() : resume() }
   func resume() {
+    if deferredStart { return beginDeferred(autoplay: true) }
     if usingEngine, engine?.snapshot.state == .ended || engine?.snapshot.state == .failed {
       if let resolve, let artworkSource {
         play(
@@ -679,6 +717,7 @@ import PigSync
     next()
   }
   func next() {
+    beginDeferred(autoplay: false)
     if usingEngine {
       if queue.index + 1 < queue.items.count {
         engine?.next()
@@ -701,6 +740,7 @@ import PigSync
     }
   }
   func previous() {
+    beginDeferred(autoplay: false)
     timeStart("previous")
     if usingEngine {
       engine?.previous()
@@ -713,6 +753,13 @@ import PigSync
   func seek(_ seconds: Double) {
     guard seconds.isFinite else { return }
     let position = min(max(0, seconds), max(0, duration))
+    if deferredStart {
+      pendingSeek = position
+      elapsed = position
+      checkpoint(force: true)
+      publishNowPlaying()
+      return
+    }
     if intent.canPlay { timeStart("seek") }
     if usingEngine {
       engine?.seek(position)
@@ -723,6 +770,7 @@ import PigSync
   }
   func stop() {
     generation += 1
+    deferredStart = false
     preparation?.cancel()
     clock?.cancel()
     routeRecovery?.cancel()
@@ -781,4 +829,13 @@ import PigSync
     if let currentArtwork { information[MPMediaItemPropertyArtwork] = currentArtwork }
     MPNowPlayingInfoCenter.default().nowPlayingInfo = information
   }
+}
+
+/// Occurrence IDs, shared between the engine's acquisition and the main actor.
+private final class AddressedOccurrences: @unchecked Sendable {
+  private let lock = NSLock()
+  private var ids: Set<UUID> = []
+  func insert(_ id: UUID) { _ = lock.withLock { ids.insert(id) } }
+  func contains(_ id: UUID) -> Bool { lock.withLock { ids.contains(id) } }
+  func removeAll() { lock.withLock { ids.removeAll() } }
 }
