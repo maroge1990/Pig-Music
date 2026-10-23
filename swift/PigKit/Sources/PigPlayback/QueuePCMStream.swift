@@ -9,6 +9,9 @@ public struct QueueAudioMarker: Sendable, Equatable {
   public let originFrame: Int64
   public let durationFrames: Int64
   public var occurrenceID: UUID? = nil
+  /// The duration is an estimate (an MP3 that states no length): a later
+  /// marker for the same song corrects it.
+  public var durationIsEstimate = false
 }
 public struct QueuePCMBlock: Sendable {
   public let pcm: PCMBlock
@@ -61,6 +64,9 @@ public actor QueuePCMStream {
   private var mixed = 0
   private var outputFrames: Int64 = 0
   private var pendingMarkers: [QueueAudioMarker] = []
+  /// The playing song's marker, re-sent whenever its estimated length changes.
+  private var currentMarker: QueueAudioMarker?
+  private var incomingMarker: QueueAudioMarker?
   private var closed = false
   private var reading = false
   private var sourceFailure: Error?
@@ -94,14 +100,15 @@ public actor QueuePCMStream {
       let first = try await Self.decoder(for: source, format: format, startSeconds: startSeconds)
       decoder = first
       lease = source
-      let skipped = min(
-        first.expectedFrames,
-        Int64(min(startSeconds * rate, Double(first.expectedFrames)).rounded()))
-      pendingMarkers = [
-        QueueAudioMarker(
-          index: index, switchFrame: 0, originFrame: -skipped,
-          durationFrames: first.expectedFrames, occurrenceID: items[index].id)
-      ]
+      // An estimated length may be short; the start is where the decoder began.
+      let requested = Int64((startSeconds * rate).rounded())
+      let skipped = first.lengthIsExact ? min(first.lengthFrames, requested) : requested
+      let marker = QueueAudioMarker(
+        index: index, switchFrame: 0, originFrame: -skipped,
+        durationFrames: first.lengthFrames, occurrenceID: items[index].id,
+        durationIsEstimate: !first.lengthIsExact)
+      currentMarker = marker
+      pendingMarkers = [marker]
       configureUpcoming()
     } catch {
       await release(source)
@@ -195,6 +202,7 @@ public actor QueuePCMStream {
         }
         let decoded = try await decoder.read(maxFrames: blockFrames)
         guard !closed else { throw CancellationError() }
+        remeasure(decoder)
         if let decoded { tail.push(decoded) } else { ended = true }
       }
       guard upcomingIndex != nil || incoming != nil else {
@@ -264,11 +272,13 @@ public actor QueuePCMStream {
         overlap = min(tail.count, head.count)
         prefix = tail.count - overlap
         let origin = outputFrames + Int64(prefix)
-        pendingMarkers.append(
-          QueueAudioMarker(
-            index: incoming.index,
-            switchFrame: origin + Int64(overlap / 2), originFrame: origin,
-            durationFrames: next.expectedFrames, occurrenceID: incoming.occurrence.id))
+        let marker = QueueAudioMarker(
+          index: incoming.index,
+          switchFrame: origin + Int64(overlap / 2), originFrame: origin,
+          durationFrames: next.lengthFrames, occurrenceID: incoming.occurrence.id,
+          durationIsEstimate: !next.lengthIsExact)
+        incomingMarker = marker
+        pendingMarkers.append(marker)
         transitionReady = true
       }
       if prefix > 0 {
@@ -296,8 +306,10 @@ public actor QueuePCMStream {
       let old = lease
       lease = incomingLease
       decoder = incomingDecoder
+      currentMarker = incomingMarker
       incomingLease = nil
       incomingDecoder = nil
+      incomingMarker = nil
       if followingIndex <= index { cycle += 1 }
       index = followingIndex
       ended = false
@@ -310,6 +322,18 @@ public actor QueuePCMStream {
       guard !closed else { throw CancellationError() }
       configureUpcoming()
     }
+  }
+  /// Re-sends the playing song's marker when its estimated length changed.
+  private func remeasure(_ decoder: StreamingPCMDecoder) {
+    guard let marker = currentMarker, marker.durationIsEstimate,
+      decoder.lengthFrames != marker.durationFrames || decoder.lengthIsExact
+    else { return }
+    let updated = QueueAudioMarker(
+      index: marker.index, switchFrame: marker.switchFrame, originFrame: marker.originFrame,
+      durationFrames: decoder.lengthFrames, occurrenceID: marker.occurrenceID,
+      durationIsEstimate: !decoder.lengthIsExact)
+    currentMarker = updated
+    pendingMarkers.append(updated)
   }
   private func emit(_ channels: [[Float]]) -> QueuePCMBlock {
     let markers = pendingMarkers

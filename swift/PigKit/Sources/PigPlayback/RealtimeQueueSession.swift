@@ -8,13 +8,15 @@ public enum QueuePlaybackState: Sendable, Equatable {
 public struct QueuePlaybackSnapshot: Sendable, Equatable {
   public init(
     state: QueuePlaybackState = .idle, index: Int = 0, occurrenceID: UUID? = nil,
-    elapsed: Double = 0, duration: Double = 0, wantsPlayback: Bool = false, error: String? = nil
+    elapsed: Double = 0, duration: Double = 0, durationIsEstimate: Bool = false,
+    wantsPlayback: Bool = false, error: String? = nil
   ) {
     self.state = state
     self.index = index
     self.occurrenceID = occurrenceID
     self.elapsed = elapsed
     self.duration = duration
+    self.durationIsEstimate = durationIsEstimate
     self.wantsPlayback = wantsPlayback
     self.error = error
   }
@@ -23,6 +25,9 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
   public var occurrenceID: UUID?
   public var elapsed: Double = 0
   public var duration: Double = 0
+  /// `duration` is provisional: an MP3 that states no length, still arriving.
+  /// It is corrected as the song decodes and never falls behind `elapsed`.
+  public var durationIsEstimate = false
   public var wantsPlayback = false
   public var error: String?
 }
@@ -452,6 +457,7 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
     snapshot.index = marker.index
     snapshot.occurrenceID = marker.occurrenceID ?? items[marker.index].id
     snapshot.duration = Double(marker.durationFrames) / rate
+    snapshot.durationIsEstimate = marker.durationIsEstimate
     snapshot.elapsed = min(snapshot.duration, max(0, Double(position - marker.originFrame) / rate))
   }
   private func publish() { onUpdate?(snapshot) }

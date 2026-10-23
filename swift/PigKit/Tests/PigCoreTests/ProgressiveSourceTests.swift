@@ -220,10 +220,7 @@ private final class SlowProtocol: URLProtocol, @unchecked Sendable {
     await owner.release(source)
   }
 
-  private static let ffmpeg = [
-    "/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg",
-  ]
-  .first { FileManager.default.isExecutableFile(atPath: $0) }
+  private static let ffmpeg = AudioFixtures.ffmpeg
 
   /// Real FLAC and MP3 decode while arriving exactly as AVAudioFile decodes the
   /// complete file: every sample, and the same gapless length.
@@ -272,44 +269,28 @@ private final class SlowProtocol: URLProtocol, @unchecked Sendable {
 
   /// An MP3 without a Xing/Info length header (common in older rips) has no
   /// stated length; Core Audio counts it by reading every frame. It must still
-  /// start at once, then play to its real end.
+  /// start with only its opening here, then play to its real end.
   @Test(.enabled(if: ffmpeg != nil)) func anMP3WithoutALengthHeaderStartsBeforeItArrives()
     async throws
   {
     let root = try directory()
     defer { try? FileManager.default.removeItem(at: root) }
     let fixture = root.appendingPathComponent("fixture.mp3")
-    let encode = Process()
-    encode.executableURL = URL(fileURLWithPath: Self.ffmpeg!)
-    encode.arguments = [
-      "-v", "error", "-f", "lavfi", "-i", "anoisesrc=d=40:c=pink:a=0.3", "-ac", "2", "-ar",
-      "44100", "-c:a", "libmp3lame", "-b:a", "256k", "-write_xing", "0", "-id3v2_version", "3",
-      fixture.path,
-    ]
-    try encode.run()
-    encode.waitUntilExit()
-    #expect(encode.terminationStatus == 0)
-    let encoded = try Data(contentsOf: fixture)
-    #expect(encoded.range(of: Data("Xing".utf8)) == nil)
-    #expect(encoded.range(of: Data("Info".utf8)) == nil)
-    // About 1.3 MB arriving over roughly five seconds.
-    SlowMedia.shared.set(encoded, type: "audio/mpeg", chunk: 8192, pause: 0.03)
-    let owner = try preparer(root)
-    let source = try await owner.prepare { self.url }
+    try AudioFixtures.headerlessMP3(at: fixture, parts: [(40, 256)])
+    // About 1.3 MB, of which only the first 256 KB (eight seconds) is here.
+    let bytes = try MeteredBytes(file: fixture, allowed: 256 * 1024)
+    let source = PreparedAudioSource(file: fixture, byteCount: bytes.length, bytes: bytes)
     let output = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
-    let started = ContinuousClock.now
     let streaming = try await StreamingPCMDecoder.open(source, format: output)
     let first = try #require(try await streaming.read(maxFrames: 2048))
-    #expect(ContinuousClock.now - started < .seconds(1.5))
+    #expect(!bytes.complete)
     // The estimate shows a sensible length while the song plays.
-    #expect(abs(Double(streaming.expectedFrames) / 48000 - 40) < 2)
+    #expect(!streaming.lengthIsExact)
+    #expect(abs(Double(streaming.lengthFrames) / 48000 - 40) < 2)
+    bytes.allow(bytes.length)
     var arriving = Array(
       UnsafeBufferPointer(start: first.floatChannelData![1], count: Int(first.frameLength)))
-    while let block = try await streaming.read(maxFrames: 2048) {
-      arriving.append(
-        contentsOf: UnsafeBufferPointer(
-          start: block.floatChannelData![1], count: Int(block.frameLength)))
-    }
+    arriving += try await AudioFixtures.drain(streaming)
     let complete = try PCMFileDecoder(url: fixture, format: output)
     var local: [Float] = []
     while let block = try complete.read(maxFrames: 2048) {
@@ -321,7 +302,101 @@ private final class SlowProtocol: URLProtocol, @unchecked Sendable {
     #expect(abs(arriving.count - local.count) <= 48)
     #expect(arriving.count > 48000 * 39)
     #expect(Array(arriving.prefix(local.count)) == Array(local.prefix(arriving.count)))
+    // At the end the length is the one decoded.
+    #expect(streaming.lengthIsExact && streaming.lengthFrames == Int64(arriving.count))
+  }
+
+  /// A measurement, not a bound: how soon a headerless MP3 arriving over a
+  /// slow connection gives its first audio (shared CI runners vary widely).
+  @Test(.enabled(if: ffmpeg != nil)) func headerlessMP3FirstAudioIsMeasured() async throws {
+    let root = try directory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let fixture = root.appendingPathComponent("fixture.mp3")
+    try AudioFixtures.headerlessMP3(at: fixture, parts: [(40, 256)])
+    // About 1.3 MB arriving over roughly five seconds.
+    SlowMedia.shared.set(
+      try Data(contentsOf: fixture), type: "audio/mpeg", chunk: 8192, pause: 0.03)
+    let owner = try preparer(root)
+    let source = try await owner.prepare { self.url }
+    let output = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
+    let started = ContinuousClock.now
+    let streaming = try await StreamingPCMDecoder.open(source, format: output)
+    _ = try #require(try await streaming.read(maxFrames: 2048))
+    print("headerless MP3: first audio after \(ContinuousClock.now - started)")
     await owner.release(source)
+    // The unfinished transfer is cancelled here, not during a later test.
+    #expect(try await waitForCancelledRequest())
+  }
+
+  /// An MP3 that states no length and changes bitrate (five loud seconds,
+  /// then thirty-five at a tenth of the rate) is estimated far too short from
+  /// its opening. The length never falls behind the audio decoded, becomes
+  /// exact once every byte is here, and is the decoded length at the end.
+  @Test(.enabled(if: ffmpeg != nil)) func anEstimatedLengthIsCorrectedAsTheSongArrives()
+    async throws
+  {
+    let root = try directory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let fixture = root.appendingPathComponent("varying.mp3")
+    try AudioFixtures.headerlessMP3(at: fixture, parts: [(5, 320), (35, 32)])
+    let output = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
+    let bytes = try MeteredBytes(file: fixture, allowed: 256 * 1024)
+    let source = PreparedAudioSource(file: fixture, byteCount: bytes.length, bytes: bytes)
+    let streaming = try await StreamingPCMDecoder.open(source, format: output)
+    #expect(!streaming.lengthIsExact)
+    let estimate = Double(streaming.lengthFrames) / 48000
+    #expect(estimate < 15)
+    // Decode well past the estimate with the last bytes still missing.
+    bytes.allow(bytes.length - 4096)
+    var decoded = 0
+    while decoded < 48000 * 20 {
+      let block = try #require(try await streaming.read(maxFrames: 2048))
+      decoded += Int(block.frameLength)
+      #expect(streaming.lengthFrames >= Int64(decoded))
+    }
+    #expect(!streaming.lengthIsExact)
+    // Once all of it is here, the length is measured before the end plays.
+    bytes.allow(bytes.length)
+    _ = try #require(try await streaming.read(maxFrames: 2048))
+    #expect(streaming.lengthIsExact)
+    let measured = streaming.lengthFrames
+    #expect(abs(Double(measured) / 48000 - 40.07) < 0.1)
+    let rest = try await AudioFixtures.drain(streaming)
+    #expect(streaming.lengthFrames == Int64(decoded + 2048 + rest.count))
+    #expect(abs(streaming.lengthFrames - measured) <= 48)
+    // A complete file is measured when it opens.
+    let local = try await StreamingPCMDecoder.open(
+      PreparedAudioSource(file: fixture, byteCount: bytes.length), format: output)
+    #expect(local.lengthIsExact && abs(local.lengthFrames - measured) <= 48)
+  }
+
+  /// A seek past the estimate, before the whole song is here, still lands in
+  /// the song: the estimate does not cap the start.
+  @Test(.enabled(if: ffmpeg != nil)) func aSeekPastTheEstimateStartsThere() async throws {
+    let root = try directory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let fixture = root.appendingPathComponent("varying.mp3")
+    try AudioFixtures.headerlessMP3(at: fixture, parts: [(5, 320), (35, 32)])
+    let output = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
+    // Twenty seconds in is past the estimate; the last seconds are not here.
+    let bytes = try MeteredBytes(file: fixture, allowed: 0)
+    bytes.allow(bytes.length - 8 * 1024)
+    let arriving = try await StreamingPCMDecoder.open(
+      PreparedAudioSource(file: fixture, byteCount: bytes.length, bytes: bytes), format: output,
+      startSeconds: 20)
+    #expect(!bytes.complete)
+    #expect(!arriving.lengthIsExact && arriving.lengthFrames >= 48000 * 20)
+    let local = try await StreamingPCMDecoder.open(
+      PreparedAudioSource(file: fixture, byteCount: bytes.length), format: output,
+      startSeconds: 20)
+    let expected = try #require(try await local.read(maxFrames: 2048))
+    let block = try #require(try await arriving.read(maxFrames: 2048))
+    #expect(block.frameLength == expected.frameLength)
+    #expect(
+      Array(UnsafeBufferPointer(start: block.floatChannelData![1], count: Int(block.frameLength)))
+        == Array(
+          UnsafeBufferPointer(
+            start: expected.floatChannelData![1], count: Int(expected.frameLength))))
   }
 
   @Test func aSeekStartsDecodingPartWayWithoutTheWholeFile() async throws {

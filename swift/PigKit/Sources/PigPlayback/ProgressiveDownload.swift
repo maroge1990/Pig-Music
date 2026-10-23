@@ -12,6 +12,11 @@ public protocol AudioBytes: AnyObject, Sendable {
     throws -> Int
   /// Wakes readers waiting on this source, so they notice their `ReadStop`.
   func wake()
+  /// Every byte has arrived: no read waits.
+  var complete: Bool { get }
+}
+extension AudioBytes {
+  public var complete: Bool { false }
 }
 
 /// Tells a waiting read its reader has gone (a skip, seek or stop).
@@ -48,6 +53,7 @@ public final class LocalAudioBytes: AudioBytes, @unchecked Sendable {
     return result
   }
   public func wake() {}
+  public var complete: Bool { true }
 }
 
 /// Byte ranges held, sorted and merged.
@@ -265,6 +271,7 @@ public final class ProgressiveDownload: AudioBytes, @unchecked Sendable {
     return result
   }
   public func wake() { condition.withLock { condition.broadcast() } }
+  public var complete: Bool { condition.withLock { held.contains(0..<total) } }
 
   /// Stops fetching and deletes the file once nothing reads it.
   public func close() {

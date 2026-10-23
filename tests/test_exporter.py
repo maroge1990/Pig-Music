@@ -407,3 +407,38 @@ def test_a_song_needing_a_decision_does_not_hold_up_the_rest(tmp_path, monkeypat
         conn.execute("DELETE FROM acquired WHERE id='stuck'")
     Exporter(store, root).process()
     assert store.read_document("library-export-status")["status"] == "completed"
+
+
+def test_export_plan_lists_a_song_needing_a_decision_beside_the_rest(
+    tmp_path, monkeypatch
+):
+    # Two folders for one album (not disc folders) plus a valid other album:
+    # the background export publishes the valid song, and the plan shows both.
+    from fastapi.testclient import TestClient
+    from server.app import create_app
+
+    store, root = nas_with(
+        tmp_path,
+        monkeypatch,
+        [("Artist/Album (2020)", 1), ("Artist/Album (2020 Remaster)", 1)],
+    )
+    download(store, "stuck")
+    download(store, "other", album="Other Album")
+    exporter = Exporter(store, root)
+    exporter.process()
+    assert store.read_document("library-export-status")["status"] == "partial"
+    plan = exporter.plan()
+    items = {item["id"]: item for item in plan["items"]}
+    assert items["stuck"]["destination"] is None
+    assert "destination decision" in items["stuck"]["error"]
+    assert items["other"]["exported"] and "error" not in items["other"]
+    assert (root / items["other"]["destination"]).is_file()
+    assert [item["id"] for item in plan["needs_review"]] == ["stuck"]
+    assert plan["status"]["status"] == "partial"
+    with TestClient(create_app(store.directory)) as client:
+        response = client.get("/api/v1/admin/library/export-plan")
+    assert response.status_code == 200
+    served = {item["id"]: item for item in response.json()["items"]}
+    assert "destination decision" in served["stuck"]["error"]
+    assert served["other"]["exported"] is True
+    assert response.json()["status"]["status"] == "partial"

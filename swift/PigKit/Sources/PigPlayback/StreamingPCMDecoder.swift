@@ -22,6 +22,13 @@ import Foundation
     /// False when `expectedFrames` is an estimate: decoding then runs to the
     /// file's end instead of stopping at the expected length.
     private let exactLength: Bool
+    /// The song's length as known so far, in output frames. An estimate (see
+    /// `lengthIsExact`) is measured once every byte has arrived, never falls
+    /// behind the audio decoded, and is the decoded length at the end. Read
+    /// it after `open` or `read` returns.
+    private(set) var lengthFrames: Int64
+    private(set) var lengthIsExact: Bool
+    private let sourceRate: Double
     private let queue = DispatchQueue(label: "pig.playback.decoder", qos: .userInitiated)
     private let reader: Reader
     private let context: Unmanaged<Reader>
@@ -36,7 +43,7 @@ import Foundation
     private init(
       reader: Reader, context: Unmanaged<Reader>, audioFile: AudioFileID, file: ExtAudioFileRef,
       converter: AVAudioConverter, input: AVAudioPCMBuffer, format: AVAudioFormat,
-      expectedFrames: Int64, exactLength: Bool, delivered: Int64
+      expectedFrames: Int64, exactLength: Bool, delivered: Int64, sourceRate: Double
     ) {
       self.reader = reader
       self.context = context
@@ -48,6 +55,9 @@ import Foundation
       self.expectedFrames = expectedFrames
       self.exactLength = exactLength
       self.delivered = delivered
+      self.sourceRate = sourceRate
+      lengthFrames = exactLength ? expectedFrames : max(expectedFrames, delivered)
+      lengthIsExact = exactLength
     }
     deinit {
       ExtAudioFileDispose(file)
@@ -123,8 +133,10 @@ import Foundation
         var length: Int64 = 0
         // An MP3 without a Xing/Info/VBRI header states no length: Core Audio
         // counts it by reading every frame, which waits for the whole file.
-        // Such a song starts from an estimate and plays to its real end.
-        let exact = !(isMP3(audioFile) && !hasMP3LengthHeader(reader))
+        // Such a song starts from an estimate and plays to its real end;
+        // once all of it is here, counting no longer waits.
+        let exact =
+          reader.bytes.complete || !isMP3(audioFile) || hasMP3LengthHeader(reader)
         if exact {
           size = UInt32(MemoryLayout<Int64>.size)
           try check(
@@ -163,14 +175,17 @@ import Foundation
         guard frames.isFinite, frames >= 1, frames < Double(Int64.max) else {
           throw AudioPipelineFailure.invalidConfiguration
         }
-        let position = min(Double(length), (startSeconds * rate).rounded())
-        if position > 0 { try check(ExtAudioFileSeek(file, Int64(position)), reader) }
+        // An estimate may be short: a later position can still be in the song.
+        let position = (startSeconds * rate).rounded()
+        let start = exact ? min(Double(length), position) : position
+        if start > 0 { try check(ExtAudioFileSeek(file, Int64(start)), reader) }
         let expected = Int64(frames)
+        let skipped = Int64((start * format.sampleRate / rate).rounded())
         return StreamingPCMDecoder(
           reader: reader, context: context, audioFile: audioFile, file: file,
           converter: converter, input: input, format: format, expectedFrames: expected,
-          exactLength: exact,
-          delivered: min(expected, Int64((position * format.sampleRate / rate).rounded())))
+          exactLength: exact, delivered: exact ? min(expected, skipped) : skipped,
+          sourceRate: rate)
       } catch {
         dispose()
         throw error
@@ -225,11 +240,37 @@ import Foundation
         if status == .endOfStream { ended = true }
         if output.frameLength > 0 {
           delivered += Int64(output.frameLength)
+          if !exactLength { measureLength() }
           return output
         }
-        if ended { return nil }
+        if ended {
+          if !exactLength { measureLength() }
+          return nil
+        }
       }
       throw AudioPipelineFailure.stalled
+    }
+
+    /// Brings an estimated length up to date: the decoded length at the end,
+    /// Core Audio's count once every byte is here, else at least what has
+    /// been decoded.
+    private func measureLength() {
+      if ended {
+        lengthFrames = delivered
+        lengthIsExact = true
+        return
+      }
+      if !lengthIsExact, reader.bytes.complete {
+        var length: Int64 = 0
+        var size = UInt32(MemoryLayout<Int64>.size)
+        if ExtAudioFileGetProperty(file, kExtAudioFileProperty_FileLengthFrames, &size, &length)
+          == noErr, length > 0
+        {
+          lengthFrames = Int64((Double(length) * format.sampleRate / sourceRate).rounded())
+          lengthIsExact = true
+        }
+      }
+      lengthFrames = max(lengthFrames, delivered)
     }
 
     private static func check(_ status: OSStatus, _ reader: Reader) throws {
@@ -339,6 +380,8 @@ import Foundation
   final class StreamingPCMDecoder: @unchecked Sendable {
     private let decoder: PCMFileDecoder
     var expectedFrames: Int64 { decoder.expectedFrames }
+    var lengthFrames: Int64 { decoder.expectedFrames }
+    var lengthIsExact: Bool { true }
     private init(_ decoder: PCMFileDecoder) { self.decoder = decoder }
     static func open(
       _ source: PreparedAudioSource, format: AVAudioFormat, startSeconds: Double = 0

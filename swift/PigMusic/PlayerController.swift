@@ -53,12 +53,14 @@ import PigSync
   }
   @ObservationIgnored var onCheckpoint: (@MainActor (PlaybackCheckpoint) -> Void)?
   @ObservationIgnored private var checkpointTime = Date.distantPast
-  @ObservationIgnored private var pendingSeek: Double = 0
+  /// Where the next song prepared starts, and whether a restored queue is
+  /// still waiting for Play.
+  @ObservationIgnored private var queueStart = QueueStart()
   private func checkpoint(force: Bool = false) {
     guard force || Date().timeIntervalSince(checkpointTime) >= 5 else { return }
     checkpointTime = Date()
-    onCheckpoint?(
-      PlaybackCheckpoint(queue: queue, elapsed: pendingSeek > 0 ? pendingSeek : elapsed))
+    let pending = queueStart.seconds(for: queue.current)
+    onCheckpoint?(PlaybackCheckpoint(queue: queue, elapsed: pending > 0 ? pending : elapsed))
   }
   func enqueue(_ tracks: [Track], next: Bool = false) {
     guard queue.current != nil else { return }
@@ -320,18 +322,17 @@ import PigSync
       shuffled = false
       originalOrder = []
     }
-    pendingSeek = restored?.elapsed ?? 0
-    elapsed = pendingSeek
+    // A restored queue shows where you were but fetches nothing until Play:
+    // after the app was away, the connection may still be waking, and a
+    // fetch nobody asked for would hold up the song that is chosen next.
+    queueStart.restore(queue, at: restored?.elapsed ?? 0, waiting: restored != nil && !autoplay)
+    elapsed = queueStart.seconds(for: queue.current)
     // A new queue tries seamless playback again; a restart keeps a fallback.
     if restored == nil { streamingFallback = false }
     usingEngine = seamlessEnabled && !streamingFallback
     error = nil
     addressed.removeAll()
-    // A restored queue shows where you were but fetches nothing until Play:
-    // after the app was away, the connection may still be waking, and a
-    // fetch nobody asked for would hold up the song that is chosen next.
-    deferredStart = restored != nil && !autoplay
-    if deferredStart {
+    if queueStart.waiting {
       playing = false
       preparing = false
       duration = queue.current?.track.duration ?? 0
@@ -344,17 +345,21 @@ import PigSync
     checkpoint(force: true)
     refreshArtwork()
   }
-  /// Waiting for Play: a restored queue whose current song is not fetched yet.
-  @ObservationIgnored private var deferredStart = false
   /// Starts a restored queue's current song, playing it or ready to.
   private func beginDeferred(autoplay: Bool) {
-    guard deferredStart else { return }
-    deferredStart = false
+    guard queueStart.begin() else { return }
     if autoplay {
       intent.play()
       timeStart("play")
     }
     if usingEngine { startEngine() } else { prepareStreaming() }
+  }
+  /// Starts the song Next or Previous chose on a restored queue.
+  private func beginDeferredAtStart() {
+    elapsed = 0
+    duration = queue.current?.track.duration ?? 0
+    beginDeferred(autoplay: false)
+    checkpoint(force: true)
   }
   private func startEngine() {
     guard let repository, let engine, let resolve else {
@@ -366,8 +371,9 @@ import PigSync
     // Activation finishes long before the first song is prepared.
     if intent.canPlay { activateForPlayback() }
     let addressed = addressed
+    let start = queueStart.take(for: queue.current)
     engine.replace(
-      queue.items, startingAt: queue.index, autoplay: intent.canPlay,
+      queue.items, startingAt: queue.index, startSeconds: start, autoplay: intent.canPlay,
       crossfade: crossfadeEnabled, repeatMode: repeatMode,
       acquire: { item in
         let began = ContinuousClock.now
@@ -380,10 +386,6 @@ import PigSync
         return try await repository.acquire(item.track, initialURL: url, resolve: resolve)
       }, release: { await repository.release($0) })
     watchSlowStart()
-    if pendingSeek > 0 {
-      engine.seek(pendingSeek)
-      pendingSeek = 0
-    }
   }
   /// What the person asked for and when, until the first sound of it.
   @ObservationIgnored private var startRequest: (what: String, at: ContinuousClock.Instant)?
@@ -444,12 +446,13 @@ import PigSync
     player.replaceCurrentItem(with: nil)
     playing = false
     preparing = true
-    elapsed = 0
     error = nil
     guard let occurrence = queue.current, let resolve else {
       stop()
       return
     }
+    let start = queueStart.take(for: occurrence)
+    elapsed = start
     duration = occurrence.track.duration ?? 0
     refreshArtwork()
     publishNowPlaying()
@@ -462,10 +465,9 @@ import PigSync
         guard generation == stamp else { return }
         player.replaceCurrentItem(with: AVPlayerItem(url: url))
         preparing = false
-        if pendingSeek > 0 {
-          await player.seek(to: CMTime(seconds: pendingSeek, preferredTimescale: 600))
+        if start > 0 {
+          await player.seek(to: CMTime(seconds: start, preferredTimescale: 600))
           guard generation == stamp else { return }
-          pendingSeek = 0
         }
         if intent.canPlay { player.play() }
         unavailableRun = 0
@@ -648,7 +650,7 @@ import PigSync
   }
   func toggle() { intent.wantsPlayback ? pause() : resume() }
   func resume() {
-    if deferredStart { return beginDeferred(autoplay: true) }
+    if queueStart.waiting { return beginDeferred(autoplay: true) }
     if usingEngine, engine?.snapshot.state == .ended || engine?.snapshot.state == .failed {
       if let resolve, let artworkSource {
         play(
@@ -717,7 +719,15 @@ import PigSync
     next()
   }
   func next() {
-    beginDeferred(autoplay: false)
+    if queueStart.waiting {
+      // Choose the song first: only that one is fetched, from its start.
+      guard queueStart.next(&queue, repeatMode: repeatMode) else {
+        pause()
+        onQueueEnd?()
+        return
+      }
+      return beginDeferredAtStart()
+    }
     if usingEngine {
       if queue.index + 1 < queue.items.count {
         engine?.next()
@@ -740,8 +750,11 @@ import PigSync
     }
   }
   func previous() {
-    beginDeferred(autoplay: false)
     timeStart("previous")
+    if queueStart.waiting {
+      queueStart.previous(&queue)
+      return beginDeferredAtStart()
+    }
     if usingEngine {
       engine?.previous()
     } else if queue.previous(elapsed: elapsed) {
@@ -753,8 +766,8 @@ import PigSync
   func seek(_ seconds: Double) {
     guard seconds.isFinite else { return }
     let position = min(max(0, seconds), max(0, duration))
-    if deferredStart {
-      pendingSeek = position
+    if queueStart.waiting {
+      queueStart.seek(queue, to: position)
       elapsed = position
       checkpoint(force: true)
       publishNowPlaying()
@@ -770,7 +783,7 @@ import PigSync
   }
   func stop() {
     generation += 1
-    deferredStart = false
+    queueStart.reset()
     preparation?.cancel()
     clock?.cancel()
     routeRecovery?.cancel()

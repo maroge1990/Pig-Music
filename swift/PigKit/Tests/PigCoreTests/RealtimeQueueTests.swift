@@ -55,42 +55,6 @@ private actor QueueSources {
     gate = nil
   }
 }
-/// A local file whose bytes arrive when the test says.
-private final class MeteredBytes: AudioBytes, @unchecked Sendable {
-  private let file: LocalAudioBytes
-  private let condition = NSCondition()
-  private var allowed: Int
-  private var readers = 0
-  init(file: URL, allowed: Int) throws {
-    self.file = try LocalAudioBytes(file: file)
-    self.allowed = allowed
-  }
-  var length: Int { file.length }
-  var waiting: Bool { condition.withLock { readers > 0 } }
-  func allow(_ count: Int) {
-    condition.withLock {
-      allowed = count
-      condition.broadcast()
-    }
-  }
-  func read(offset: Int, count: Int, into buffer: UnsafeMutableRawPointer, stop: ReadStop)
-    throws -> Int
-  {
-    condition.lock()
-    while offset + min(count, length - offset) > allowed {
-      if stop.stopped {
-        condition.unlock()
-        throw CancellationError()
-      }
-      readers += 1
-      condition.wait()
-      readers -= 1
-    }
-    condition.unlock()
-    return try file.read(offset: offset, count: count, into: buffer, stop: stop)
-  }
-  func wake() { condition.withLock { condition.broadcast() } }
-}
 @MainActor private final class SilentQueueOutput: QueueAudioOutput {
   var positionFrames: Int64 = 0
   var pending: [(Int, @Sendable () -> Void)] = []
@@ -366,6 +330,105 @@ private func queueRoot() throws -> URL {
     await session.stopAndWait()
     #expect(await sources.active.isEmpty)
   }
+  enum RestoredAction: String, CaseIterable, Sendable {
+    case play, next, previousRestarts, previousGoesBack
+  }
+  /// A restored queue (paused, at a saved position, its resolver slow to
+  /// answer) started the way the app's seamless mode starts it: Play, Next or
+  /// Previous chooses the song and position first, and only that song is
+  /// fetched. Next never carries the saved position to the following song,
+  /// and Previous decides from the saved position, not from zero.
+  @Test(arguments: RestoredAction.allCases) @MainActor
+  func aRestoredQueueStartsOnlyTheChosenSong(_ action: RestoredAction) async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let sources = QueueSources(
+      files: [
+        "a": try queueFixture(root, id: "a", value: 0.2, frames: 48000 * 5),
+        "b": try queueFixture(root, id: "b", value: 0.4, frames: 48000 * 5),
+        "c": try queueFixture(root, id: "c", value: 0.6, frames: 48000 * 5),
+      ], gated: true)
+    var queue = PlaybackQueue()
+    queue.replace(
+      ["a", "b", "c"].map { Track(id: $0, title: $0, artist: "Fixture", duration: 5) })
+    queue.select(index: 1)
+    var start = QueueStart()
+    let saved = action == .previousGoesBack ? 2.0 : 4.5
+    start.restore(queue, at: saved, waiting: true)
+    #expect(start.waiting && start.seconds(for: queue.current) == saved)
+    switch action {
+    case .play: break
+    case .next:
+      let moved = start.next(&queue, repeatMode: .off)
+      #expect(moved)
+    case .previousRestarts, .previousGoesBack: start.previous(&queue)
+    }
+    let began = start.begin()
+    #expect(began)
+    let expected: (id: String, index: Int, seconds: Double) =
+      switch action {
+      case .play: ("b", 1, saved)
+      case .next: ("c", 2, 0)
+      case .previousRestarts: ("b", 1, 0)
+      case .previousGoesBack: ("a", 0, 0)
+      }
+    let output = SilentQueueOutput()
+    let session = try RealtimeQueueSession(output: output)
+    let seconds = start.take(for: queue.current)
+    session.replace(
+      queue.items, startingAt: queue.index, startSeconds: seconds,
+      autoplay: false, acquire: { try await sources.get($0) },
+      release: { await sources.release($0) })
+    while !(await sources.entered) { await Task.yield() }
+    #expect(await sources.acquired == [expected.id])
+    #expect(session.snapshot.elapsed == expected.seconds)
+    await sources.open()
+    try await waitQueue { session.snapshot.state == .paused }
+    #expect(session.snapshot.index == expected.index)
+    #expect(abs(session.snapshot.elapsed - expected.seconds) < 0.05)
+    #expect(output.starts == 0)
+    #expect(Array(await sources.acquired.prefix(1)) == [expected.id])
+    await session.stopAndWait()
+  }
+  /// Streaming mode takes the start when it begins resolving a song. A Next
+  /// while that resolve is slow starts the following song from zero, and
+  /// coming back does not reuse the position: it belonged to one preparation.
+  @Test func aSavedPositionNeverCrossesToAnotherSong() {
+    var queue = PlaybackQueue()
+    queue.replace(["a", "b"].map { Track(id: $0, title: $0, artist: "Fixture", duration: 60) })
+    var start = QueueStart()
+    start.restore(queue, at: 30, waiting: false)
+    let began = start.begin()
+    #expect(!began)
+    let first = queue.current
+    let taken = start.take(for: first)
+    #expect(taken == 30)
+    queue.next()
+    let following = start.take(for: queue.current)
+    #expect(following == 0)
+    _ = queue.previous(elapsed: 0)
+    let again = start.take(for: first)
+    #expect(queue.current == first && again == 0)
+    // A position set for one song is not one for another.
+    start.seek(queue, to: 12)
+    #expect(start.seconds(for: queue.items[1]) == 0)
+    #expect(start.seconds(for: queue.current) == 12)
+  }
+  @Test func nextAtTheEndOfAWaitingQueueKeepsItsPlace() {
+    var queue = PlaybackQueue()
+    queue.replace(["a", "b"].map { Track(id: $0, title: $0, artist: "Fixture", duration: 60) })
+    queue.select(index: 1)
+    var start = QueueStart()
+    start.restore(queue, at: 20, waiting: true)
+    let ended = !start.next(&queue, repeatMode: .off)
+    #expect(ended)
+    #expect(start.waiting && queue.index == 1 && start.seconds(for: queue.current) == 20)
+    let before = queue.items.map(\.id)
+    let wrapped = start.next(&queue, repeatMode: .all)
+    #expect(wrapped)
+    #expect(queue.index == 0 && start.seconds(for: queue.current) == 0)
+    #expect(Set(queue.items.map(\.id)).isDisjoint(with: before))
+  }
   @Test @MainActor func liveLookaheadStartsSmallThenBuildsCushion() async throws {
     let root = try queueRoot()
     defer { try? FileManager.default.removeItem(at: root) }
@@ -410,6 +473,61 @@ private func queueRoot() throws -> URL {
     // Once half a second is in hand, it is scheduled in one go.
     bytes.allow(bytes.length)
     try await waitQueue { output.pending.reduce(0) { $0 + $1.0 } >= 24000 }
+    await session.stopAndWait()
+  }
+  /// An MP3 that states no length and drops from 320 to 32 kbps after five
+  /// seconds is estimated at under nine seconds from its opening. Playing it
+  /// runs past the estimate, a seek reaches audio beyond it before the song
+  /// has arrived, and the duration is corrected once every byte is here.
+  @Test(.enabled(if: AudioFixtures.ffmpeg != nil)) @MainActor
+  func anUnderestimatedSongPlaysAndSeeksPastItsEstimate() async throws {
+    let root = try queueRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let file = root.appendingPathComponent("varying.mp3")
+    try AudioFixtures.headerlessMP3(at: file, parts: [(5, 320), (35, 32)])
+    let bytes = try MeteredBytes(file: file, allowed: 0)
+    bytes.allow(bytes.length - 8 * 1024)
+    let output = SilentQueueOutput()
+    let session = try RealtimeQueueSession(output: output, lookaheadSeconds: 2, startSeconds: 0.5)
+    let track = Track(id: "varying", title: "varying", artist: "Fixture", duration: 8)
+    session.replace(
+      [PlaybackOccurrence(track: track)],
+      acquire: { _ in PreparedAudioSource(file: file, byteCount: bytes.length, bytes: bytes) },
+      release: { _ in })
+    @MainActor func play(until done: () -> Bool) async throws {
+      let deadline = ContinuousClock.now + .seconds(15)
+      while !done() {
+        guard ContinuousClock.now < deadline else { throw AudioPipelineFailure.stalled }
+        if output.pending.isEmpty {
+          try await Task.sleep(for: .milliseconds(2))
+        } else {
+          output.consume()
+          await Task.yield()
+        }
+      }
+    }
+    try await waitQueue { session.snapshot.state == .playing }
+    #expect(session.snapshot.durationIsEstimate && session.snapshot.duration < 15)
+    try await play { session.snapshot.elapsed > 12 }
+    #expect(session.snapshot.durationIsEstimate)
+    #expect(session.snapshot.duration >= session.snapshot.elapsed)
+    #expect(!bytes.complete)
+    // Back a little, still past the estimate, with the end not here yet.
+    session.seek(11)
+    try await waitQueue { session.snapshot.state == .playing }
+    #expect(abs(session.snapshot.elapsed - 11) < 0.1)
+    try await play { session.snapshot.elapsed > 13 }
+    // Every byte arrives: the duration is measured, then a seek near the end.
+    bytes.allow(bytes.length)
+    try await play { !session.snapshot.durationIsEstimate }
+    #expect(abs(session.snapshot.duration - 40.07) < 0.1)
+    session.seek(30)
+    try await waitQueue { session.snapshot.state == .playing }
+    #expect(abs(session.snapshot.elapsed - 30) < 0.1)
+    #expect(!session.snapshot.durationIsEstimate)
+    try await play { session.snapshot.state == .ended }
+    #expect(abs(session.snapshot.duration - 40.07) < 0.1)
+    #expect(session.snapshot.elapsed == session.snapshot.duration)
     await session.stopAndWait()
   }
   @Test @MainActor func queueReplacementCancelsPendingSourcesAndIgnoresOldCallbacks() async throws {

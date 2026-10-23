@@ -183,27 +183,41 @@ class Exporter:
         return relative
 
     def plan(self):
+        """Every download's destination. A song that needs a decision is
+        listed with its reason, as `process()` leaves it waiting, so one
+        ambiguous album never hides the rest of the plan."""
         items = []
+        needs_review = []
         for track in self.records():
-            relative = track.get("export_relative_path") or self.relative(track)
-            target = contained(self.root, relative)
-            items.append(
-                {
-                    "id": track["id"],
-                    "artist": track["artist"],
-                    "album": track["album"],
-                    "title": track["title"],
-                    "destination": relative,
-                    "exported": bool(track.get("export_relative_path")),
-                    "collision": target.exists()
-                    and not track.get("export_relative_path"),
-                }
-            )
+            item = {
+                "id": track.get("id"),
+                "artist": track.get("artist"),
+                "album": track.get("album"),
+                "title": track.get("title"),
+                "exported": bool(track.get("export_relative_path")),
+            }
+            try:
+                relative = track.get("export_relative_path") or self.relative(track)
+                target = contained(self.root, relative)
+            except (OSError, ValueError, KeyError) as exc:
+                item.update(
+                    destination=None,
+                    collision=False,
+                    error=str(exc)[:180],
+                )
+                needs_review.append(item)
+            else:
+                item.update(
+                    destination=relative,
+                    collision=target.exists() and not item["exported"],
+                )
+            items.append(item)
         return {
             "enabled": self.config().get("enabled") is True,
             "destination": "Existing artist/album folders",
             "existing_files_unchanged": True,
             "items": items,
+            "needs_review": needs_review,
             "status": self.store.read_document("library-export-status"),
         }
 
