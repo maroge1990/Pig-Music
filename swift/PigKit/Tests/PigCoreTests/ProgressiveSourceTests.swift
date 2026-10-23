@@ -399,6 +399,38 @@ private final class SlowProtocol: URLProtocol, @unchecked Sendable {
             start: expected.floatChannelData![1], count: Int(expected.frameLength))))
   }
 
+  /// A start past the real end of an estimated song (Core Audio seeks there
+  /// without failing) ends it at once at its measured length, with none of
+  /// the stray frames Core Audio decodes there.
+  @Test(.enabled(if: ffmpeg != nil), arguments: [45.0, 120.0])
+  func aStartPastTheRealEndEndsAtTheMeasuredLength(_ seconds: Double) async throws {
+    let root = try directory()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let fixture = root.appendingPathComponent("varying.mp3")
+    try AudioFixtures.headerlessMP3(at: fixture, parts: [(5, 320), (35, 32)])
+    let output = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
+    let bytes = try MeteredBytes(file: fixture, allowed: 0)
+    bytes.allow(bytes.length - 8 * 1024)
+    Task {
+      try await Task.sleep(for: .milliseconds(300))
+      bytes.allow(bytes.length)
+    }
+    let streaming = try await StreamingPCMDecoder.open(
+      PreparedAudioSource(file: fixture, byteCount: bytes.length, bytes: bytes), format: output,
+      startSeconds: seconds)
+    #expect(try await streaming.read(maxFrames: 2048) == nil)
+    #expect(streaming.lengthIsExact)
+    #expect(abs(Double(streaming.lengthFrames) / 48000 - 40.07) < 0.1)
+  }
+
+  /// Both playback modes bound a seek by the same rule.
+  @Test func anEstimatedDurationDoesNotBoundASeek() {
+    #expect(PlaybackSeek.target(20, duration: 8.5, isEstimate: true) == 20)
+    #expect(PlaybackSeek.target(20, duration: 8.5, isEstimate: false) == 8.5)
+    #expect(PlaybackSeek.target(-3, duration: 8.5, isEstimate: true) == 0)
+    #expect(PlaybackSeek.target(4, duration: 0, isEstimate: false) == 0)
+  }
+
   @Test func aSeekStartsDecodingPartWayWithoutTheWholeFile() async throws {
     let root = try directory()
     defer { try? FileManager.default.removeItem(at: root) }

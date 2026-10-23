@@ -29,6 +29,8 @@ import Foundation
     private(set) var lengthFrames: Int64
     private(set) var lengthIsExact: Bool
     private let sourceRate: Double
+    /// Where decoding began, in output frames.
+    private let startFrame: Int64
     private let queue = DispatchQueue(label: "pig.playback.decoder", qos: .userInitiated)
     private let reader: Reader
     private let context: Unmanaged<Reader>
@@ -56,6 +58,7 @@ import Foundation
       self.exactLength = exactLength
       self.delivered = delivered
       self.sourceRate = sourceRate
+      startFrame = delivered
       lengthFrames = exactLength ? expectedFrames : max(expectedFrames, delivered)
       lengthIsExact = exactLength
     }
@@ -240,11 +243,11 @@ import Foundation
         if status == .endOfStream { ended = true }
         if output.frameLength > 0 {
           delivered += Int64(output.frameLength)
-          if !exactLength { measureLength() }
+          if !exactLength, !measureLength() { return nil }
           return output
         }
         if ended {
-          if !exactLength { measureLength() }
+          if !exactLength { _ = measureLength() }
           return nil
         }
       }
@@ -253,24 +256,43 @@ import Foundation
 
     /// Brings an estimated length up to date: the decoded length at the end,
     /// Core Audio's count once every byte is here, else at least what has
-    /// been decoded.
-    private func measureLength() {
+    /// been decoded. False when decoding began past the song's real end (a
+    /// start past an estimate): Core Audio seeks there without failing and
+    /// decodes a few stray frames, so the song ends at its measured length.
+    private func measureLength() -> Bool {
+      if ended || !lengthIsExact, let measured = measuredFrames() {
+        if startFrame >= measured {
+          ended = true
+          delivered = measured
+          lengthFrames = measured
+          lengthIsExact = true
+          return false
+        }
+        if !ended {
+          lengthFrames = max(measured, delivered)
+          lengthIsExact = true
+          return true
+        }
+      }
       if ended {
         lengthFrames = delivered
         lengthIsExact = true
-        return
+      } else {
+        lengthFrames = max(lengthFrames, delivered)
       }
-      if !lengthIsExact, reader.bytes.complete {
-        var length: Int64 = 0
-        var size = UInt32(MemoryLayout<Int64>.size)
-        if ExtAudioFileGetProperty(file, kExtAudioFileProperty_FileLengthFrames, &size, &length)
+      return true
+    }
+    /// Core Audio's count of the song's frames (in output frames) once every
+    /// byte is here, when counting no longer waits; else nil.
+    private func measuredFrames() -> Int64? {
+      guard reader.bytes.complete else { return nil }
+      var length: Int64 = 0
+      var size = UInt32(MemoryLayout<Int64>.size)
+      guard
+        ExtAudioFileGetProperty(file, kExtAudioFileProperty_FileLengthFrames, &size, &length)
           == noErr, length > 0
-        {
-          lengthFrames = Int64((Double(length) * format.sampleRate / sourceRate).rounded())
-          lengthIsExact = true
-        }
-      }
-      lengthFrames = max(lengthFrames, delivered)
+      else { return nil }
+      return Int64((Double(length) * format.sampleRate / sourceRate).rounded())
     }
 
     private static func check(_ status: OSStatus, _ reader: Reader) throws {

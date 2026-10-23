@@ -14,6 +14,11 @@ import PigSync
   private(set) var preparing = false
   private(set) var elapsed: Double = 0
   private(set) var duration: Double = 0
+  /// `duration` is seamless playback's estimate for an MP3 that states no
+  /// length: not the song's end, so a seek may go past it.
+  private(set) var durationIsEstimate = false
+  /// At the song's known end (an estimate never is).
+  private var atEnd: Bool { !durationIsEstimate && duration > 0 && elapsed >= duration }
   var error: String?
   @ObservationIgnored var onListen: (@MainActor (ListeningEvent) -> Void)?
   /// Called when a new song becomes current, with the songs queued after it.
@@ -92,7 +97,7 @@ import PigSync
     guard let resolve else { return }
     let wanted = intent.wantsPlayback
     let checkpoint = PlaybackCheckpoint(
-      queue: queue, elapsed: duration > 0 && elapsed >= duration ? 0 : elapsed)
+      queue: queue, elapsed: atEnd ? 0 : elapsed)
     play(
       checkpoint.queue.items.map(\.track), startingAt: checkpoint.queue.index,
       autoplay: wanted, restored: checkpoint, artwork: artworkSource ?? { _ in nil },
@@ -336,6 +341,7 @@ import PigSync
       playing = false
       preparing = false
       duration = queue.current?.track.duration ?? 0
+      durationIsEstimate = false
       publishNowPlaying()
     } else if usingEngine {
       startEngine()
@@ -358,6 +364,7 @@ import PigSync
   private func beginDeferredAtStart() {
     elapsed = 0
     duration = queue.current?.track.duration ?? 0
+    durationIsEstimate = false
     beginDeferred(autoplay: false)
     checkpoint(force: true)
   }
@@ -415,6 +422,7 @@ import PigSync
     if let id = snapshot.occurrenceID { queue.renewOccurrence(at: snapshot.index, id: id) }
     elapsed = snapshot.elapsed
     duration = snapshot.duration
+    durationIsEstimate = snapshot.durationIsEstimate
     playing = snapshot.state == .playing
     preparing = snapshot.state == .preparing || snapshot.state == .buffering
     if snapshot.state == .failed {
@@ -454,6 +462,7 @@ import PigSync
     let start = queueStart.take(for: occurrence)
     elapsed = start
     duration = occurrence.track.duration ?? 0
+    durationIsEstimate = false
     refreshArtwork()
     publishNowPlaying()
     preparation = Task {
@@ -659,7 +668,7 @@ import PigSync
       }
       return
     }
-    if !usingEngine, duration > 0, elapsed >= duration { seek(0) }
+    if !usingEngine, atEnd { seek(0) }
     intent.play()
     guard intent.canPlay else { return }
     let start = { [self] in
@@ -702,7 +711,7 @@ import PigSync
     let artwork = artworkSource ?? { _ in nil }
     let checkpoint = PlaybackCheckpoint(
       queue: queue,
-      elapsed: fromBeginning || (duration > 0 && elapsed >= duration) ? 0 : elapsed)
+      elapsed: fromBeginning || atEnd ? 0 : elapsed)
     if streaming {
       restartingForMode = true
       seamlessEnabled = false
@@ -765,7 +774,8 @@ import PigSync
   }
   func seek(_ seconds: Double) {
     guard seconds.isFinite else { return }
-    let position = min(max(0, seconds), max(0, duration))
+    let position = PlaybackSeek.target(
+      seconds, duration: duration, isEstimate: durationIsEstimate)
     if queueStart.waiting {
       queueStart.seek(queue, to: position)
       elapsed = position
@@ -803,6 +813,7 @@ import PigSync
     preparing = false
     elapsed = 0
     duration = 0
+    durationIsEstimate = false
     error = nil
     MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     sessionActive = false

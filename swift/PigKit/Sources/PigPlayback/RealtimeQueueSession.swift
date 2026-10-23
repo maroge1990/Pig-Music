@@ -32,6 +32,16 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
   public var error: String?
 }
 
+/// Where a seek lands, in both playback modes. An exact duration bounds it;
+/// an estimate is not an endpoint, so a later position is tried and the
+/// decoder finds the song's real end (a start past it ends the song).
+public enum PlaybackSeek {
+  public static func target(_ seconds: Double, duration: Double, isEstimate: Bool) -> Double {
+    let position = max(0, seconds)
+    return isEstimate ? position : min(position, max(0, duration))
+  }
+}
+
 /// Injected output makes scheduling/lifecycle tests silent and deterministic.
 @MainActor public protocol QueueAudioOutput: AnyObject {
   var positionFrames: Int64 { get }
@@ -243,7 +253,9 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
     guard !items.isEmpty, seconds.isFinite else { return }
     refreshPosition()
     restart(
-      index: snapshot.index, seconds: min(max(0, seconds), snapshot.duration),
+      index: snapshot.index,
+      seconds: PlaybackSeek.target(
+        seconds, duration: snapshot.duration, isEstimate: snapshot.durationIsEstimate),
       autoplay: snapshot.wantsPlayback)
   }
   public func next() {
@@ -298,9 +310,13 @@ public struct QueuePlaybackSnapshot: Sendable, Equatable {
     pendingFrames = 0
     peakScheduledFrames = 0
     timeline = []
+    // Restarting the same song (a seek) keeps what is known of its length.
+    let known = snapshot.occurrenceID == items[index].id && snapshot.duration > 0
+    let estimate = known && snapshot.durationIsEstimate
+    let duration = known ? snapshot.duration : items[index].track.duration ?? 0
     snapshot = QueuePlaybackSnapshot(
-      state: .preparing, index: index,
-      occurrenceID: items[index].id, elapsed: seconds, duration: items[index].track.duration ?? 0,
+      state: .preparing, index: index, occurrenceID: items[index].id, elapsed: seconds,
+      duration: estimate ? max(duration, seconds) : duration, durationIsEstimate: estimate,
       wantsPlayback: autoplay)
     publish()
     let items = items
