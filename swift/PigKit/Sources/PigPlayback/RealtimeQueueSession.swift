@@ -381,6 +381,10 @@ public enum PlaybackSeek {
             try Task.checkCancellation()
             guard generation == stamp else { throw CancellationError() }
             guard let block = decoded else {
+              // The last song's final length, with no audio left to carry it.
+              let markers = await current.takeMarkers()
+              guard generation == stamp else { throw CancellationError() }
+              timeline.append(contentsOf: markers)
               exhausted = true
               break
             }

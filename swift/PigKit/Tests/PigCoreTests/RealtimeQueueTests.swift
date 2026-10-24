@@ -547,10 +547,11 @@ private func queueRoot() throws -> URL {
     await session.stopAndWait()
   }
   /// A seek past an estimate can also be past the real end. The song then
-  /// ends there, measured at its real length, and the next one plays: no
-  /// failure, no fallback, and no length taken from the request.
-  @Test(.enabled(if: AudioFixtures.ffmpeg != nil)) @MainActor
-  func aSeekPastTheRealEndOfAnEstimatedSongMovesOn() async throws {
+  /// ends there, measured at its real length, and the next one plays (or,
+  /// as the last song, the queue ends showing that length, no longer an
+  /// estimate): no failure, no fallback, and no length taken from the request.
+  @Test(.enabled(if: AudioFixtures.ffmpeg != nil), arguments: [false, true]) @MainActor
+  func aSeekPastTheRealEndOfAnEstimatedSongEndsItThere(last: Bool) async throws {
     let root = try queueRoot()
     defer { try? FileManager.default.removeItem(at: root) }
     let file = root.appendingPathComponent("varying.mp3")
@@ -563,7 +564,7 @@ private func queueRoot() throws -> URL {
     let varying = PlaybackOccurrence(
       track: Track(id: "varying", title: "varying", artist: "Fixture", duration: 8))
     session.replace(
-      [varying, queueTrack("b")],
+      last ? [varying] : [varying, queueTrack("b")],
       acquire: { item in
         item.track.id == "b"
           ? PreparedAudioSource(file: following, byteCount: 0)
@@ -579,7 +580,7 @@ private func queueRoot() throws -> URL {
     session.seek(120)
     #expect(session.snapshot.elapsed == 120)
     let deadline = ContinuousClock.now + .seconds(15)
-    while session.snapshot.index != 1 {
+    while last ? session.snapshot.state != .ended : session.snapshot.index != 1 {
       guard ContinuousClock.now < deadline, session.snapshot.state != .failed else {
         Issue.record("state \(session.snapshot.state) \(session.snapshot.error ?? "")")
         break
@@ -587,8 +588,15 @@ private func queueRoot() throws -> URL {
       output.consume()
       try await Task.sleep(for: .milliseconds(2))
     }
-    #expect(session.snapshot.index == 1 && session.snapshot.state != .failed)
-    #expect(session.snapshot.duration == 2)
+    if last {
+      #expect(session.snapshot.state == .ended && session.snapshot.index == 0)
+      #expect(abs(session.snapshot.duration - 40.07) < 0.1)
+      #expect(!session.snapshot.durationIsEstimate)
+      #expect(session.snapshot.elapsed == session.snapshot.duration)
+    } else {
+      #expect(session.snapshot.index == 1 && session.snapshot.state != .failed)
+      #expect(session.snapshot.duration == 2)
+    }
     await session.stopAndWait()
   }
   @Test @MainActor func queueReplacementCancelsPendingSourcesAndIgnoresOldCallbacks() async throws {

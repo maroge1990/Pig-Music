@@ -335,6 +335,12 @@ public actor QueuePCMStream {
     currentMarker = updated
     pendingMarkers.append(updated)
   }
+  /// Markers no block has carried. At the end of the queue the last song's
+  /// measured length can arrive with no audio left to travel with.
+  public func takeMarkers() -> [QueueAudioMarker] {
+    defer { pendingMarkers.removeAll() }
+    return pendingMarkers
+  }
   private func emit(_ channels: [[Float]]) -> QueuePCMBlock {
     let markers = pendingMarkers
     pendingMarkers.removeAll()
